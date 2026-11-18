@@ -1,3 +1,4 @@
+import * as T3poStore from "./t3po/Store.ts";
 import * as T3poChanges from "./t3po/Changes.ts";
 import * as ProviderEventLoggers from "@t3tools/provider-core/server/ProviderEventLoggers";
 import type { RelayManagedEndpointRuntimeConfig } from "@t3tools/contracts/relay";
@@ -725,6 +726,12 @@ const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
       yield* service.start();
     }),
   ).pipe(Layer.provide(DelegatedTaskQuestionReactor.layer), Layer.provide(ProjectionStoreV2.layer)),
+  Layer.effectDiscard(
+    Effect.gen(function* () {
+      const store = yield* T3poStore.Store;
+      yield* store.runMemoryWorker.pipe(Effect.forkScoped);
+    }),
+  ),
   ProviderUsageLimitsIngestion.layer,
   layerProviderInstallationRefresh,
   ProviderInstallation.layer,
@@ -732,6 +739,7 @@ const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
   Layer.effectDiscard(ProjectSettingsOverrideSweep.sweep),
 ).pipe(
   Layer.provideMerge(layerOrchestrationApplication),
+  Layer.provideMerge(T3poStore.layer),
   Layer.provideMerge(RuntimeLayer.layerEventInfrastructure),
   Layer.provideMerge(T3poChanges.layer),
   Layer.provideMerge(Layer.merge(ProjectStore.layer, ThreadSearch.layer)),

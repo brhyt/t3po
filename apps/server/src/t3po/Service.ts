@@ -272,4 +272,12 @@ const make = Effect.gen(function* () {
     );
   return Service.of({ snapshot, results, mutate, launch, subscribe });
 });
-export const layer = Layer.effect(Service, make).pipe(Layer.provide(Store.layer));
+export const layer = Layer.unwrap(
+  Effect.serviceOption(Store.Store).pipe(
+    Effect.map((store) =>
+      Layer.effect(Service, make).pipe(
+        Layer.provide(Option.isSome(store) ? Layer.succeed(Store.Store, store.value) : Store.layer),
+      ),
+    ),
+  ),
+);

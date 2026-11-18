@@ -1,3 +1,7 @@
+import * as TestClock from "effect/testing/TestClock";
+import * as PubSub from "effect/PubSub";
+import * as Fiber from "effect/Fiber";
+import * as Changes from "./Changes.ts";
 import * as ConfigProvider from "effect/ConfigProvider";
 import * as FetchHttpClient from "effect/http/FetchHttpClient";
 import * as FileSystem from "effect/FileSystem";
@@ -416,6 +420,7 @@ it.effect(
       ).toBe(2);
       const restarted = yield* Store.Store.pipe(Effect.provide(Layer.fresh(Store.layer)));
       online = true;
+      yield* TestClock.adjust("2 seconds");
       expect(yield* restarted.context(projectId, ThreadId.make("t3po-lead:project-a"))).toContain(
         "Remember the approved decision.",
       );
@@ -459,6 +464,172 @@ it.effect(
           ),
         ),
       ),
+      Effect.provideService(FetchHttpClient.Fetch, fetcher),
+    );
+  },
+);
+
+it.effect(
+  "delivers without lead turns, recovers after restart, and fairly bounds retries and batches",
+  () => {
+    const requests: { projectId: string; query: string; events: { id: string }[] }[] = [];
+    let mode: "offline" | "unknown" | "partial" | "online" = "offline";
+    const fetcher: typeof globalThis.fetch = async (_url, options) => {
+      const input = JSON.parse(new TextDecoder().decode(options?.body as Uint8Array));
+      requests.push(input);
+      if (mode === "offline") return new Response("offline", { status: 503 });
+      if (mode === "unknown")
+        return Response.json({
+          acceptedIds: [input.events[0].id, "foreign-id"],
+          context: "",
+          available: true,
+        });
+      return Response.json({
+        acceptedIds: input.events
+          .slice(0, mode === "partial" ? 1 : 20)
+          .map((event: { id: string }) => event.id),
+        context: "",
+        available: true,
+      });
+    };
+    return Effect.gen(function* () {
+      const store = yield* Store.Store;
+      const changes = yield* Changes.Changes;
+      const notifications = yield* PubSub.subscribe(changes);
+      yield* store.mutate({ type: "save_lead", projectId, name: "Lead", brief: "Initial" });
+      const first = yield* store.runMemoryWorker.pipe(Effect.forkScoped);
+      yield* PubSub.take(notifications);
+      expect(requests).toHaveLength(1);
+      expect((yield* store.read).memory[0]?.pending).toBe(1);
+      yield* Fiber.interrupt(first);
+      // A new Store over the same database must retain the outage cooldown.
+      const restarted = yield* Store.Store.pipe(Effect.provide(Layer.fresh(Store.layer)));
+      for (let index = 0; index < 24; index++)
+        yield* restarted.mutate({
+          type: "save_lead",
+          projectId,
+          name: "Lead",
+          brief: String(index),
+        });
+      yield* restarted.mutate({
+        type: "save_lead",
+        projectId: otherProjectId,
+        name: "Other",
+        brief: "Isolated",
+      });
+      const worker = yield* store.runMemoryWorker.pipe(Effect.forkScoped);
+      yield* PubSub.take(notifications);
+      expect(requests.at(-1)?.projectId).toBe(otherProjectId);
+      mode = "unknown";
+      yield* TestClock.adjust("2 seconds");
+      yield* PubSub.take(notifications);
+      yield* PubSub.take(notifications);
+      expect(
+        (yield* store.read).memory.find((entry) => entry.projectId === projectId)?.pending,
+      ).toBe(25);
+      mode = "partial";
+      yield* TestClock.adjust("4 seconds");
+      yield* PubSub.take(notifications);
+      yield* PubSub.take(notifications);
+      expect(
+        requests.filter((request) => request.projectId === projectId).at(-1)?.events,
+      ).toHaveLength(20);
+      expect(
+        (yield* store.read).memory.find((entry) => entry.projectId === projectId)?.pending,
+      ).toBe(24);
+      mode = "online";
+      yield* TestClock.adjust("8 seconds");
+      yield* PubSub.take(notifications);
+      expect(
+        (yield* store.read).memory.find((entry) => entry.projectId === projectId)?.pending,
+      ).toBe(4);
+      yield* TestClock.adjust("1 second");
+      yield* PubSub.take(notifications);
+      expect((yield* store.read).memory.every((entry) => entry.pending === 0)).toBe(true);
+      expect(requests.every((request) => request.query === "" && request.events.length <= 20)).toBe(
+        true,
+      );
+      yield* Fiber.interrupt(worker);
+    }).pipe(
+      Effect.scoped,
+      Effect.provide(
+        Store.layer.pipe(
+          Layer.provideMerge(database),
+          Layer.provideMerge(Changes.layer),
+          Layer.provide(
+            ConfigProvider.layer(
+              ConfigProvider.fromUnknown({
+                T3PO_MEMORY_URL: "http://memory.test",
+                T3PO_MEMORY_TOKEN: "test-token",
+              }),
+            ),
+          ),
+        ),
+      ),
+      Effect.provideService(FetchHttpClient.Fetch, fetcher),
+    );
+  },
+);
+
+it.effect(
+  "recovers persisted records in a new store and coordinates concurrent recall with delivery",
+  () => {
+    const entered = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    const requests: { events: { id: string }[]; query: string }[] = [];
+    const fetcher: typeof globalThis.fetch = async (_url, options) => {
+      const input = JSON.parse(new TextDecoder().decode(options?.body as Uint8Array));
+      requests.push(input);
+      if (requests.length === 1) {
+        entered.resolve();
+        await release.promise;
+      }
+      return Response.json({
+        acceptedIds: input.events.map((event: { id: string }) => event.id),
+        context: input.query ? "Recalled" : "",
+        available: Boolean(input.query),
+      });
+    };
+    const configured = ConfigProvider.layer(
+      ConfigProvider.fromUnknown({
+        T3PO_MEMORY_URL: "http://memory.test",
+        T3PO_MEMORY_TOKEN: "test-token",
+      }),
+    );
+    return Effect.gen(function* () {
+      yield* Effect.gen(function* () {
+        const store = yield* Store.Store;
+        yield* store.mutate({ type: "save_lead", projectId, name: "Lead", brief: "Persisted" });
+      }).pipe(Effect.provide(Layer.fresh(Store.layer)));
+      yield* Effect.gen(function* () {
+        const store = yield* Store.Store;
+        const changes = yield* Changes.Changes;
+        const notifications = yield* PubSub.subscribe(changes);
+        yield* store.runMemoryWorker.pipe(Effect.forkScoped);
+        yield* Effect.promise(() => entered.promise);
+        const recall = yield* store
+          .context(projectId, ThreadId.make("t3po-lead:project-a"), "Recall")
+          .pipe(Effect.forkScoped);
+        // The mutation must commit while the gateway request is still blocked.
+        yield* store.mutate({ type: "save_lead", projectId, name: "Lead", brief: "Newer" });
+        release.resolve();
+        yield* PubSub.take(notifications);
+        expect(yield* Fiber.join(recall)).toContain("Recalled");
+        expect(requests[0]?.events).toHaveLength(1);
+        expect(requests[1]?.events).toHaveLength(0);
+        expect((yield* store.read).memory[0]?.pending).toBe(1);
+        yield* TestClock.adjust("1 second");
+        yield* PubSub.take(notifications);
+        yield* PubSub.take(notifications);
+        expect((yield* store.read).memory[0]?.pending).toBe(0);
+        expect(requests[2]?.events[0]?.id).not.toBe(requests[0]?.events[0]?.id);
+        expect((yield* store.read).memory[0]?.available).toBe(true);
+      }).pipe(
+        Effect.scoped,
+        Effect.provide(Layer.fresh(Store.layer.pipe(Layer.provideMerge(Changes.layer)))),
+      );
+    }).pipe(
+      Effect.provide(Layer.merge(database, configured)),
       Effect.provideService(FetchHttpClient.Fetch, fetcher),
     );
   },

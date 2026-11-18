@@ -1,3 +1,7 @@
+import * as Changes from "./Changes.ts";
+import * as PubSub from "effect/PubSub";
+import * as Queue from "effect/Queue";
+import * as Semaphore from "effect/Semaphore";
 import * as MemoryBridge from "./MemoryBridge.ts";
 import {
   ProjectId,
@@ -54,6 +58,7 @@ const decodeResults = Schema.decodeEffect(Schema.Array(T3poResult));
 export class Store extends Context.Service<
   Store,
   {
+    readonly runMemoryWorker: Effect.Effect<never>;
     readonly context: (
       projectId: ProjectId,
       threadId: ThreadId,
@@ -81,6 +86,69 @@ export class Store extends Context.Service<
 const make = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   const memory = yield* MemoryBridge.MemoryBridge;
+  const changes = yield* Changes.Changes;
+  const sends = yield* Semaphore.make(1);
+  const wake = yield* Queue.make<void>({ capacity: 1, strategy: "dropping" });
+  const exchangeMemory = Effect.fn("T3poStore.exchangeMemory")(function* (
+    projectId: ProjectId,
+    query: string,
+    background = false,
+  ) {
+    const pending =
+      yield* sql<MemoryBridge.MemoryEvent>`SELECT event_id AS id, kind, text, occurred_at AS occurredAt FROM t3po_memory_events WHERE project_id = ${projectId} AND synced_at IS NULL ORDER BY sequence LIMIT 20`;
+    const status = yield* sql<{
+      failures: number;
+      nextAttempt: number;
+    }>`SELECT failures, next_attempt AS nextAttempt FROM t3po_memory_status WHERE project_id = ${projectId}`;
+    const started = DateTime.toEpochMillis(yield* DateTime.now);
+    const eligible = (status[0]?.nextAttempt ?? 0) <= started;
+    if (background && (!pending.length || !eligible)) return null;
+    const sent = eligible ? pending : [];
+    const result = yield* memory.exchange({ projectId, query, events: sent });
+    const ids = new Set(sent.map((event) => event.id));
+    const accepted = [...new Set(result.acceptedIds.filter((id) => ids.has(id)))];
+    const now = yield* DateTime.now;
+    const stamp = DateTime.formatIso(now);
+    const complete = sent.length > 0 && accepted.length === sent.length;
+    const failures = complete ? 0 : Math.min(7, (status[0]?.failures ?? 0) + 1);
+    const nextAttempt =
+      DateTime.toEpochMillis(now) + (complete ? 1000 : Math.min(60000, 1000 * 2 ** failures));
+    yield* sql.withTransaction(
+      Effect.gen(function* () {
+        if (accepted.length)
+          yield* sql`UPDATE t3po_memory_events SET synced_at = ${stamp} WHERE project_id = ${projectId} AND synced_at IS NULL AND event_id IN ${sql.in(accepted)}`;
+        yield* sql`INSERT INTO t3po_memory_status (project_id, last_sync_at, available, failures, next_attempt) VALUES (${projectId}, ${stamp}, ${result.available ? 1 : 0}, ${failures}, ${nextAttempt}) ON CONFLICT(project_id) DO UPDATE SET last_sync_at = excluded.last_sync_at, available = CASE WHEN ${background ? 1 : 0} THEN t3po_memory_status.available ELSE excluded.available END, failures = ${sent.length ? failures : (status[0]?.failures ?? 0)}, next_attempt = ${sent.length ? nextAttempt : (status[0]?.nextAttempt ?? 0)}`;
+      }),
+    );
+    yield* PubSub.publish(changes, { projectId, metadata: true });
+    yield* Queue.offer(wake, undefined);
+    return result;
+  }, sends.withPermit);
+  const memoryStep = Effect.fn("T3poStore.memoryStep")(function* () {
+    const rows = yield* sql<{
+      projectId: string;
+      nextAttempt: number;
+    }>`SELECT e.project_id AS projectId, COALESCE(s.next_attempt, 0) AS nextAttempt FROM t3po_memory_events e LEFT JOIN t3po_memory_status s ON s.project_id = e.project_id WHERE e.synced_at IS NULL GROUP BY e.project_id ORDER BY nextAttempt, e.project_id LIMIT 1`;
+    const row = rows[0];
+    if (!row) {
+      yield* Queue.take(wake);
+      return;
+    }
+    const delay = row.nextAttempt - DateTime.toEpochMillis(yield* DateTime.now);
+    if (delay > 0) {
+      yield* Queue.take(wake).pipe(
+        Effect.timeoutOrElse({ duration: delay, orElse: () => Effect.void }),
+      );
+      return;
+    }
+    yield* exchangeMemory(ProjectId.make(row.projectId), "", true);
+  });
+  const runMemoryWorker = memory.configured
+    ? memoryStep().pipe(
+        Effect.catch(() => Effect.sleep("5 seconds")),
+        Effect.forever,
+      )
+    : Effect.never;
   const enqueueMemory = Effect.fn("T3poStore.enqueueMemory")(function* (
     projectId: ProjectId,
     kind: MemoryBridge.MemoryEvent["kind"],
@@ -347,6 +415,7 @@ const make = Effect.gen(function* () {
       }
     },
     sql.withTransaction,
+    Effect.tap(() => Queue.offer(wake, undefined)),
     Effect.mapError((cause) =>
       isT3poError(cause) ? cause : new T3poError({ operation: "save", cause }),
     ),
@@ -408,21 +477,8 @@ const make = Effect.gen(function* () {
       let recall = "";
       let memoryAvailable = false;
       if (threadId === lead.threadId && memory.configured) {
-        const pending = yield* sql<{
-          id: string;
-          kind: MemoryBridge.MemoryEvent["kind"];
-          text: string;
-          occurredAt: string;
-        }>`SELECT event_id AS id, kind, text, occurred_at AS occurredAt FROM t3po_memory_events WHERE project_id = ${projectId} AND synced_at IS NULL ORDER BY sequence LIMIT 20`;
-        const recalled = yield* memory.exchange({
-          projectId,
-          query: (query || lead.brief).slice(0, 2000),
-          events: pending,
-        });
-        const now = DateTime.formatIso(yield* DateTime.now);
-        if (recalled.acceptedIds.length > 0)
-          yield* sql`UPDATE t3po_memory_events SET synced_at = ${now} WHERE project_id = ${projectId} AND event_id IN ${sql.in(recalled.acceptedIds)}`;
-        yield* sql`INSERT INTO t3po_memory_status (project_id, last_sync_at, available) VALUES (${projectId}, ${now}, ${recalled.available ? 1 : 0}) ON CONFLICT(project_id) DO UPDATE SET last_sync_at = excluded.last_sync_at, available = excluded.available`;
+        const recalled = yield* exchangeMemory(projectId, (query || lead.brief).slice(0, 2000));
+        if (!recalled) return "";
         recall = recalled.context;
         memoryAvailable = recalled.available;
       }
@@ -452,6 +508,7 @@ const make = Effect.gen(function* () {
     Effect.mapError((cause) => new T3poError({ operation: "read", cause })),
   );
   return Store.of({
+    runMemoryWorker,
     controlMemory: memory.control,
     read,
     list,
@@ -463,4 +520,6 @@ const make = Effect.gen(function* () {
     context,
   });
 });
-export const layer = Layer.effect(Store, make).pipe(Layer.provide(MemoryBridge.layer));
+export const layer = Layer.effect(Store, make).pipe(
+  Layer.provide(Layer.merge(MemoryBridge.layer, Changes.layer)),
+);
