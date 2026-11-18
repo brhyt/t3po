@@ -69,6 +69,21 @@ const setup = Effect.gen(function* () {
 });
 
 describe("command permissions", () => {
+  it.effect("gates T3PO mutations on the destination environment", () =>
+    Effect.gen(function* () {
+      const registry = yield* setup;
+      registry.set(sessions(env), AsyncResult.success(grant(true)));
+      registry.set(sessions(other), AsyncResult.success(grant(false)));
+      for (const tag of [WS_METHODS.t3poMutate, WS_METHODS.t3poLaunch]) {
+        const permission = createCommandPermissions(runtime, tag);
+        yield* permission.authorize(registry, env);
+        expect(registry.get(permission.permissionAtom(other))).toBe(false);
+        expect((yield* permission.authorize(registry, other).pipe(Effect.flip))._tag).toBe(
+          "EnvironmentAuthorizationError",
+        );
+      }
+    }),
+  );
   it.effect("requires the destination read grant to refresh providers", () =>
     Effect.gen(function* () {
       const registry = yield* setup;

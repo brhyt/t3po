@@ -1,3 +1,4 @@
+import * as T3poStore from "../t3po/Store.ts";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it, vi } from "vite-plus/test";
@@ -157,6 +158,7 @@ function startWithMissingWorktree(
   const createWorktree = vi.fn(() => Effect.succeed({} as never));
   const listLocalBranchNames = vi.fn(() => Effect.succeed(["feature/restore"]));
   const layer = ProviderTurnStart.layer.pipe(
+    Layer.provide(Layer.mock(T3poStore.Store)({ context: () => Effect.succeed("") })),
     Layer.provide(
       Layer.mergeAll(
         Layer.mock(ContextHandoffService.ContextHandoffServiceV2)({}),
@@ -1288,6 +1290,7 @@ function makeLocalCommandHarness(input: {
     ),
   );
   const layer = ProviderTurnStart.layer.pipe(
+    Layer.provide(Layer.mock(T3poStore.Store)({ context: () => Effect.succeed("") })),
     Layer.provide(
       Layer.mergeAll(
         Layer.mock(ContextHandoffService.ContextHandoffServiceV2)({

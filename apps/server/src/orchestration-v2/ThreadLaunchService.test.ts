@@ -1,3 +1,8 @@
+import * as T3poEventSink from "./EventSink.ts";
+import * as Fiber from "effect/Fiber";
+import * as T3poApplicationEvents from "../persistence/OrchestrationEventStore.ts";
+import * as T3poChanges from "../t3po/Changes.ts";
+import * as T3poService from "../t3po/Service.ts";
 import * as DocumentText from "../provider/DocumentText.ts";
 import * as Scheduler from "../scheduling/Scheduler.ts";
 import * as WorktreeSetupTracker from "../project/WorktreeSetupTracker.ts";
@@ -9,10 +14,15 @@ import * as FileSystem from "effect/FileSystem";
 import * as ServerConfig from "../config.ts";
 import { createPendingAttachmentId, resolveAttachmentPath } from "../attachmentStore.ts";
 import * as ThreadMessageIntake from "./ThreadMessageIntake.ts";
-import { assert, it, vi } from "@effect/vitest";
+import { assert, expect, it, vi } from "@effect/vitest";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import {
   ChatAttachmentId,
+  EventId,
+  TurnItemId,
+  RuntimeRequestId,
+  ProviderSessionId,
+  RunId,
   ComposerContextId,
   type ChatAttachment,
   CommandId,
@@ -210,7 +220,7 @@ function makeHarness(options: HarnessOptions = {}) {
       workspaceScanDirectory: () => Effect.die("unused"),
       snapshot: Effect.die("unused"),
       getShell: () => Effect.die("unused"),
-      listShells: () => Effect.die("unused"),
+      listShells: () => Effect.succeed([project, otherProject]),
     }),
     Layer.mock(GitWorkflow.GitWorkflowService)({
       repositoryRoot: () => Effect.succeed(project.workspaceRoot),
@@ -299,6 +309,7 @@ function makeHarness(options: HarnessOptions = {}) {
   );
   return {
     layer: Layer.mergeAll(
+      layerOrchestrator,
       layerLaunch,
       layerRegistry,
       layerThreadManagement,
@@ -3377,4 +3388,305 @@ it.effect("replays an accepted send after the project disables the instance", ()
       assert.fail(`expected ThreadManagementProviderInstanceDisabledError, got ${fresh._tag}`);
     }
   }).pipe(Effect.provide(Layer.mergeAll(harness.layer, layerFiles)));
+});
+
+it.effect(
+  "keeps T3PO lead identity and task launches stable across retries and service reconstruction",
+  () => {
+    const harness = makeHarness({
+      createWorktree: (input) =>
+        Effect.succeed({
+          worktree: {
+            path: `/repo-worktrees/${input.newRefName}`,
+            refName: input.newRefName ?? input.refName,
+            headSha: "abc",
+          },
+        }),
+    });
+    const support = Layer.mergeAll(
+      harness.layer,
+      T3poChanges.layer,
+      T3poApplicationEvents.layer.pipe(Layer.provide(harness.layer)),
+    );
+    const projectWork = T3poService.layer.pipe(Layer.provide(support));
+    return Effect.gen(function* () {
+      const service = yield* T3poService.Service;
+      yield* service.mutate({
+        type: "save_lead",
+        projectId,
+        name: "Project lead",
+        brief: "Deliver tested changes.",
+      });
+      const lead = yield* service.launch({
+        projectId,
+        modelSelection,
+        runtimeMode: "approval-required",
+      });
+      yield* service.mutate({
+        type: "create_task",
+        projectId,
+        id: "durable-task",
+        workspace: { type: "worktree" },
+        channelId: null,
+        title: "Investigate",
+        brief: "Find the cause and report it.",
+      });
+      const launch = {
+        projectId,
+        taskId: "durable-task",
+        modelSelection,
+        runtimeMode: "approval-required" as const,
+      };
+      const first = yield* service.launch(launch);
+      yield* preparationSettled(first.threadId);
+      yield* service.mutate({
+        type: "edit_task",
+        projectId,
+        id: "durable-task",
+        title: "Updated title",
+        brief: "Clarified follow-up",
+        channelId: null,
+      });
+      const retried = yield* service.launch(launch);
+      expect(retried).toEqual(first);
+      const reconstructed = yield* T3poService.Service.pipe(
+        Effect.provide(Layer.fresh(T3poService.layer)),
+      );
+      expect(yield* reconstructed.launch(launch)).toEqual(first);
+      const snapshot = yield* reconstructed.snapshot({});
+      expect(snapshot.leads[0]?.threadId).toBe(lead.threadId);
+      expect(snapshot.tasks).toHaveLength(1);
+      expect(snapshot.tasks[0]?.executionExists).toBe(true);
+      expect(snapshot.tasks[0]?.status).toBe("active");
+      expect(snapshot.tasks[0]?.workspacePath).toMatch(/^\/repo-worktrees\//);
+      expect(snapshot.tasks[0]?.workspaceLocked).toBe(true);
+      expect(harness.createWorktree).toHaveBeenCalledTimes(1);
+      expect(
+        (yield* service
+          .mutate({ type: "archive_task", projectId, id: "durable-task", archived: true })
+          .pipe(Effect.flip)).operation,
+      ).toBe("busy");
+      expect(
+        (yield* service
+          .mutate({
+            type: "edit_task",
+            projectId,
+            id: "durable-task",
+            title: "Changed",
+            brief: "Changed",
+            channelId: null,
+            workspace: { type: "root" },
+          })
+          .pipe(Effect.flip)).operation,
+      ).toBe("invalid");
+      expect(
+        (yield* reconstructed
+          .mutate({ type: "review_task", projectId, id: "durable-task", completed: true })
+          .pipe(Effect.flip)).operation,
+      ).toBe("invalid");
+      const threads = yield* ThreadManagement.ThreadManagementService;
+      const projection = yield* threads.getThreadProjection(first.threadId);
+      expect(projection.runs).toHaveLength(1);
+      expect(projection.thread.runtimeMode).toBe("approval-required");
+      const sink = yield* T3poEventSink.EventSinkV2;
+      const run = projection.runs[0]!;
+      const now = yield* DateTime.now;
+      const request = {
+        id: RuntimeRequestId.make("task-approval"),
+        nodeId: run.rootNodeId!,
+        providerTurnId: null,
+        nativeRequestRef: null,
+        kind: "command" as const,
+        status: "pending" as const,
+        responseCapability: {
+          type: "live" as const,
+          providerSessionId: ProviderSessionId.make("test-session"),
+        },
+        createdAt: now,
+        resolvedAt: null,
+      };
+      yield* sink.write({
+        events: [
+          {
+            id: EventId.make("task-approval"),
+            type: "runtime-request.updated",
+            threadId: first.threadId,
+            occurredAt: now,
+            payload: request,
+          },
+        ],
+      });
+      expect((yield* service.snapshot({})).tasks[0]?.status).toBe("needs_you");
+      yield* sink.write({
+        events: [
+          {
+            id: EventId.make("task-approved"),
+            type: "runtime-request.updated",
+            threadId: first.threadId,
+            occurredAt: now,
+            payload: { ...request, status: "resolved", resolvedAt: now },
+          },
+          {
+            id: EventId.make("task-completed"),
+            type: "run.updated",
+            threadId: first.threadId,
+            occurredAt: now,
+            payload: { ...run, status: "completed", completedAt: now },
+          },
+          {
+            id: EventId.make("task-result"),
+            type: "turn-item.updated",
+            threadId: first.threadId,
+            occurredAt: now,
+            payload: {
+              id: TurnItemId.make("task-result"),
+              threadId: first.threadId,
+              runId: run.id,
+              nodeId: null,
+              providerThreadId: null,
+              providerTurnId: null,
+              nativeItemRef: null,
+              parentItemId: null,
+              ordinal: 100,
+              status: "completed",
+              title: null,
+              startedAt: now,
+              completedAt: now,
+              updatedAt: now,
+              type: "assistant_message",
+              phase: "final_answer",
+              messageId: MessageId.make("task-answer"),
+              text: "Completed report: [report](/repo/report.md)",
+              streaming: false,
+            },
+          },
+        ],
+      });
+      expect(yield* Stream.runHead(service.subscribe({ projectId }))).toEqual(Option.some(0));
+      const finished = (yield* service.snapshot({})).tasks[0]!;
+      expect(finished.status).toBe("ready_for_review");
+      expect(finished.latestResult?.text).toContain("Completed report");
+      yield* service.mutate({
+        type: "review_task",
+        projectId,
+        id: "durable-task",
+        completed: true,
+      });
+      expect((yield* service.snapshot({ view: "completed" })).tasks[0]?.status).toBe("completed");
+      yield* service.mutate({
+        type: "review_task",
+        projectId,
+        id: "durable-task",
+        completed: false,
+      });
+      expect((yield* service.snapshot({})).tasks[0]?.status).toBe("ready_for_review");
+      yield* service.mutate({
+        type: "archive_task",
+        projectId,
+        id: "durable-task",
+        archived: true,
+      });
+      expect((yield* service.snapshot({ view: "archived" })).tasks[0]?.latestResult).toEqual(
+        finished.latestResult,
+      );
+      yield* service.mutate({
+        type: "archive_task",
+        projectId,
+        id: "durable-task",
+        archived: false,
+      });
+      yield* service.mutate({
+        type: "archive_task",
+        projectId,
+        id: "durable-task",
+        archived: true,
+      });
+      const resumed = {
+        ...run,
+        id: RunId.make("revision-run"),
+        ordinal: run.ordinal + 1,
+        status: "running" as const,
+        completedAt: null,
+      };
+      yield* sink.write({
+        events: [
+          {
+            id: EventId.make("revision-created"),
+            type: "run.created",
+            threadId: first.threadId,
+            occurredAt: now,
+            payload: resumed,
+          },
+        ],
+      });
+      expect((yield* service.snapshot({})).tasks[0]?.latestResult).toEqual(finished.latestResult);
+      expect(
+        (yield* service
+          .mutate({ type: "archive_task", projectId, id: "durable-task", archived: true })
+          .pipe(Effect.flip)).operation,
+      ).toBe("busy");
+      expect(
+        (yield* reconstructed.results({ projectId, taskId: "durable-task" })).results[0],
+      ).toEqual(finished.latestResult);
+      yield* service.mutate({
+        type: "create_task",
+        projectId,
+        id: "second-worker",
+        title: "Independent work",
+        brief: "Review another module",
+        channelId: null,
+        workspace: { type: "worktree" },
+      });
+      const second = yield* service.launch({ ...launch, taskId: "second-worker" });
+      yield* preparationSettled(second.threadId);
+      const board = yield* service.snapshot({});
+      const locations = board.tasks.map((task) => task.workspacePath);
+      expect(locations).toHaveLength(2);
+      expect(new Set(locations).size).toBe(2);
+      expect(harness.createWorktree).toHaveBeenCalledTimes(2);
+    }).pipe(Effect.provide(Layer.merge(projectWork, support)));
+  },
+);
+
+it.effect("pushes T3PO changes to other clients and refreshes after reconnect", () => {
+  const harness = makeHarness();
+  const support = Layer.mergeAll(
+    harness.layer,
+    T3poChanges.layer,
+    T3poApplicationEvents.layer.pipe(Layer.provide(harness.layer)),
+  );
+  return Effect.gen(function* () {
+    const service = yield* T3poService.Service;
+    const otherClient = yield* T3poService.Service.pipe(
+      Effect.provide(Layer.fresh(T3poService.layer)),
+    );
+    const ready = yield* Deferred.make<void>();
+    const received = yield* service.subscribe({ projectId, metadataOnly: true }).pipe(
+      Stream.tap((revision) => (revision === 0 ? Deferred.succeed(ready, undefined) : Effect.void)),
+      Stream.take(2),
+      Stream.runCollect,
+      Effect.forkChild({ startImmediately: true }),
+    );
+    yield* Deferred.await(ready);
+    yield* otherClient.mutate({
+      type: "create_channel",
+      projectId,
+      id: "shared-channel",
+      name: "Shared",
+    });
+    yield* TestClock.adjust("200 millis");
+    expect(yield* Fiber.join(received)).toEqual([0, 1]);
+    yield* otherClient.mutate({
+      type: "edit_channel",
+      projectId,
+      id: "shared-channel",
+      name: "Renamed offline",
+    });
+    expect(yield* Stream.runHead(service.subscribe({ projectId, metadataOnly: true }))).toEqual(
+      Option.some(0),
+    );
+    expect((yield* service.snapshot({ projectId, metadataOnly: true })).channels[0]?.name).toBe(
+      "Renamed offline",
+    );
+  }).pipe(Effect.provide(T3poService.layer.pipe(Layer.provideMerge(support))));
 });

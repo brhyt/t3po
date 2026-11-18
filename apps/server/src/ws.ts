@@ -1,3 +1,5 @@
+import { T3poError, isT3poError } from "@t3tools/contracts";
+import * as T3poService from "./t3po/Service.ts";
 import { OrchestrationDispatchCommandError } from "@t3tools/contracts";
 // @effect-diagnostics-next-line nodeBuiltinImport:off -- A synchronous digest inside the pure provider mapping.
 import * as NodeCrypto from "node:crypto";
@@ -1477,6 +1479,7 @@ export const layerWsRpc = (
         ).pipe(Effect.ignore);
       };
       const threadLaunch = yield* ThreadLaunchService.ThreadLaunchService;
+      const t3po = yield* T3poService.Service.pipe(Effect.provide(T3poService.layer));
       const commandOutputHub = yield* CommandOutputHub.CommandOutputHub;
       const providerSessionManager = yield* ProviderSessionManager.ProviderSessionManagerV2;
       const scheduledTasks = yield* ScheduledTasks.ScheduledTaskService;
@@ -3023,6 +3026,18 @@ export const layerWsRpc = (
                 }),
             ),
           ),
+        [WS_METHODS.t3poResults]: (input) => t3po.results(input),
+        [WS_METHODS.t3poSnapshot]: (input) => t3po.snapshot(input),
+        [WS_METHODS.t3poSubscribe]: (input) => t3po.subscribe(input),
+        [WS_METHODS.t3poMutate]: (input) => t3po.mutate(input),
+        [WS_METHODS.t3poLaunch]: (input) =>
+          startup
+            .enqueueCommand(t3po.launch(input))
+            .pipe(
+              Effect.mapError((cause) =>
+                isT3poError(cause) ? cause : new T3poError({ operation: "launch", cause }),
+              ),
+            ),
         [WS_METHODS.projectsMutate]: (mutation) =>
           startup.enqueueCommand(mutateProject(mutation)).pipe(
             Effect.mapError(

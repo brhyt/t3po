@@ -259,6 +259,7 @@ interface ChatMarkdownProps {
   imageBaseDir?: string | undefined;
   workspaceMutationId?: string | null | undefined;
   onImageExpand?: ((preview: ExpandedImagePreview) => void) | undefined;
+  onOpenFileInPanel?: ((path: string, line?: number) => void) | undefined;
   /** Keep one list per configuration (a module constant): it keys the shared parse cache. */
   extraRemarkPlugins?: NonNullable<ReactMarkdownOptions["remarkPlugins"]>;
   renderContextReference?: ((reference: ChatMarkdownContextReference) => ReactNode) | undefined;
@@ -530,11 +531,16 @@ function useChatMarkdownState({
   imageBaseDir,
   workspaceMutationId,
   onImageExpand,
+  onOpenFileInPanel,
   renderContextReference,
   headingLevelOffset = 0,
   sourceControlMedia = false,
   sourceControlMediaRepository,
 }: ChatMarkdownProps) {
+  const openPanelFile = (path: string, line?: number) => {
+    if (onOpenFileInPanel) onOpenFileInPanel(path, line);
+    else if (threadRef) useRightPanelStore.getState().openFile(threadRef, path, line);
+  };
   const gt = useGT();
   const messages = useMessages();
   const resolvedTheme = useRenderedAppearance();
@@ -610,9 +616,7 @@ function useChatMarkdownState({
       httpBaseUrl:
         environmentId === null ? undefined : readPreparedConnection(environmentId)?.httpBaseUrl,
       createAssetUrl,
-      onOpenFile: threadRef
-        ? (path) => useRightPanelStore.getState().openFile(threadRef, path)
-        : undefined,
+      onOpenFile: threadRef ? (path) => openPanelFile(path) : undefined,
     }).then(
       (preview) => {
         if (preview && mediaRequestId.current === requestId) {
@@ -879,8 +883,7 @@ function useChatMarkdownState({
     if (!threadRef) return;
     // Every open supersedes pending lookups, including synchronous opens.
     const isLatestLookup = claimWorkspaceBasenameLookup();
-    const openAt = (path: string) =>
-      useRightPanelStore.getState().openFile(threadRef, path, fileLinkMeta.line);
+    const openAt = (path: string) => openPanelFile(path, fileLinkMeta.line);
     if (
       fileLinkMeta.workspaceLookupPath === null ||
       !cwd ||

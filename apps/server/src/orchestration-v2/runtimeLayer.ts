@@ -1,3 +1,4 @@
+import * as T3poStore from "../t3po/Store.ts";
 import * as WorktreeBranchSync from "./WorktreeBranchSync.ts";
 import * as GuestShareService from "../guest/GuestShareService.ts";
 import * as UsageLimitRecoveryWorker from "./UsageLimitRecoveryWorker.ts";
@@ -167,6 +168,7 @@ const layerRunExecutionServiceProvided = RunExecutionService.layer.pipe(
 );
 
 const layerProviderTurnStartServiceProvided = ProviderTurnStartService.layer.pipe(
+  Layer.provide(T3poStore.layer),
   Layer.provide(
     Layer.mergeAll(
       layerContextHandoffServiceProvided,

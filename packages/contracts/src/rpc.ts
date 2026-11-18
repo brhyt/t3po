@@ -1,4 +1,14 @@
 import {
+  T3poSnapshot,
+  T3poResultsQuery,
+  T3poResultsPage,
+  T3poQuery,
+  T3poMutation,
+  T3poLaunchInput,
+  T3poLaunchResult,
+  T3poError,
+} from "./t3po.ts";
+import {
   OrchestrationV2SearchThreadError,
   OrchestrationV2SearchThreadInput,
   OrchestrationV2SearchThreadResult,
@@ -446,6 +456,11 @@ export const WS_METHODS = {
   projectsSearchEntries: "projects.searchEntries",
   projectsWriteFile: "projects.writeFile",
   projectsMutate: "projects.mutate",
+  t3poResults: "t3po.results",
+  t3poSnapshot: "t3po.snapshot",
+  t3poSubscribe: "t3po.subscribe",
+  t3poMutate: "t3po.mutate",
+  t3poLaunch: "t3po.launch",
   projectsEnsureScratch: "projects.ensureScratch",
   projectsCreateNew: "projects.createNew",
   projectsCreateFromThread: "projects.createFromThread",
@@ -1543,6 +1558,33 @@ const WsProjectsWriteFileRpc = Rpc.make(WS_METHODS.projectsWriteFile, {
   error: Schema.Union([ProjectWriteFileError, EnvironmentAuthorizationError]),
 });
 
+const WsT3poSubscribeRpc = Rpc.make(WS_METHODS.t3poSubscribe, {
+  payload: T3poQuery,
+  success: Schema.Number,
+  stream: true,
+  error: Schema.Union([T3poError, EnvironmentAuthorizationError]),
+});
+const WsT3poResultsRpc = Rpc.make(WS_METHODS.t3poResults, {
+  payload: T3poResultsQuery,
+  success: T3poResultsPage,
+  error: Schema.Union([T3poError, EnvironmentAuthorizationError]),
+});
+const WsT3poSnapshotRpc = Rpc.make(WS_METHODS.t3poSnapshot, {
+  payload: T3poQuery,
+  success: T3poSnapshot,
+  error: Schema.Union([T3poError, EnvironmentAuthorizationError]),
+});
+const WsT3poMutateRpc = Rpc.make(WS_METHODS.t3poMutate, {
+  payload: T3poMutation,
+  success: Schema.Void,
+  error: Schema.Union([T3poError, EnvironmentAuthorizationError]),
+});
+const WsT3poLaunchRpc = Rpc.make(WS_METHODS.t3poLaunch, {
+  payload: T3poLaunchInput,
+  success: T3poLaunchResult,
+  error: Schema.Union([T3poError, EnvironmentAuthorizationError]),
+});
+
 const WsProjectsMutateRpc = Rpc.make(WS_METHODS.projectsMutate, {
   payload: ProjectMutation,
   success: Project,
@@ -2390,6 +2432,11 @@ export const WsRpcGroup = RpcGroup.make(
   WsProjectsCreateFromThreadRpc,
   WsProjectsWriteFileRpc,
   WsProjectsMutateRpc,
+  WsT3poSnapshotRpc,
+  WsT3poResultsRpc,
+  WsT3poSubscribeRpc,
+  WsT3poMutateRpc,
+  WsT3poLaunchRpc,
   WsShellOpenInEditorRpc,
   WsFilesystemBrowseRpc,
   WsFilesystemGetMetadataRpc,

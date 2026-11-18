@@ -351,6 +351,10 @@
       "types": "./src/state/shell.ts",
       "default": "./src/state/shell.ts"
     },
+    "./state/t3po": {
+      "types": "./src/state/t3po.ts",
+      "default": "./src/state/t3po.ts"
+    },
     "./state/issue-trackers": {
       "types": "./src/state/issueTrackers.ts",
       "default": "./src/state/issueTrackers.ts"

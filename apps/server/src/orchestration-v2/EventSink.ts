@@ -1,3 +1,4 @@
+import { recordDelegation } from "../t3po/Delegation.ts";
 import {
   CommandId,
   type OrchestrationV2Run,
@@ -412,9 +413,22 @@ const layerBase: Layer.Layer<
     const applyStoredEvents =
       /* This helper runs for individual orchestration events; the enclosing operation owns the span. */
       Effect.fnUntraced(function* (storedEvents: ReadonlyArray<OrchestrationV2StoredEvent>) {
-        yield* Effect.forEach(storedEvents, (stored) => projectionStore.apply(stored.event), {
-          concurrency: 1,
-        });
+        yield* Effect.forEach(
+          storedEvents,
+          (stored) =>
+            projectionStore
+              .apply(stored.event)
+              .pipe(
+                Effect.andThen(
+                  recordDelegation(stored.event).pipe(
+                    Effect.provideService(SqlClient.SqlClient, sql),
+                  ),
+                ),
+              ),
+          {
+            concurrency: 1,
+          },
+        );
         const sequence = storedEvents.at(-1)?.sequence;
         if (sequence !== undefined) {
           const now = DateTime.formatIso(yield* DateTime.now);
