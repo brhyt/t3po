@@ -1,5 +1,12 @@
+import { useEnvironmentScope } from "../../state/session";
+import { AuthOrchestrationOperateScope } from "@t3tools/contracts";
+import { projectEnvironment } from "../../state/projects";
+import { useOrchestrationCommand } from "../../state/use-orchestration-command";
+import { useLocalStorage } from "../../hooks/useLocalStorage";
+import * as Schema from "effect/Schema";
+import { Menu, MenuTrigger, MenuPopup, MenuItem } from "../ui/menu";
 import { useRoName } from "./useRoName";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useAtomValue } from "@effect/atom-react";
 import type { EnvironmentId, ProjectId, T3poChannel } from "@t3tools/contracts";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
@@ -11,12 +18,14 @@ import { Input } from "../ui/input";
 import { Link, useLocation, useNavigate, useParams } from "@tanstack/react-router";
 import { T, useGT, useMessages } from "gt-react";
 import {
+  ChevronDownIcon,
+  ChevronRightIcon,
+  MoreHorizontalIcon,
   MonitorIcon,
   PlusIcon,
   SettingsIcon,
   FolderIcon,
   HashIcon,
-  PencilIcon,
   ArchiveIcon,
   RotateCcwIcon,
 } from "lucide-react";
@@ -62,21 +71,35 @@ export function ProjectSidebar() {
         </div>
       </div>
       <div className="my-3 flex items-center gap-1 px-(--sidebar-content-inset)">
-        <SidebarMenuButton
-          render={<Link to="/" search={{}} />}
-          onClick={() => setOpenMobile(false)}
-          isActive={!activeSearch.project}
-        >
-          <span className="text-base font-semibold">{roName}</span>
-        </SidebarMenuButton>
-        <Button
-          size="icon"
-          variant="ghost"
-          aria-label={gt("Rename Ro")}
-          onClick={() => setRenamingRo(!renamingRo)}
-        >
-          <PencilIcon className="size-3" />
-        </Button>
+        {renamingRo ? (
+          <InlineName
+            name={roName}
+            label={gt("Agent name")}
+            maxLength={80}
+            onSave={async (name) => {
+              setRoName(name);
+            }}
+            onClose={() => setRenamingRo(false)}
+          />
+        ) : (
+          <SidebarMenuButton
+            render={<Link to="/" search={{}} />}
+            onClick={() => setOpenMobile(false)}
+            onDoubleClick={(event) => {
+              event.preventDefault();
+              setRenamingRo(true);
+            }}
+            onKeyDown={(event) => {
+              if (event.key === "F2") {
+                event.preventDefault();
+                setRenamingRo(true);
+              }
+            }}
+            isActive={!activeSearch.project}
+          >
+            <span className="text-base font-semibold">{roName}</span>
+          </SidebarMenuButton>
+        )}
         <Button
           size="icon"
           variant="ghost"
@@ -86,35 +109,6 @@ export function ProjectSidebar() {
           <PlusIcon className="size-4" />
         </Button>
       </div>
-      {renamingRo ? (
-        <form
-          className="mb-3 px-3"
-          onSubmit={(event) => {
-            event.preventDefault();
-            const value = new FormData(event.currentTarget).get("name");
-            if (typeof value === "string" && value.trim()) {
-              setRoName(value.trim());
-              setRenamingRo(false);
-            }
-          }}
-        >
-          <Input
-            name="name"
-            aria-label={gt("Agent name")}
-            defaultValue={roName}
-            maxLength={80}
-            autoFocus
-          />
-          <div className="mt-1 flex gap-1">
-            <Button type="submit" size="sm">
-              <T>Save</T>
-            </Button>
-            <Button type="button" size="sm" variant="ghost" onClick={() => setRenamingRo(false)}>
-              <T>Cancel</T>
-            </Button>
-          </div>
-        </form>
-      ) : null}
       <div className="min-h-0 flex-1 space-y-1 overflow-y-auto px-(--sidebar-content-inset)">
         {projects.map((project) => (
           <ProjectChannels
@@ -176,6 +170,20 @@ function ProjectChannels({
   const mutate = useAtomCommand(t3po.mutate);
   const gt = useGT();
   const navigate = useNavigate();
+  const [collapsed, setCollapsed] = useLocalStorage(
+    `t3po.project-collapsed:${environmentId}:${projectId}`,
+    false,
+    Schema.Boolean,
+  );
+  const [renamingProject, setRenamingProject] = useState(false);
+  const updateProject = useOrchestrationCommand(projectEnvironment.update, {
+    label: "update project",
+  });
+  const canUpdateProject = useEnvironmentScope(environmentId, AuthOrchestrationOperateScope);
+  async function updateProjectDetails(input: { title?: string; archived?: boolean }) {
+    const result = await updateProject({ environmentId, input: { projectId, ...input } });
+    if (result._tag !== "Success") throw squashAtomCommandFailure(result);
+  }
   async function archive(channel: typeof T3poChannel.Type) {
     setBusy(true);
     setError(null);
@@ -209,55 +217,135 @@ function ProjectChannels({
     : search.channel;
   return (
     <section aria-label={title}>
-      <SidebarMenuButton
-        render={<Link to="/" search={{ project: projectId, machine: environmentId }} />}
-        onClick={() => setOpenMobile(false)}
-        size="lg"
-        isActive={
-          selected &&
-          !activeChannelId &&
-          (!currentThreadId || currentThreadId.startsWith("t3po-lead:"))
-        }
-      >
-        <SidebarLabel
-          label={title}
-          timestamp={latestActivity}
-          machine={machineLabel}
-          path={workspaceRoot}
-        />
-      </SidebarMenuButton>
-      <div className="ml-4 space-y-0.5 border-l border-sidebar-border pl-2">
+      <div className="flex items-center">
+        <Button
+          size="icon-sm"
+          variant="ghost"
+          aria-label={collapsed ? gt("Expand") : gt("Collapse")}
+          aria-expanded={!collapsed}
+          onClick={() => setCollapsed(!collapsed)}
+        >
+          {collapsed ? (
+            <ChevronRightIcon className="size-3.5" />
+          ) : (
+            <ChevronDownIcon className="size-3.5" />
+          )}
+        </Button>
+        {renamingProject ? (
+          <InlineName
+            name={title}
+            label={gt("Project name")}
+            onSave={(title) => updateProjectDetails({ title })}
+            onClose={() => setRenamingProject(false)}
+          />
+        ) : (
+          <SidebarMenuButton
+            render={<Link to="/" search={{ project: projectId, machine: environmentId }} />}
+            onClick={() => setOpenMobile(false)}
+            size="lg"
+            isActive={
+              selected &&
+              !activeChannelId &&
+              (!currentThreadId || currentThreadId.startsWith("t3po-lead:"))
+            }
+          >
+            <SidebarLabel
+              label={title}
+              timestamp={latestActivity}
+              machine={machineLabel}
+              path={workspaceRoot}
+            />
+          </SidebarMenuButton>
+        )}
+        <Menu>
+          <MenuTrigger
+            render={<Button size="icon-sm" variant="ghost" aria-label={gt("Project settings")} />}
+          >
+            <MoreHorizontalIcon className="size-3.5" />
+          </MenuTrigger>
+          <MenuPopup>
+            <MenuItem disabled={!canUpdateProject} onClick={() => setRenamingProject(true)}>
+              <T>Rename</T>
+            </MenuItem>
+            <MenuItem
+              disabled={!canUpdateProject}
+              onClick={() => {
+                void updateProjectDetails({ archived: true })
+                  .then(() => navigate({ to: "/", search: {} }))
+                  .catch((cause) =>
+                    setError(
+                      cause instanceof Error ? cause.message : gt("Could not save changes."),
+                    ),
+                  );
+              }}
+            >
+              <T>Archive</T>
+            </MenuItem>
+          </MenuPopup>
+        </Menu>
+      </div>
+      {error ? (
+        <p role="alert" className="px-2 text-xs text-destructive">
+          {error}
+        </p>
+      ) : null}
+      <div hidden={collapsed} className="ml-4 space-y-0.5 border-l border-sidebar-border pl-2">
         {channels
           .filter((channel) => !!channel.archived === showArchived)
           .map((channel) => (
             <div key={channel.id}>
               <div className="flex items-center">
-                <SidebarMenuButton
-                  render={
-                    <Link
-                      to="/"
-                      search={{ project: projectId, machine: environmentId, channel: channel.id }}
+                {editing?.id === channel.id ? (
+                  <div className="flex min-w-0 flex-1 items-center gap-2 px-2">
+                    <HashIcon className="size-4 shrink-0" />
+                    <InlineName
+                      name={channel.name}
+                      label={gt("Channel name")}
+                      onClose={() => setEditing(null)}
+                      onSave={async (name) => {
+                        const result = await mutate({
+                          environmentId,
+                          input: {
+                            type: "edit_channel",
+                            projectId,
+                            id: channel.id,
+                            name,
+                          },
+                        });
+                        if (result._tag !== "Success") throw squashAtomCommandFailure(result);
+                        query.refresh();
+                      }}
                     />
-                  }
-                  onClick={() => setOpenMobile(false)}
-                  isActive={selected && activeChannelId === channel.id}
-                >
-                  <HashIcon />
-                  <span>{channel.name}</span>
-                </SidebarMenuButton>
-                <Button
-                  size="icon-sm"
-                  variant="ghost"
-                  aria-label={gt("Rename channel")}
-                  title={gt("Rename channel")}
-                  disabled={!canMutate || busy}
-                  onClick={() => {
-                    setEditing(channel);
-                    setCreating(false);
-                  }}
-                >
-                  <PencilIcon className="size-3.5" />
-                </Button>
+                  </div>
+                ) : (
+                  <SidebarMenuButton
+                    render={
+                      <Link
+                        to="/"
+                        search={{ project: projectId, machine: environmentId, channel: channel.id }}
+                      />
+                    }
+                    onDoubleClick={(event) => {
+                      event.preventDefault();
+                      if (canMutate && !busy) {
+                        setEditing(channel);
+                        setCreating(false);
+                      }
+                    }}
+                    onClick={() => setOpenMobile(false)}
+                    onKeyDown={(event) => {
+                      if (event.key === "F2" && canMutate && !busy) {
+                        event.preventDefault();
+                        setEditing(channel);
+                        setCreating(false);
+                      }
+                    }}
+                    isActive={selected && activeChannelId === channel.id}
+                  >
+                    <HashIcon />
+                    <span>{channel.name}</span>
+                  </SidebarMenuButton>
+                )}
                 <Button
                   size="icon-sm"
                   variant="ghost"
@@ -273,23 +361,8 @@ function ProjectChannels({
                   )}
                 </Button>
               </div>
-              {editing?.id === channel.id ? (
-                <ChannelForm
-                  key={channel.id}
-                  projectId={projectId}
-                  environmentId={environmentId}
-                  channel={editing}
-                  canMutate={canMutate}
-                  onClose={() => setEditing(null)}
-                />
-              ) : null}
             </div>
           ))}
-        {error ? (
-          <p className="px-2 text-xs text-destructive" role="alert">
-            {error}
-          </p>
-        ) : null}
         {channels.some((channel) => channel.archived) || showArchived ? (
           <SidebarMenuButton size="sm" onClick={() => setShowArchived(!showArchived)}>
             <span>{showArchived ? <T>Active channels</T> : <T>Archived channels</T>}</span>
@@ -368,6 +441,77 @@ function ProjectChannels({
         ) : null}
       </div>
     </section>
+  );
+}
+
+function InlineName({
+  name,
+  label,
+  maxLength = 200,
+  onSave,
+  onClose,
+}: {
+  name: string;
+  label: string;
+  maxLength?: number;
+  onSave: (name: string) => Promise<void>;
+  onClose: () => void;
+}) {
+  const gt = useGT();
+  const [value, setValue] = useState(name);
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const settled = useRef(false);
+  async function save() {
+    if (settled.current) return;
+    settled.current = true;
+    const next = value.trim();
+    if (!next || next === name) {
+      onClose();
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      await onSave(next);
+      onClose();
+    } catch (cause) {
+      settled.current = false;
+      setSaving(false);
+      setError(cause instanceof Error ? cause.message : gt("Could not save changes."));
+    }
+  }
+  return (
+    <div className="min-w-0 flex-1">
+      <Input
+        autoFocus
+        aria-label={label}
+        aria-invalid={error ? true : undefined}
+        maxLength={maxLength}
+        value={value}
+        readOnly={saving}
+        onFocus={(event) => event.target.select()}
+        onChange={(event) => setValue(event.target.value)}
+        onBlur={() => void save()}
+        onKeyDown={(event) => {
+          if (event.nativeEvent.isComposing) return;
+          if (event.key === "Enter") {
+            event.preventDefault();
+            void save();
+          }
+          if (event.key === "Escape" && !saving) {
+            event.preventDefault();
+            settled.current = true;
+            onClose();
+          }
+        }}
+      />
+      {error ? (
+        <p role="alert" className="text-xs text-destructive">
+          {error}
+        </p>
+      ) : null}
+    </div>
   );
 }
 
