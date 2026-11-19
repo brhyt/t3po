@@ -97,15 +97,21 @@ export const existingZoneIds = Effect.gen(function* () {
 const existingZone = (zoneId: string, name: string) => ({
   kind: "existing" as const,
   name: Output.literal(name),
-  zoneId: Output.fromEffect(
-    Effect.gen(function* () {
-      const { accountId } = yield* yield* Cloudflare.CloudflareEnvironment;
-      const zone = yield* Zones.getZone({ zoneId });
-      if (zone.name !== name || zone.account.id !== accountId) {
-        return yield* Effect.die(`Existing zone ${zoneId} does not match configured name/account`);
-      }
-      return zoneId;
-    }).pipe(Effect.orDie),
+  // An unnamed effect derives its binding key from function source, which bundling rewrites.
+  zoneId: Output.named(
+    Output.fromEffect(
+      Effect.gen(function* () {
+        const { accountId } = yield* yield* Cloudflare.CloudflareEnvironment;
+        const zone = yield* Zones.getZone({ zoneId });
+        if (zone.name !== name || zone.account.id !== accountId) {
+          return yield* Effect.die(
+            `Existing zone ${zoneId} does not match configured name/account`,
+          );
+        }
+        return zoneId;
+      }).pipe(Effect.orDie),
+    ),
+    `ExistingZone_${zoneId}`,
   ),
 });
 

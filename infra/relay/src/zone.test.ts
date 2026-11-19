@@ -26,16 +26,26 @@ test.provider("existing zones do not register Zone resources even on a fresh sta
         Effect.gen(function* () {
           const api = yield* RelayApiZone;
           const tunnel = yield* ManagedEndpointZone;
-          return { apiKind: api.kind, tunnelKind: tunnel.kind };
+          return {
+            apiKind: api.kind,
+            tunnelKind: tunnel.kind,
+            apiBinding: api.zoneId.toString(),
+            tunnelBinding: tunnel.zoneId.toString(),
+          };
         }),
       )
       .pipe(
         Effect.provideService(
           ConfigProvider.ConfigProvider,
-          ConfigProvider.fromUnknown(configuration),
+          ConfigProvider.fromUnknown({ ...configuration, RELAY_API_ZONE_ID: "a".repeat(32) }),
         ),
       );
-    expect(result).toEqual({ apiKind: "existing", tunnelKind: "existing" });
+    expect(result).toEqual({
+      apiKind: "existing",
+      tunnelKind: "existing",
+      apiBinding: `ExistingZone_${"a".repeat(32)}`,
+      tunnelBinding: `ExistingZone_${ZONE}`,
+    });
   }),
 );
 
