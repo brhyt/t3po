@@ -58,3 +58,35 @@ describe("preview stages", () => {
     expect(targets.records.map((record) => record.id)).toEqual(["r-mine"]);
   });
 });
+
+it("isolates fork preview cleanup from upstream and other forks", () => {
+  const targets = previewSweepTargets({
+    stage: "pr-42",
+    namespace: "rorelay-pr-42",
+    tunnelZoneName: "example.test",
+    tunnels: [
+      { id: "ro", name: `t3coderelay-managedendpoint-rorelay-pr-42-${KEY}` },
+      { id: "upstream", name: `t3coderelay-managedendpoint-pr-42-${KEY}` },
+      { id: "other", name: `t3coderelay-managedendpoint-other-pr-42-${KEY}` },
+    ],
+    records: [
+      { id: "ro", name: `rorelay-pr-42-${KEY}.example.test`, content: tunnelCnameContent("ro") },
+      {
+        id: "upstream",
+        name: `pr-42-${KEY}.example.test`,
+        content: tunnelCnameContent("upstream"),
+      },
+    ],
+  });
+  expect(targets.tunnels.map((t) => t.id)).toEqual(["ro"]);
+  expect(targets.records.map((r) => r.id)).toEqual(["ro"]);
+  expect(
+    previewSweepTargets({
+      stage: "prod",
+      namespace: "rorelay-prod",
+      tunnelZoneName: "example.test",
+      tunnels: targets.tunnels,
+      records: targets.records,
+    }),
+  ).toEqual({ tunnels: [], records: [] });
+});

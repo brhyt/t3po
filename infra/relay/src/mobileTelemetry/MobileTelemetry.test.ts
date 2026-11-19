@@ -164,6 +164,22 @@ const forwardedExceptions = (request: HttpClientRequest.HttpClientRequest) => {
 };
 
 describe("MobileTelemetry", () => {
+  it.effect("discards disabled telemetry without reading the body or requiring an exporter", () =>
+    Effect.gen(function* () {
+      const telemetry = yield* MobileTelemetry.MobileTelemetry;
+      const request = new Request("https://relay.test/v1/mobile/telemetry", {
+        method: "POST",
+        body: "invalid telemetry payload",
+      });
+      const response = yield* telemetry.handle(HttpServerRequest.fromWeb(request), {
+        projectId: PROJECT_ID,
+        signal: "logs",
+      });
+      expect(response.status).toBe(204);
+      expect(request.bodyUsed).toBe(false);
+    }).pipe(Effect.provide(MobileTelemetry.layerDisabled)),
+  );
+
   it.effect("forwards each signal to its Axiom dataset with the relay's token", () =>
     Effect.gen(function* () {
       const harness = makeHarness();

@@ -111,14 +111,19 @@ const make = Effect.gen(function* () {
     const now = yield* DateTime.now;
     const stamp = DateTime.formatIso(now);
     const complete = sent.length > 0 && accepted.length === sent.length;
-    const failures = complete ? 0 : Math.min(7, (status[0]?.failures ?? 0) + 1);
-    const nextAttempt =
-      DateTime.toEpochMillis(now) + (complete ? 1000 : Math.min(60000, 1000 * 2 ** failures));
+    const failures = sent.length
+      ? complete
+        ? 0
+        : Math.min(7, (status[0]?.failures ?? 0) + 1)
+      : (status[0]?.failures ?? 0);
+    const nextAttempt = sent.length
+      ? DateTime.toEpochMillis(now) + (complete ? 1000 : Math.min(60000, 1000 * 2 ** failures))
+      : (status[0]?.nextAttempt ?? 0);
     yield* sql.withTransaction(
       Effect.gen(function* () {
         if (accepted.length)
           yield* sql`UPDATE t3po_memory_events SET synced_at = ${stamp} WHERE project_id = ${projectId} AND synced_at IS NULL AND event_id IN ${sql.in(accepted)}`;
-        yield* sql`INSERT INTO t3po_memory_status (project_id, last_sync_at, available, failures, next_attempt) VALUES (${projectId}, ${stamp}, ${result.available ? 1 : 0}, ${failures}, ${nextAttempt}) ON CONFLICT(project_id) DO UPDATE SET last_sync_at = excluded.last_sync_at, available = CASE WHEN ${background ? 1 : 0} THEN t3po_memory_status.available ELSE excluded.available END, failures = ${sent.length ? failures : (status[0]?.failures ?? 0)}, next_attempt = ${sent.length ? nextAttempt : (status[0]?.nextAttempt ?? 0)}`;
+        yield* sql`INSERT INTO t3po_memory_status (project_id, last_sync_at, available, failures, next_attempt) VALUES (${projectId}, ${stamp}, ${result.available ? 1 : 0}, ${failures}, ${nextAttempt}) ON CONFLICT(project_id) DO UPDATE SET last_sync_at = excluded.last_sync_at, available = CASE WHEN ${background ? 1 : 0} THEN t3po_memory_status.available ELSE excluded.available END, failures = excluded.failures, next_attempt = excluded.next_attempt`;
       }),
     );
     yield* PubSub.publish(changes, { projectId, metadata: true });

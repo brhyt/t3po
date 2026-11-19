@@ -436,6 +436,14 @@ it.effect(
       ).toBe(1);
       yield* restarted.context(projectId, ThreadId.make("t3po-task:task-a"));
       expect(requests).toHaveLength(2);
+      const sql = yield* SqlClient.SqlClient;
+      yield* sql`DELETE FROM t3po_memory_status WHERE project_id = ${projectId}`;
+      online = false;
+      yield* restarted.context(projectId, ThreadId.make("t3po-lead:project-a"));
+      expect(requests.at(-1)?.events).toEqual([]);
+      expect(
+        (yield* sql`SELECT failures, next_attempt FROM t3po_memory_status WHERE project_id = ${projectId}`)[0],
+      ).toEqual({ failures: 0, next_attempt: 0 });
       expect(yield* restarted.context(projectId, ThreadId.make("t3po-lead:project-b"))).toBe("");
       yield* restarted.mutate({
         type: "edit_task",
@@ -445,7 +453,6 @@ it.effect(
         brief: "Reconsider",
         channelId: null,
       });
-      const sql = yield* SqlClient.SqlClient;
       expect(
         (yield* sql<{
           kind: string;

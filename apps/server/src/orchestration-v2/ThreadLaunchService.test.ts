@@ -233,6 +233,14 @@ function makeHarness(options: HarnessOptions = {}) {
       currentBranch: () => Effect.succeed(null),
       resolveWorktreeBaseRemote: () => Effect.succeed({ remoteName: "origin", branchName: "main" }),
       resolvePrimaryRemoteName: () => Effect.succeed("origin"),
+      listRefs: () =>
+        Effect.succeed({
+          isRepo: true,
+          hasPrimaryRemote: true,
+          refs: [],
+          nextCursor: null,
+          totalCount: 0,
+        }),
       resolveDefaultBranchName: () => Effect.succeed("main"),
       remoteExists: options.remoteExists ?? (() => Effect.succeed(true)),
       remoteBranchExists: () => Effect.succeed(true),
@@ -3389,6 +3397,72 @@ it.effect("replays an accepted send after the project disables the instance", ()
     }
   }).pipe(Effect.provide(Layer.mergeAll(harness.layer, layerFiles)));
 });
+
+it.effect.each(["main", "sole", "explicit", "ambiguous"] as const)(
+  "launches T3PO local worktrees without guessing an ambiguous base: %s",
+  (mode) =>
+    withRealGitRepo(({ cwd, worktreePath, command, harness: makeLocalHarness }) =>
+      Effect.gen(function* () {
+        const git = yield* GitVcsDriver.GitVcsDriver;
+        yield* command(cwd, ["commit", "--allow-empty", "-m", "initial"]);
+        if (mode === "main") yield* command(cwd, ["branch", "main"]);
+        if (mode === "ambiguous") yield* command(cwd, ["branch", "another"]);
+        const expectedBase = (yield* command(cwd, ["rev-parse", "HEAD"])).stdout.trim();
+        if (mode === "main") yield* command(cwd, ["commit", "--allow-empty", "-m", "feature work"]);
+        const harness = makeLocalHarness({
+          git: {
+            listRefs: (input) => git.listRefs({ ...input, cwd }),
+            listLocalBranchNames: () => git.listLocalBranchNames(cwd),
+            remoteExists: (input) => git.remoteExists({ ...input, cwd }),
+          },
+        });
+        const support = Layer.mergeAll(
+          harness.layer,
+          T3poChanges.layer,
+          T3poApplicationEvents.layer.pipe(Layer.provide(harness.layer)),
+        );
+        yield* Effect.gen(function* () {
+          const service = yield* T3poService.Service;
+          yield* service.mutate({
+            type: "save_lead",
+            projectId,
+            name: "Local lead",
+            brief: "Verify local worktrees.",
+          });
+          yield* service.mutate({ type: "save_budget", projectId, maxRuns: 1, maxConcurrent: 1 });
+          yield* service.mutate({
+            type: "create_task",
+            projectId,
+            id: "local-task",
+            channelId: null,
+            title: "Local work",
+            brief: "Use the selected committed base.",
+            workspace:
+              mode === "explicit"
+                ? { type: "worktree", baseRef: expectedBase, startFromOrigin: false }
+                : { type: "worktree" },
+          });
+          const launch = service.launch({
+            projectId,
+            taskId: "local-task",
+            modelSelection,
+            runtimeMode: "approval-required",
+          });
+          if (mode === "ambiguous") {
+            expect((yield* launch.pipe(Effect.flip)).operation).toBe("workspace");
+            expect((yield* service.snapshot({ projectId })).leads[0]?.budget?.usedRuns).toBe(0);
+            return;
+          }
+          const result = yield* launch;
+          yield* preparationSettled(result.threadId);
+          expect((yield* command(worktreePath, ["rev-parse", "HEAD"])).stdout.trim()).toBe(
+            expectedBase,
+          );
+          expect((yield* service.snapshot({ projectId })).leads[0]?.budget?.usedRuns).toBe(1);
+        }).pipe(Effect.provide(T3poService.layer.pipe(Layer.provideMerge(support))));
+      }),
+    ),
+);
 
 it.effect(
   "keeps T3PO lead identity and task launches stable across retries and service reconstruction",

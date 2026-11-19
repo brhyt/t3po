@@ -82,6 +82,42 @@ const make = Effect.gen(function* () {
   const store = yield* Store.Store;
   const list = Effect.fn("Attention.list")(
     function* (input: AttentionQuery) {
+      const projectItems: AttentionPage["projectItems"][number][] = [];
+      if (input.before === undefined) {
+        const budgets = yield* sql<{
+          maxRuns: number;
+          maxConcurrent: number;
+          usedRuns: number;
+        }>`SELECT max_runs AS maxRuns, max_concurrent AS maxConcurrent,
+          (SELECT count(*) FROM t3po_admissions WHERE project_id = ${input.projectId}) AS usedRuns
+          FROM t3po_budgets WHERE project_id = ${input.projectId}`;
+        const budget = budgets[0];
+        if (budget && (budget.usedRuns >= budget.maxRuns || budget.maxConcurrent === 0)) {
+          projectItems.push({
+            key: `project-budget:${input.projectId}`,
+            projectId: input.projectId,
+            reason: "budget",
+            blockedBy: budget.usedRuns >= budget.maxRuns ? "run_limit" : "concurrency_disabled",
+            usedRuns: budget.usedRuns,
+            maxRuns: budget.maxRuns,
+          });
+        }
+        const deliveries = yield* sql<{
+          pendingCount: number;
+        }>`SELECT (SELECT count(*) FROM t3po_memory_events e
+          WHERE e.project_id = ${input.projectId} AND e.synced_at IS NULL
+          AND e.superseded_by IS NULL AND e.kind != 'local_correction') AS pendingCount
+          FROM t3po_memory_status WHERE project_id = ${input.projectId} AND failures > 0`;
+        const delivery = deliveries[0];
+        if (delivery && delivery.pendingCount > 0) {
+          projectItems.push({
+            key: `project-memory:${input.projectId}`,
+            projectId: input.projectId,
+            reason: "memory_delivery",
+            pendingCount: delivery.pendingCount,
+          });
+        }
+      }
       // Bound projection reads even when most tasks have no current attention.
       const rows = yield* sql<{
         cursor: number;
@@ -100,7 +136,11 @@ const make = Effect.gen(function* () {
           }),
         { concurrency: 8 },
       );
-      return { items: items.flat(), nextCursor: rows.length > 50 ? rows[49]!.cursor : null };
+      return {
+        projectItems,
+        items: items.flat(),
+        nextCursor: rows.length > 50 ? rows[49]!.cursor : null,
+      };
     },
     Effect.mapError((cause) => new T3poError({ operation: "read", cause })),
   );

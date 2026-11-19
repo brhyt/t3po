@@ -197,14 +197,17 @@ function MemoryRow({
 export function ProjectMemory({
   environmentId,
   projectId,
+  open,
+  onOpenChange,
 }: {
   environmentId: EnvironmentId;
   projectId: ProjectId;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
 }) {
-  const [open, setOpen] = useState(false);
   return (
     <div className="space-y-3">
-      <Button variant="ghost" size="sm" onClick={() => setOpen(!open)}>
+      <Button variant="ghost" size="sm" onClick={() => onOpenChange(!open)}>
         <T>Project memory</T>
       </Button>
       {open ? (

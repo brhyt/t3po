@@ -136,7 +136,8 @@ const startApp = Effect.fn("startApp")(function* (input: {
   const env = {
     ...hostEnvironment,
     PATH: `${path.join(input.home, "bin")}:${hostEnvironment.PATH ?? ""}`,
-    T3CODE_AUTO_BOOTSTRAP_PROJECT_FROM_CWD: "0",
+    T3CODE_AUTO_BOOTSTRAP_PROJECT_FROM_CWD:
+      hostEnvironment.T3CODE_AUTO_BOOTSTRAP_PROJECT_FROM_CWD ?? "0",
   };
   const devRunner = (mode: string, args: ReadonlyArray<string>) => [
     "scripts/dev-runner.ts",

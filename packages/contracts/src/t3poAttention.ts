@@ -14,7 +14,24 @@ export const AttentionItem = Schema.Struct({
   reason: Schema.Literals(["request", "plan", "failed", "review"]),
 });
 export type AttentionItem = typeof AttentionItem.Type;
+const ProjectAttentionItem = Schema.Union([
+  Schema.Struct({
+    key: Schema.String,
+    projectId: ProjectId,
+    reason: Schema.Literal("budget"),
+    blockedBy: Schema.Literals(["run_limit", "concurrency_disabled"]),
+    usedRuns: NonNegativeInt,
+    maxRuns: NonNegativeInt,
+  }),
+  Schema.Struct({
+    key: Schema.String,
+    projectId: ProjectId,
+    reason: Schema.Literal("memory_delivery"),
+    pendingCount: NonNegativeInt,
+  }),
+]);
 export const AttentionPage = Schema.Struct({
+  projectItems: Schema.Array(ProjectAttentionItem),
   items: Schema.Array(AttentionItem),
   nextCursor: Schema.NullOr(NonNegativeInt),
 });

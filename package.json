@@ -63,6 +63,9 @@
     "clean": "rm -rf node_modules apps/*/node_modules packages/*/node_modules apps/*/dist apps/*/dist-electron packages/*/dist .vite-plus apps/*/.vite-plus packages/*/.vite-plus",
     "sync:repos": "node scripts/sync-reference-repos.ts"
   },
+  "dependencies": {
+    "@neon/config": "^1.14.3"
+  },
   "devDependencies": {
     "@coderabbitai/config": "1.2.0",
     "@effect/tsgo": "0.67.1",

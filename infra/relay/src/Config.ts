@@ -40,6 +40,32 @@ export const legacyTunnelGraceMinutesConfig = Config.option(
   ),
 );
 
+export const allowedClerkUserIdsConfig = Config.schema(
+  Schema.Literals(["all-accounts", "allowlist"]),
+  "RELAY_ACCESS_MODE",
+).pipe(
+  Config.withDefault("all-accounts"),
+  Config.mapEffect((mode) =>
+    mode === "all-accounts"
+      ? Effect.succeedNone
+      : Config.schema(
+          Schema.fromJsonString(
+            Schema.Array(Schema.String.check(Schema.isPattern(/^user_[A-Za-z0-9]+$/))).check(
+              Schema.isMaxLength(100),
+            ),
+          ),
+          "RELAY_ALLOWED_CLERK_USER_IDS",
+        ).pipe(Effect.asSome),
+  ),
+);
+
+export const isRelayUserAllowed = (
+  configuration: RelayConfiguration["Service"],
+  userId: string,
+): boolean =>
+  configuration.allowedClerkUserIds === undefined ||
+  configuration.allowedClerkUserIds.includes(userId);
+
 export interface ApnsCredentials {
   readonly teamId: string;
   readonly keyId: string;
@@ -63,6 +89,7 @@ export class RelayConfiguration extends Context.Service<
     readonly clerkSecretKey: Redacted.Redacted<string>;
     readonly clerkPublishableKey: string;
     readonly clerkJwtAudience: string;
+    readonly allowedClerkUserIds?: ReadonlyArray<string>;
     readonly apnsDeliveryJobSigningSecret: Redacted.Redacted<string>;
     readonly cloudMintPrivateKey: Redacted.Redacted<string>;
     readonly cloudMintPublicKey: string;

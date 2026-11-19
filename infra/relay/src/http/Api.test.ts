@@ -1,11 +1,13 @@
 import * as HttpServer from "effect/http/HttpServer";
 import {
   RelayClientAuth,
+  RelayDpopClientAuth,
   RelayClientPrincipal,
   type RelayClientDeviceRecord,
 } from "@t3tools/contracts/relay";
 import * as EnvironmentLinker from "../environments/EnvironmentLinker.ts";
 import * as RelayTokens from "../auth/RelayTokens.ts";
+import * as DpopProofs from "../auth/DpopProofs.ts";
 import * as Devices from "../agentActivity/Devices.ts";
 // @effect-diagnostics-next-line nodeBuiltinImport:off -- Effect's Crypto has no generateKeyPairSync.
 import * as NodeCrypto from "node:crypto";
@@ -441,6 +443,167 @@ describe("relay client authentication", () => {
   );
 });
 
+describe("private relay owner policy", () => {
+  it.effect("rejects other Brhyt users after either Clerk verification path", () =>
+    Effect.gen(function* () {
+      const config = { ...relaySettings, allowedClerkUserIds: ["user_owner"] };
+      vi.mocked(verifyToken).mockResolvedValue({
+        sub: "user_other",
+        aud: config.clerkJwtAudience,
+      } as never);
+      expect((yield* Effect.exit(verifyRelayClientBearerToken(config, "session-token")))._tag).toBe(
+        "Failure",
+      );
+      expect(createClerkClient).not.toHaveBeenCalled();
+      vi.mocked(verifyToken).mockRejectedValue(new Error("not a session JWT"));
+      vi.mocked(createClerkClient).mockReturnValue({
+        authenticateRequest: vi.fn().mockResolvedValue({
+          isAuthenticated: true,
+          toAuth: () => ({ userId: "user_other" }),
+        }),
+      } as never);
+      expect((yield* Effect.exit(verifyRelayClientBearerToken(config, "oauth-token")))._tag).toBe(
+        "Failure",
+      );
+      vi.mocked(verifyToken).mockResolvedValue({
+        sub: "user_owner",
+        aud: config.clerkJwtAudience,
+      } as never);
+      expect(yield* verifyRelayClientBearerToken(config, "owner-token")).toMatchObject({
+        sub: "user_owner",
+      });
+      expect(
+        (yield* Effect.exit(
+          verifyRelayClientBearerToken({ ...config, allowedClerkUserIds: [] }, "owner-token"),
+        ))._tag,
+      ).toBe("Failure");
+    }).pipe(
+      Effect.ensuring(
+        Effect.sync(() => {
+          vi.mocked(verifyToken).mockReset();
+          vi.mocked(createClerkClient).mockReset();
+        }),
+      ),
+    ),
+  );
+});
+
+describe("private relay token exchange", () => {
+  it.effect("rejects an otherwise valid Clerk subject before minting a relay token", () => {
+    const config = { ...relaySettings, allowedClerkUserIds: ["user_owner"] };
+    const handlers = RelayHttpApi.layerTokenApi.pipe(
+      Layer.provide(
+        Layer.mergeAll(
+          Layer.succeed(RelayConfiguration.RelayConfiguration, config),
+          NodeCryptoLayer.layer,
+          Layer.mock(DpopProofs.DpopProofReplay, { pruneExpired: Effect.void }),
+          Layer.mock(RelayTokens.RelayTokens, {
+            resolveDpopAccessTokenScopes: () => ["environment:connect"],
+          }),
+        ),
+      ),
+    );
+    return Effect.gen(function* () {
+      vi.mocked(verifyToken).mockResolvedValue({
+        sub: "user_other",
+        aud: config.clerkJwtAudience,
+      } as never);
+      const app = yield* Effect.acquireRelease(
+        Effect.sync(() =>
+          HttpRouter.toWebHandler(
+            HttpApiBuilder.layer(HttpApi.make("RelayApi").add(RelayApi.groups.token)).pipe(
+              Layer.provide(handlers),
+              Layer.provide(HttpServer.layerServices),
+            ),
+            { disableLogger: true },
+          ),
+        ),
+        (app) => Effect.promise(() => app.dispose()),
+      );
+      const response = yield* Effect.promise(() =>
+        app.handler(
+          new Request("https://relay.example.test/v1/client/dpop-token", {
+            method: "POST",
+            headers: { "content-type": "application/x-www-form-urlencoded", dpop: "proof" },
+            body: new URLSearchParams({
+              grant_type: "urn:ietf:params:oauth:grant-type:token-exchange",
+              subject_token_type: "urn:ietf:params:oauth:token-type:jwt",
+              requested_token_type: "urn:ietf:params:oauth:token-type:access_token",
+              subject_token: "other-account-session",
+              resource: config.relayIssuer,
+              scope: "environment:connect",
+              client_id: "t3-web",
+            }),
+          }),
+        ),
+      );
+      expect(response.status).toBe(401);
+      expect(yield* Effect.promise(() => response.json())).toMatchObject({
+        reason: "not_authorized",
+      });
+    }).pipe(Effect.scoped, Effect.ensuring(Effect.sync(() => vi.mocked(verifyToken).mockReset())));
+  });
+});
+
+describe("private relay issued credentials", () => {
+  it.effect("denies preexisting DPoP and environment credentials for removed owners", () => {
+    const config = { ...relaySettings, allowedClerkUserIds: ["user_owner"] };
+    const headers = {
+      credential: Redacted.make("test-token"),
+      endpoint: {} as never,
+      group: {} as never,
+    };
+    return Effect.gen(function* () {
+      const dpop = yield* RelayDpopClientAuth;
+      const environment = yield* RelayEnvironmentAuth;
+      expect(
+        yield* Effect.flip(dpop.relayDpop(Effect.succeed(HttpServerResponse.empty()), headers)),
+      ).toMatchObject({ reason: "not_authorized" });
+      expect(
+        yield* Effect.flip(
+          environment.environmentBearer(Effect.succeed(HttpServerResponse.empty()), headers),
+        ),
+      ).toMatchObject({ reason: "not_authorized" });
+    }).pipe(
+      Effect.provideService(
+        HttpServerRequest.HttpServerRequest,
+        HttpServerRequest.fromWeb(
+          new Request("https://relay.test/v1/client/environments", {
+            headers: { authorization: "DPoP test-token" },
+          }),
+        ),
+      ),
+      Effect.provideService(HttpServerRequest.ParsedSearchParams, {}),
+      Effect.provideService(HttpRouter.RouteContext, { params: {}, route: {} as never }),
+      Effect.provide(
+        Layer.mergeAll(RelayHttpApi.layerDpopClientAuth, RelayHttpApi.layerEnvironmentAuth).pipe(
+          Layer.provide(
+            Layer.mergeAll(
+              Layer.succeed(RelayConfiguration.RelayConfiguration, config),
+              Layer.mock(RelayTokens.RelayTokens, {
+                resolveDpopAccessTokenScopes: () => null,
+                verifyDpopAccessToken: () => Effect.succeed({ sub: "user_other" } as never),
+              }),
+              Layer.mock(EnvironmentCredentials.EnvironmentCredentials, {
+                authenticate: () =>
+                  Effect.succeedSome({
+                    credentialId: "existing",
+                    environmentId: "environment-1",
+                    environmentPublicKey: "public-key",
+                  }),
+              }),
+              Layer.mock(EnvironmentLinks.EnvironmentLinks, {
+                getForUser: () => Effect.succeed(null),
+              }),
+            ),
+          ),
+        ),
+      ),
+      Effect.scoped,
+    );
+  });
+});
+
 describe("relay DPoP failure mapping", () => {
   it("maps verifier failures to safe client-facing categories", () => {
     const mappings = [
@@ -500,7 +663,13 @@ describe("relay environment authentication", () => {
       }),
       Effect.provide(
         RelayHttpApi.layerEnvironmentAuth.pipe(
-          Layer.provide(Layer.succeed(EnvironmentCredentials.EnvironmentCredentials, credentials)),
+          Layer.provide(
+            Layer.mergeAll(
+              Layer.succeed(EnvironmentCredentials.EnvironmentCredentials, credentials),
+              Layer.succeed(RelayConfiguration.RelayConfiguration, relaySettings),
+              Layer.mock(EnvironmentLinks.EnvironmentLinks, {}),
+            ),
+          ),
         ),
       ),
       Effect.scoped,
@@ -610,6 +779,17 @@ describe("relay managed tunnel recovery", () => {
       };
 
       yield* verifyEnvironmentTunnelRecoveryProof(request);
+
+      expect(
+        yield* Effect.flip(
+          verifyEnvironmentTunnelRecoveryProof(request).pipe(
+            Effect.provideService(RelayConfiguration.RelayConfiguration, {
+              ...relaySettings,
+              allowedClerkUserIds: ["user_owner"],
+            }),
+          ),
+        ),
+      ).toMatchObject({ _tag: "Unauthorized" });
 
       const wrongOwner = yield* Effect.flip(
         verifyEnvironmentTunnelRecoveryProof({ ...request, userId: "user-2" }),

@@ -13,6 +13,8 @@ import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
 import * as Tracer from "effect/Tracer";
 
+import { relayObservabilityMode } from "./privateDeployment.ts";
+
 import { relayResourceNameForStage } from "./deploymentConfig.ts";
 import { MobileMonitoring } from "./mobileTelemetry/monitoring.ts";
 import { RelayMonitoring } from "./monitoring.ts";
@@ -29,6 +31,7 @@ const relayRecentSpansQuery = (dataset: string) =>
   ].join("\n");
 
 export const RelayObservability = Effect.gen(function* () {
+  if ((yield* relayObservabilityMode) === "none") return undefined;
   const { stage } = yield* Alchemy.Stack;
   const traces = yield* Axiom.Dataset("RelayTracesDataset", {
     name: relayResourceNameForStage("t3-code-relay-traces", stage),
@@ -123,6 +126,7 @@ const mobileSourceMapsBucketName = (stage: string) =>
  * R2's S3 access key id is the API token's id and the secret the SHA-256 of its value.
  */
 export const MobileSourceMapsUploadCredentials = Effect.gen(function* () {
+  if ((yield* relayObservabilityMode) === "none") return undefined;
   const { stage } = yield* Alchemy.Stack;
   const { accountId } = yield* yield* Cloudflare.CloudflareEnvironment;
   const bucketName = mobileSourceMapsBucketName(stage);

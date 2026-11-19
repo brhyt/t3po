@@ -402,6 +402,10 @@ patchedDependencies:
 importers:
 
   .:
+    dependencies:
+      '@neon/config':
+        specifier: ^1.14.3
+        version: 1.14.3
     devDependencies:
       '@coderabbitai/config':
         specifier: 1.2.0
@@ -5238,6 +5242,14 @@ packages:
 
   '@neon-rs/load@0.0.4':
     resolution: {integrity: sha512-kTPhdZyTQxB+2wpiRcFWrDcejc4JI6tkPuS7UZCG4l6Zvc5kU/gGQ/ozvHTh1XR5tS+UlfAfGuPajjzQjCiHCw==}
+
+  '@neon/config@1.14.3':
+    resolution: {integrity: sha512-i245jrcWdgvBrm2Etd7vusMTosnPQosa/KPaDDpdDk7fb62eT9O3EOZs2l9LrUfaYA6DPqN0YA43vND4te0yMw==}
+    engines: {node: '>=20.19.0'}
+
+  '@neon/sdk@7.14.1':
+    resolution: {integrity: sha512-AURGVqsDd6PquRNbyiRJkwh5ijMW2Zbu0WTz/PvdW0nPRdcbSTM25EpgG13vbV4p5pwluahCM/+lPQA4UZea2A==}
+    engines: {node: '>=20.19.0'}
 
   '@noble/curves@1.9.1':
     resolution: {integrity: sha512-k11yZxZg+t+gWvBbIswW0yoJlu8cHOC7dhunwOzoWH/mXGBiYyR4YY6hAEK/3EUs4UpB8la1RfdRpeGsFHkWsA==}
@@ -15861,6 +15873,14 @@ snapshots:
 
   '@neon-rs/load@0.0.4':
     optional: true
+
+  '@neon/config@1.14.3':
+    dependencies:
+      '@neon/sdk': 7.14.1
+      jiti: 2.7.0
+      zod: 4.6.7
+
+  '@neon/sdk@7.14.1': {}
 
   '@noble/curves@1.9.1':
     dependencies:

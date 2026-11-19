@@ -38,11 +38,16 @@ it("rejects escapes, missing files, directories and file/total overflow", async 
     await NodeFSP.mkdir(NodePath.join(root, "work", "nested"));
     await NodeFSP.writeFile(NodePath.join(root, "work", "nested", "report.md"), "safe");
     await NodeFSP.symlink("nested/report.md", NodePath.join(root, "work", "internal"));
-    expect(
-      (
-        await Artifacts.captureSelectedFiles(NodePath.join(root, "work"), ["internal"])
-      )[0]!.content.toString(),
-    ).toBe("safe");
+    const captured = await Artifacts.captureSelectedFiles(NodePath.join(root, "work"), [
+      "nested/report.md",
+      "internal",
+    ]);
+    expect(captured.map((file) => ({ path: file.path, content: file.content.toString() }))).toEqual(
+      [
+        { path: "nested/report.md", content: "safe" },
+        { path: "internal", content: "safe" },
+      ],
+    );
     for (let i = 0; i < 6; i++)
       await NodeFSP.writeFile(
         NodePath.join(root, "work", `file-${i}`),

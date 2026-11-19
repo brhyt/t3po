@@ -18,6 +18,7 @@ import { isPreviewStage, previewSweepTargets } from "./previewStages.ts";
 
 export interface PreviewTunnelSweepProps {
   readonly stage: string;
+  readonly namespace?: string;
   readonly tunnelZoneName: string;
   // Depending on the Worker makes Alchemy delete this sweep before the Worker,
   // because dependents go first. A live Worker could create a tunnel during
@@ -27,6 +28,7 @@ export interface PreviewTunnelSweepProps {
 
 export interface PreviewTunnelSweepAttributes {
   readonly stage: string;
+  readonly namespace?: string;
   readonly tunnelZoneName: string;
   readonly workerName: string;
 }
@@ -72,6 +74,7 @@ const collectPages = Effect.fn("PreviewTunnelSweep.collectPages")(function* <T, 
 // Idempotent: a second run lists nothing and deletes nothing.
 export const sweepPreviewStage = Effect.fn("PreviewTunnelSweep.sweep")(function* (input: {
   readonly stage: string;
+  readonly namespace?: string;
   readonly tunnelZoneName: string;
   readonly accountId: string;
   readonly token: Redacted.Redacted<string>;
@@ -105,7 +108,7 @@ export const sweepPreviewStage = Effect.fn("PreviewTunnelSweep.sweep")(function*
       `${API}/accounts/${input.accountId}/cfd_tunnel`,
       {
         is_deleted: "false",
-        include_prefix: managedEndpointTunnelNamePrefix(input.stage),
+        include_prefix: managedEndpointTunnelNamePrefix(input.namespace ?? input.stage),
         per_page: String(PAGE_SIZE),
         page: String(page),
       },
@@ -132,6 +135,7 @@ export const sweepPreviewStage = Effect.fn("PreviewTunnelSweep.sweep")(function*
 
   const targets = previewSweepTargets({
     stage: input.stage,
+    ...(input.namespace === undefined ? {} : { namespace: input.namespace }),
     tunnelZoneName: input.tunnelZoneName,
     tunnels: listedTunnels,
     records: listedRecords,
@@ -157,6 +161,7 @@ export const PreviewTunnelSweepProvider = () =>
       reconcile: ({ news }) =>
         Effect.succeed({
           stage: news.stage,
+          ...(news.namespace === undefined ? {} : { namespace: news.namespace }),
           tunnelZoneName: news.tunnelZoneName,
           workerName: news.workerName,
         }),
@@ -174,6 +179,7 @@ export const PreviewTunnelSweepProvider = () =>
         const token = yield* Config.Redacted("CLOUDFLARE_API_TOKEN");
         yield* sweepPreviewStage({
           stage: output.stage,
+          ...(output.namespace === undefined ? {} : { namespace: output.namespace }),
           tunnelZoneName: output.tunnelZoneName,
           accountId,
           token,

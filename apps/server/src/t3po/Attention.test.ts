@@ -103,14 +103,61 @@ effectIt.effect("bounds project scans and resumes strictly after the previous ta
       });
       yield* sql`INSERT INTO t3po_tasks(id, project_id, data) VALUES (${id}, ${task.projectId}, ${data})`;
     }
+    yield* sql`INSERT INTO t3po_budgets(project_id, max_runs, max_concurrent) VALUES (${task.projectId}, 1, 1)`;
+    yield* sql`INSERT INTO t3po_admissions(run_id, project_id, active) VALUES ('used-run', ${task.projectId}, 0)`;
+    yield* sql`INSERT INTO t3po_memory_events(event_id, project_id, kind, text, occurred_at) VALUES ('pending', ${task.projectId}, 'project_brief', 'brief', 'now')`;
+    yield* sql`INSERT INTO t3po_memory_status(project_id, failures) VALUES (${task.projectId}, 1)`;
     const queue = yield* Attention.Attention;
     const first = yield* queue.list({ projectId: task.projectId });
     expect(first.items).toHaveLength(50);
+    expect(first.projectItems).toEqual([
+      {
+        key: `project-budget:${task.projectId}`,
+        projectId: task.projectId,
+        reason: "budget",
+        blockedBy: "run_limit",
+        usedRuns: 1,
+        maxRuns: 1,
+      },
+      {
+        key: `project-memory:${task.projectId}`,
+        projectId: task.projectId,
+        reason: "memory_delivery",
+        pendingCount: 1,
+      },
+    ]);
     const second = yield* queue.list({ projectId: task.projectId, before: first.nextCursor! });
     expect(second.items.map((item) => item.taskId)).toEqual(["task-0"]);
     expect(second.nextCursor).toBeNull();
+    expect(second.projectItems).toEqual([]);
     expect(new Set([...first.items, ...second.items].map((item) => item.key)).size).toBe(51);
-    expect((yield* queue.list({ projectId: ProjectId.make("other") })).items).toEqual([]);
+    expect(yield* queue.list({ projectId: ProjectId.make("other") })).toEqual({
+      items: [],
+      projectItems: [],
+      nextCursor: null,
+    });
+    yield* sql`UPDATE t3po_budgets SET max_runs = 2 WHERE project_id = ${task.projectId}`;
+    yield* sql`UPDATE t3po_admissions SET active = 1 WHERE project_id = ${task.projectId}`;
+    yield* sql`UPDATE t3po_memory_status SET failures = 0 WHERE project_id = ${task.projectId}`;
+    expect((yield* queue.list({ projectId: task.projectId })).projectItems).toEqual([]);
+    yield* sql`UPDATE t3po_budgets SET max_concurrent = 0 WHERE project_id = ${task.projectId}`;
+    yield* sql`UPDATE t3po_memory_status SET failures = 2 WHERE project_id = ${task.projectId}`;
+    yield* sql`UPDATE t3po_memory_events SET synced_at = 'accepted' WHERE event_id = 'pending'`;
+    expect((yield* queue.list({ projectId: task.projectId })).projectItems).toEqual([
+      {
+        key: `project-budget:${task.projectId}`,
+        projectId: task.projectId,
+        reason: "budget",
+        blockedBy: "concurrency_disabled",
+        usedRuns: 1,
+        maxRuns: 2,
+      },
+    ]);
+    yield* sql`DELETE FROM t3po_budgets WHERE project_id = ${task.projectId}`;
+    yield* sql`UPDATE t3po_memory_events SET synced_at = NULL, superseded_by = 'correction' WHERE event_id = 'pending'`;
+    expect((yield* queue.list({ projectId: task.projectId })).projectItems).toEqual([]);
+    yield* sql`UPDATE t3po_memory_events SET superseded_by = NULL, kind = 'local_correction' WHERE event_id = 'pending'`;
+    expect((yield* queue.list({ projectId: task.projectId })).projectItems).toEqual([]);
   }).pipe(
     Effect.provide(
       Attention.layer.pipe(Layer.provide(projections), Layer.provideMerge(Sqlite.layerMemory)),

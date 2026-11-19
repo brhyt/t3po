@@ -1,13 +1,13 @@
 import { NeedsYou } from "./NeedsYou";
 import { ProjectMemory } from "./MemoryInspector";
-import { NativeChildren } from "./NativeChildren";
+import { NativeChildren } from "./NativeChildren.tsx";
 import { TaskResults } from "./TaskResults";
 import { randomUUID } from "../../lib/utils";
 import { useAtomValue } from "@effect/atom-react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { T, useGT } from "gt-react";
 import { ArrowUpRightIcon, PlusIcon, CheckIcon, RotateCcwIcon } from "lucide-react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
   DEFAULT_SERVER_SETTINGS,
   type EnvironmentId,
@@ -158,6 +158,9 @@ function ProjectBoard({
   const selectedModel = model ?? defaultModel;
 
   const [editingTask, setEditingTask] = useState<T3poTaskView | null>(null);
+  const [memoryOpen, setMemoryOpen] = useState(false);
+  const budgetControl = useRef<HTMLInputElement>(null);
+  const memoryControl = useRef<HTMLDivElement>(null);
   const [form, setForm] = useState<"lead" | "task" | "channel" | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -356,8 +359,24 @@ function ProjectBoard({
               ) : null}
             </div>
           </div>
-          <ProjectAttention environmentId={environmentId} projectId={projectId} />
-          <ProjectMemory environmentId={environmentId} projectId={projectId} />
+          <ProjectAttention
+            environmentId={environmentId}
+            projectId={projectId}
+            onOpenProject={(target) => {
+              if (target === "memory") setMemoryOpen(true);
+              const control = target === "budget" ? budgetControl.current : memoryControl.current;
+              control?.scrollIntoView({ block: "center" });
+              control?.focus({ preventScroll: true });
+            }}
+          />
+          <div ref={memoryControl} tabIndex={-1}>
+            <ProjectMemory
+              environmentId={environmentId}
+              projectId={projectId}
+              open={memoryOpen}
+              onOpenChange={setMemoryOpen}
+            />
+          </div>
           {lead ? (
             <NativeChildren
               environmentId={environmentId}
@@ -413,6 +432,7 @@ function ProjectBoard({
               <T>Task run budget</T>
               <input
                 className="block w-32 rounded border bg-background p-2"
+                ref={budgetControl}
                 name="maxRuns"
                 type="number"
                 min="0"
@@ -941,9 +961,11 @@ function WorkForm({
 function ProjectAttention({
   environmentId,
   projectId,
+  onOpenProject,
 }: {
   environmentId: EnvironmentId;
   projectId: ProjectId;
+  onOpenProject: (target: "budget" | "memory") => void;
 }) {
   const [before, setBefore] = useState<number | undefined>();
   const navigate = useNavigate();
@@ -955,6 +977,7 @@ function ProjectAttention({
   );
   return (
     <NeedsYou
+      onOpenProject={onOpenProject}
       {...(query.data ? { page: query.data } : {})}
       {...(query.error ? { error: query.error } : {})}
       onPage={(cursor) => {

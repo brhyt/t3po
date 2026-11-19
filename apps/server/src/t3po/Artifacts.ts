@@ -64,9 +64,9 @@ export async function captureSelectedFiles(root: string, paths: readonly string[
   // Darwin 20+ supports whole-path no-follow; older kernels may ignore unknown flags.
   if (platform === "darwin" && !(Number.parseInt(NodeOS.release(), 10) >= 20))
     throw new ArtifactError({ reason: "unavailable" });
-  // Node does not expose Darwin's O_NOFOLLOW_ANY from <sys/fcntl.h>.
+  // Darwin's O_NOFOLLOW_ANY (absent from Node constants) must not be combined with O_NOFOLLOW.
   // https://github.com/apple-oss-distributions/xnu/blob/main/bsd/sys/fcntl.h
-  const noFollowAny = platform === "darwin" ? 0x20000000 : 0;
+  const noFollow = platform === "darwin" ? 0x20000000 : NodeFS.constants.O_NOFOLLOW;
   const base = await NodeFSP.realpath(root);
   let total = 0;
   const files = [];
@@ -83,10 +83,7 @@ export async function captureSelectedFiles(root: string, paths: readonly string[
     if (!contained(base, target)) throw new ArtifactError({ reason: "path" });
     const file = await NodeFSP.open(
       target,
-      NodeFS.constants.O_RDONLY |
-        NodeFS.constants.O_NOFOLLOW |
-        NodeFS.constants.O_NONBLOCK |
-        noFollowAny,
+      NodeFS.constants.O_RDONLY | NodeFS.constants.O_NONBLOCK | noFollow,
     );
     try {
       // Linux checks the descriptor; Darwin rejects every symlink during open itself.

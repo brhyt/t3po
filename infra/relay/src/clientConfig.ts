@@ -11,7 +11,7 @@ import * as Path from "effect/Path";
 import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
 
-export interface RelayClientConfig {
+interface RelayClientTelemetryConfig {
   readonly url: string | undefined;
   readonly mobileTracingUrl: string;
   readonly mobileTracingDataset: string;
@@ -23,6 +23,13 @@ export interface RelayClientConfig {
   readonly tokenDigest: string;
 }
 
+export type RelayClientConfig =
+  | RelayClientTelemetryConfig
+  | {
+      readonly url: string | undefined;
+      readonly telemetryDisabled: true;
+    };
+
 export class RelayUrlUnavailableError extends Schema.TaggedError<RelayUrlUnavailableError>()(
   "RelayUrlUnavailableError",
   {},
@@ -33,15 +40,25 @@ export class RelayUrlUnavailableError extends Schema.TaggedError<RelayUrlUnavail
 }
 
 const relayClientConfigEnv = (config: RelayClientConfig & { readonly url: string }) =>
-  ({
-    T3CODE_RELAY_URL: config.url,
-    T3CODE_MOBILE_OTLP_TRACES_URL: config.mobileTracingUrl,
-    T3CODE_MOBILE_OTLP_TRACES_DATASET: config.mobileTracingDataset,
-    T3CODE_MOBILE_OTLP_TRACES_TOKEN: Redacted.value(config.mobileTracingToken),
-    T3CODE_RELAY_CLIENT_OTLP_TRACES_URL: config.clientTracingUrl,
-    T3CODE_RELAY_CLIENT_OTLP_TRACES_DATASET: config.clientTracingDataset,
-    T3CODE_RELAY_CLIENT_OTLP_TRACES_TOKEN: Redacted.value(config.clientTracingToken),
-  }) as const;
+  "telemetryDisabled" in config
+    ? {
+        T3CODE_RELAY_URL: config.url,
+        T3CODE_MOBILE_OTLP_TRACES_URL: "",
+        T3CODE_MOBILE_OTLP_TRACES_DATASET: "",
+        T3CODE_MOBILE_OTLP_TRACES_TOKEN: "",
+        T3CODE_RELAY_CLIENT_OTLP_TRACES_URL: "",
+        T3CODE_RELAY_CLIENT_OTLP_TRACES_DATASET: "",
+        T3CODE_RELAY_CLIENT_OTLP_TRACES_TOKEN: "",
+      }
+    : ({
+        T3CODE_RELAY_URL: config.url,
+        T3CODE_MOBILE_OTLP_TRACES_URL: config.mobileTracingUrl,
+        T3CODE_MOBILE_OTLP_TRACES_DATASET: config.mobileTracingDataset,
+        T3CODE_MOBILE_OTLP_TRACES_TOKEN: Redacted.value(config.mobileTracingToken),
+        T3CODE_RELAY_CLIENT_OTLP_TRACES_URL: config.clientTracingUrl,
+        T3CODE_RELAY_CLIENT_OTLP_TRACES_DATASET: config.clientTracingDataset,
+        T3CODE_RELAY_CLIENT_OTLP_TRACES_TOKEN: Redacted.value(config.clientTracingToken),
+      } as const);
 
 export class EnvValueNotSingleLineError extends Schema.TaggedError<EnvValueNotSingleLineError>()(
   "EnvValueNotSingleLineError",

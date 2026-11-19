@@ -352,6 +352,8 @@ export const layerEnvironmentAuth = Layer.effect(
   RelayEnvironmentAuth,
   Effect.gen(function* () {
     const credentials = yield* EnvironmentCredentials.EnvironmentCredentials;
+    const config = yield* RelayConfiguration.RelayConfiguration;
+    const links = yield* EnvironmentLinks.EnvironmentLinks;
     return {
       environmentBearer: Effect.fn("relay.auth.environment.bearer")(function* (
         httpEffect,
@@ -366,6 +368,19 @@ export const layerEnvironmentAuth = Layer.effect(
         );
         if (principal._tag === "None") {
           return yield* relayAuthInvalidError("not_authorized");
+        }
+        if (config.allowedClerkUserIds !== undefined) {
+          let allowed = false;
+          for (const userId of config.allowedClerkUserIds) {
+            const link = yield* links
+              .getForUser({ userId, environmentId: principal.value.environmentId })
+              .pipe(Effect.catch(() => relayInternalErrorResponse("persistence_failed")));
+            if (link?.environmentPublicKey === principal.value.environmentPublicKey) {
+              allowed = true;
+              break;
+            }
+          }
+          if (!allowed) return yield* relayAuthInvalidError("not_authorized");
         }
         yield* Effect.annotateCurrentSpan({
           "relay.auth.mode": "environment_credential",
@@ -385,6 +400,7 @@ export const layerDpopClientAuth = Layer.effect(
   RelayDpopClientAuth,
   Effect.gen(function* () {
     const relayTokens = yield* RelayTokens.RelayTokens;
+    const config = yield* RelayConfiguration.RelayConfiguration;
     return {
       relayDpop: Effect.fn("relay.auth.dpop_client")(function* (httpEffect, { credential }) {
         yield* appendRelayDpopChallengeHeader;
@@ -396,6 +412,9 @@ export const layerDpopClientAuth = Layer.effect(
         const verified = yield* relayTokens.verifyDpopAccessToken({ token });
         if (!verified) {
           return yield* relayAuthInvalidError("invalid_bearer");
+        }
+        if (!RelayConfiguration.isRelayUserAllowed(config, verified.sub)) {
+          return yield* relayAuthInvalidError("not_authorized");
         }
         yield* Effect.annotateCurrentSpan({
           "relay.auth.mode": "dpop",
@@ -580,6 +599,9 @@ export const verifyEnvironmentTunnelRecoveryProof = Effect.fn(
   "relay.api.server.verifyEnvironmentTunnelRecoveryProof",
 )(function* (input: EnvironmentTunnelRecoveryProofInput) {
   const config = yield* RelayConfiguration.RelayConfiguration;
+  if (!RelayConfiguration.isRelayUserAllowed(config, input.userId)) {
+    return yield* new HttpApiError.Unauthorized({});
+  }
   const verified = yield* verifyRelayJwt(RelayManagedEndpointRecoveryProofPayload, {
     publicKey: input.environmentPublicKey,
     token: input.proof,
@@ -1056,6 +1078,9 @@ export const layerTokenApi = HttpApiBuilder.group(
         );
         if (!verified.sub || !hasExpectedClerkAudience(verified.aud, config.clerkJwtAudience)) {
           return yield* relayAuthInvalidError("invalid_bearer");
+        }
+        if (!RelayConfiguration.isRelayUserAllowed(config, verified.sub)) {
+          return yield* relayAuthInvalidError("not_authorized");
         }
         const proofKeyThumbprint = yield* requireDpopProof().pipe(
           Effect.provideService(DpopProofs.DpopProofReplay, dpopProofs),
@@ -1726,6 +1751,10 @@ export function verifyRelayClientBearerToken(
       verifyClerkOAuthBearerToken(config, token).pipe(
         Effect.map((verified) => ({ ...verified, mode: "clerk_oauth_bearer" as const })),
       ),
+    ),
+    Effect.filterOrFail(
+      (verified) => RelayConfiguration.isRelayUserAllowed(config, verified.sub),
+      () => new ClerkTokenVerificationFailed({ cause: "relay_user_not_allowed" }),
     ),
   );
 }

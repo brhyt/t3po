@@ -12,9 +12,9 @@ export function isPreviewStage(stage: string): boolean {
 }
 
 // The prefix ends with a dash, so stage `pr-4` never matches tunnels of `pr-42`.
-export function isPreviewTunnelName(name: string, stage: string): boolean {
+export function isPreviewTunnelName(name: string, stage: string, namespace = stage): boolean {
   if (!isPreviewStage(stage)) return false;
-  const prefix = managedEndpointTunnelNamePrefix(stage);
+  const prefix = managedEndpointTunnelNamePrefix(namespace);
   return name.startsWith(prefix) && MANAGED_ENDPOINT_KEY_PATTERN.test(name.slice(prefix.length));
 }
 
@@ -23,13 +23,14 @@ export function isPreviewTunnelRecordName(
   recordName: string,
   stage: string,
   tunnelZoneName: string,
+  namespace = stage,
 ): boolean {
   if (!isPreviewStage(stage)) return false;
   const name = recordName.toLowerCase();
   const suffix = `.${tunnelZoneName.trim().toLowerCase()}`;
   if (!name.endsWith(suffix)) return false;
   const label = name.slice(0, -suffix.length);
-  const labelPrefix = `${stage}-`;
+  const labelPrefix = `${namespace.toLowerCase()}-`;
   return (
     label.startsWith(labelPrefix) &&
     MANAGED_ENDPOINT_KEY_PATTERN.test(label.slice(labelPrefix.length))
@@ -56,17 +57,19 @@ export interface SweepRecord {
 // of this stage's tunnels.
 export function previewSweepTargets(input: {
   readonly stage: string;
+  readonly namespace?: string;
   readonly tunnelZoneName: string;
   readonly tunnels: ReadonlyArray<SweepTunnel>;
   readonly records: ReadonlyArray<SweepRecord>;
 }): { readonly tunnels: ReadonlyArray<SweepTunnel>; readonly records: ReadonlyArray<SweepRecord> } {
   const tunnels = input.tunnels.filter(
-    (tunnel) => tunnel.name != null && isPreviewTunnelName(tunnel.name, input.stage),
+    (tunnel) =>
+      tunnel.name != null && isPreviewTunnelName(tunnel.name, input.stage, input.namespace),
   );
   const tunnelContents = new Set(tunnels.map((tunnel) => tunnelCnameContent(tunnel.id)));
   const records = input.records.filter(
     (record) =>
-      isPreviewTunnelRecordName(record.name, input.stage, input.tunnelZoneName) &&
+      isPreviewTunnelRecordName(record.name, input.stage, input.tunnelZoneName, input.namespace) &&
       record.content != null &&
       tunnelContents.has(record.content),
   );

@@ -163,21 +163,34 @@ const make = Effect.gen(function* () {
       if (existing && (!task || task.id.startsWith("delegation:"))) return { threadId };
       let workspaceStrategy: ThreadLaunch.ThreadLaunchWorkspaceStrategy = { type: "root" };
       if (task?.workspace?.type === "worktree" && !task.workspaceLocked) {
-        const remote = yield* git.resolvePrimaryRemoteName(project.workspaceRoot);
-        const hasRemote = yield* git.remoteExists({
-          cwd: project.workspaceRoot,
-          remoteName: remote,
-        });
-        const defaultBranch =
-          task.workspace.baseRef ??
-          (yield* git.resolveDefaultBranchName(project.workspaceRoot, remote));
-        if (!defaultBranch) return yield* new T3poError({ operation: "workspace" });
+        let baseRef = task.workspace.baseRef;
+        let fetchDefault = false;
+        if (baseRef === undefined) {
+          const refs = yield* git.listRefs({
+            cwd: project.workspaceRoot,
+            refKind: "local",
+            limit: 1,
+            refresh: true,
+          });
+          if (!refs.isRepo) return yield* new T3poError({ operation: "workspace" });
+          if (refs.hasPrimaryRemote) {
+            const remote = yield* git.resolvePrimaryRemoteName(project.workspaceRoot);
+            const branch = yield* git.resolveDefaultBranchName(project.workspaceRoot, remote);
+            if (!branch) return yield* new T3poError({ operation: "workspace" });
+            baseRef = `${remote}/${branch}`;
+            fetchDefault = true;
+          } else {
+            const branches = yield* git.listLocalBranchNames(project.workspaceRoot);
+            baseRef =
+              ["main", "master"].find((branch) => branches.includes(branch)) ??
+              (branches.length === 1 ? branches[0] : undefined);
+            if (!baseRef) return yield* new T3poError({ operation: "workspace" });
+          }
+        }
         workspaceStrategy = {
           type: "worktree",
-          baseRef:
-            task.workspace.baseRef ?? (hasRemote ? `${remote}/${defaultBranch}` : defaultBranch),
-          startFromOrigin:
-            task.workspace.startFromOrigin ?? (task.workspace.baseRef === undefined && hasRemote),
+          baseRef,
+          startFromOrigin: task.workspace.startFromOrigin ?? fetchDefault,
         };
         yield* launcher.checkWorktreeBase({ projectId: input.projectId, workspaceStrategy });
       }

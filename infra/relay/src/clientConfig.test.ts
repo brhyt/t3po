@@ -103,6 +103,16 @@ describe("PublishClientConfig", () => {
       expect(third).toContain("T3CODE_RELAY_CLIENT_OTLP_TRACES_TOKEN=client-v2\n");
       expect(third).not.toContain("client-v1");
       expect(third).toContain("KEEP=yes\n");
+      yield* stack
+        .deploy(PublishClientConfig({ url: "https://relay.example.com", telemetryDisabled: true }))
+        .pipe(configured);
+      const disabled = yield* fs.readFileString(target);
+      expect(disabled).toContain("T3CODE_RELAY_URL=https://relay.example.com\n");
+      expect(disabled).toContain("T3CODE_MOBILE_OTLP_TRACES_TOKEN=\n");
+      expect(disabled).toContain("T3CODE_RELAY_CLIENT_OTLP_TRACES_TOKEN=\n");
+      expect(disabled).not.toContain("axiom.example.com");
+      expect(disabled).not.toContain("client-v2");
+      expect(disabled).not.toContain("mobile-v2");
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
   );
 
