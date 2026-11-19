@@ -9,6 +9,8 @@ import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
+import { externalPostgresOrigin } from "./privateDeployment.ts";
+
 import { relayDatabaseMode } from "./dbConfig.ts";
 
 export class RelayDb extends Context.Service<
@@ -36,6 +38,7 @@ export class RelayTransactions extends Context.Service<
 }
 
 export const PlanetscaleDatabase = Effect.gen(function* () {
+  if ((yield* externalPostgresOrigin) !== undefined) return undefined;
   const { stage } = yield* Alchemy.Stack;
   const schema = yield* Drizzle.Schema("RelaySchema", {
     schema: "./src/persistence/schema.ts",
@@ -74,9 +77,12 @@ export const PlanetscaleDatabase = Effect.gen(function* () {
 });
 
 export const RelayHyperdrive = Effect.gen(function* () {
-  const { runtimeRole } = yield* PlanetscaleDatabase;
+  const externalOrigin = yield* externalPostgresOrigin;
+  const managed = externalOrigin === undefined ? yield* PlanetscaleDatabase : undefined;
+  const origin = externalOrigin ?? managed?.runtimeRole.origin;
+  if (origin === undefined) return yield* Effect.die("Relay database origin is missing");
   return yield* Cloudflare.Hyperdrive.Connection("RelayHyperdrive", {
-    origin: runtimeRole.origin,
+    origin,
     caching: {
       disabled: true,
     },

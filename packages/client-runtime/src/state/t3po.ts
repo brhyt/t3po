@@ -29,6 +29,34 @@ export function createT3poAtoms<R, E>(
   });
   return {
     snapshot,
+    artifactSave: createEnvironmentRpcCommand(runtime, {
+      label: "t3po:artifactSave",
+      tag: WS_METHODS.t3poArtifactSave,
+    }),
+    artifactRead: createEnvironmentRpcCommand(runtime, {
+      label: "t3po:artifactRead",
+      tag: WS_METHODS.t3poArtifactRead,
+    }),
+    artifactList: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "t3po:artifactList",
+      tag: WS_METHODS.t3poArtifactList,
+    }),
+    attention: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "t3po:attention",
+      tag: WS_METHODS.t3poAttention,
+      refreshTrigger: ({ environmentId, input }) =>
+        changes({ environmentId, input: { projectId: input.projectId, metadataOnly: false } }),
+    }),
+    memoryList: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "t3po:memoryList",
+      tag: WS_METHODS.t3poMemoryList,
+      refreshTrigger: ({ environmentId, input }) =>
+        changes({ environmentId, input: { projectId: input.projectId, metadataOnly: true } }),
+    }),
+    memoryCorrect: createEnvironmentRpcCommand(runtime, {
+      label: "t3po:memoryCorrect",
+      tag: WS_METHODS.t3poMemoryCorrect,
+    }),
     results: createEnvironmentRpcQueryAtomFamily(runtime, {
       label: "t3po:results",
       tag: WS_METHODS.t3poResults,

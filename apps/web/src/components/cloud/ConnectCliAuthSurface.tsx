@@ -83,8 +83,8 @@ export function ConnectCliAuthorizeSurface() {
         title={gt("Connecting your terminal")}
         description={
           isSignedIn
-            ? gt("Redirecting to authorize T3 Connect for your CLI…")
-            : gt("Sign in to continue authorizing T3 Connect for your CLI.")
+            ? gt("Redirecting to authorize ro connect for your CLI…")
+            : gt("Sign in to continue authorizing ro connect for your CLI.")
         }
       />
       {loadFailed ? (

@@ -24,7 +24,6 @@ import { useProjects, useThreadShell, useThreadShellsForProjectRefs } from "../.
 import { openCommandPalette } from "../../commandPaletteBus";
 import { Button } from "../ui/button";
 import { SidebarMenuButton, useSidebar } from "../ui/sidebar";
-import { T3Wordmark } from "../T3Wordmark";
 import { t3poSearch } from "./search";
 import { resolveThreadRouteRef } from "../../threadRoutes";
 import { projectConversations } from "./projectConversations";
@@ -49,10 +48,7 @@ export function ProjectSidebar() {
           className="ml-[var(--workspace-titlebar-content-left)] inline-flex h-7 items-center gap-1 rounded-md text-sm font-medium tracking-tight outline-hidden ring-ring focus-visible:ring-2 focus-visible:ring-inset"
           onClick={() => setOpenMobile(false)}
         >
-          <T3Wordmark aria-hidden className="h-[1cap] w-auto shrink-0" />
-          <span className="text-muted-foreground [text-box:trim-both_cap_alphabetic] supports-[text-box:trim-both_cap_alphabetic]:py-1">
-            {"PO"}
-          </span>
+          {"T3PO"}
         </Link>
       </div>
       <div className="px-(--sidebar-content-inset)">

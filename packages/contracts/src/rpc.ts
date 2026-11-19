@@ -1,4 +1,20 @@
 import {
+  T3poMemoryQuery,
+  T3poMemoryCorrection,
+  T3poMemoryPage,
+  T3poMemoryError,
+} from "./t3poMemory.ts";
+import {
+  ArtifactQuery,
+  ArtifactSave,
+  ArtifactRead,
+  ArtifactPage,
+  ArtifactVersion,
+  ArtifactContent,
+  ArtifactError,
+} from "./t3poArtifacts.ts";
+import { AttentionQuery, AttentionPage } from "./t3poAttention.ts";
+import {
   T3poSnapshot,
   T3poResultsQuery,
   T3poResultsPage,
@@ -456,6 +472,12 @@ export const WS_METHODS = {
   projectsSearchEntries: "projects.searchEntries",
   projectsWriteFile: "projects.writeFile",
   projectsMutate: "projects.mutate",
+  t3poArtifactSave: "t3po.artifactSave",
+  t3poArtifactList: "t3po.artifactList",
+  t3poArtifactRead: "t3po.artifactRead",
+  t3poAttention: "t3po.attention",
+  t3poMemoryList: "t3po.memoryList",
+  t3poMemoryCorrect: "t3po.memoryCorrect",
   t3poResults: "t3po.results",
   t3poSnapshot: "t3po.snapshot",
   t3poSubscribe: "t3po.subscribe",
@@ -1558,11 +1580,45 @@ const WsProjectsWriteFileRpc = Rpc.make(WS_METHODS.projectsWriteFile, {
   error: Schema.Union([ProjectWriteFileError, EnvironmentAuthorizationError]),
 });
 
+const WsT3poArtifactSaveRpc = Rpc.make(WS_METHODS.t3poArtifactSave, {
+  payload: ArtifactSave,
+  success: ArtifactVersion,
+  error: Schema.Union([ArtifactError, EnvironmentAuthorizationError]),
+});
+
+const WsT3poArtifactListRpc = Rpc.make(WS_METHODS.t3poArtifactList, {
+  payload: ArtifactQuery,
+  success: ArtifactPage,
+  error: Schema.Union([ArtifactError, EnvironmentAuthorizationError]),
+});
+
+const WsT3poArtifactReadRpc = Rpc.make(WS_METHODS.t3poArtifactRead, {
+  payload: ArtifactRead,
+  success: ArtifactContent,
+  error: Schema.Union([ArtifactError, EnvironmentAuthorizationError]),
+});
+
+const WsT3poAttentionRpc = Rpc.make(WS_METHODS.t3poAttention, {
+  payload: AttentionQuery,
+  success: AttentionPage,
+  error: Schema.Union([T3poError, EnvironmentAuthorizationError]),
+});
+
 const WsT3poSubscribeRpc = Rpc.make(WS_METHODS.t3poSubscribe, {
   payload: T3poQuery,
   success: Schema.Number,
   stream: true,
   error: Schema.Union([T3poError, EnvironmentAuthorizationError]),
+});
+const WsT3poMemoryListRpc = Rpc.make(WS_METHODS.t3poMemoryList, {
+  payload: T3poMemoryQuery,
+  success: T3poMemoryPage,
+  error: Schema.Union([T3poMemoryError, EnvironmentAuthorizationError]),
+});
+const WsT3poMemoryCorrectRpc = Rpc.make(WS_METHODS.t3poMemoryCorrect, {
+  payload: T3poMemoryCorrection,
+  success: Schema.String,
+  error: Schema.Union([T3poMemoryError, EnvironmentAuthorizationError]),
 });
 const WsT3poResultsRpc = Rpc.make(WS_METHODS.t3poResults, {
   payload: T3poResultsQuery,
@@ -2433,6 +2489,12 @@ export const WsRpcGroup = RpcGroup.make(
   WsProjectsWriteFileRpc,
   WsProjectsMutateRpc,
   WsT3poSnapshotRpc,
+  WsT3poArtifactSaveRpc,
+  WsT3poArtifactListRpc,
+  WsT3poArtifactReadRpc,
+  WsT3poAttentionRpc,
+  WsT3poMemoryListRpc,
+  WsT3poMemoryCorrectRpc,
   WsT3poResultsRpc,
   WsT3poSubscribeRpc,
   WsT3poMutateRpc,

@@ -1,3 +1,5 @@
+import { NeedsYou } from "./NeedsYou";
+import { ProjectMemory } from "./MemoryInspector";
 import { NativeChildren } from "./NativeChildren";
 import { TaskResults } from "./TaskResults";
 import { randomUUID } from "../../lib/utils";
@@ -354,6 +356,8 @@ function ProjectBoard({
               ) : null}
             </div>
           </div>
+          <ProjectAttention environmentId={environmentId} projectId={projectId} />
+          <ProjectMemory environmentId={environmentId} projectId={projectId} />
           {lead ? (
             <NativeChildren
               environmentId={environmentId}
@@ -931,5 +935,38 @@ function WorkForm({
         </Button>
       </div>
     </form>
+  );
+}
+
+function ProjectAttention({
+  environmentId,
+  projectId,
+}: {
+  environmentId: EnvironmentId;
+  projectId: ProjectId;
+}) {
+  const [before, setBefore] = useState<number | undefined>();
+  const navigate = useNavigate();
+  const query = useEnvironmentQuery(
+    t3po.attention({
+      environmentId,
+      input: { projectId, ...(before === undefined ? {} : { before }) },
+    }),
+  );
+  return (
+    <NeedsYou
+      {...(query.data ? { page: query.data } : {})}
+      {...(query.error ? { error: query.error } : {})}
+      onPage={(cursor) => {
+        setBefore(cursor);
+        query.refresh();
+      }}
+      onOpen={(item) => {
+        void navigate({
+          to: "/$environmentId/$threadId",
+          params: { environmentId, threadId: item.threadId },
+        });
+      }}
+    />
   );
 }

@@ -1,3 +1,4 @@
+import Migration0105 from "./Migrations/105_T3poArtifacts.ts";
 import * as Migrator from "effect/sql/Migrator";
 import * as Effect from "effect/Effect";
 import * as SqlClient from "effect/sql/SqlClient";
@@ -109,6 +110,7 @@ import Migration0098 from "./Migrations/098_ActiveShellIndexIndexes.ts";
 
 import Migration0099 from "./Migrations/099_T3po.ts";
 
+import Migration0104 from "./Migrations/104_T3poMemoryCorrections.ts";
 import Migration0103 from "./Migrations/103_T3poAuthority.ts";
 import Migration0102 from "./Migrations/102_T3poMemoryDelivery.ts";
 import Migration0101 from "./Migrations/101_T3poMemory.ts";
@@ -219,6 +221,8 @@ const migrationEntries = [
   [101, "T3poMemory", Migration0101],
   [102, "T3poMemoryDelivery", Migration0102],
   [103, "T3poAuthority", Migration0103],
+  [104, "T3poMemoryCorrections", Migration0104],
+  [105, "T3poArtifacts", Migration0105],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);

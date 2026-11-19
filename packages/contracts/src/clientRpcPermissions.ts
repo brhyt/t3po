@@ -1,6 +1,7 @@
 import * as Schema from "effect/Schema";
 import { GitPreparePullRequestThreadInput, GitRunStackedActionInput } from "./git.ts";
 import {
+  AuthFilesystemReadScope,
   AuthAccessWriteScope,
   AuthEnvironmentMaintainScope,
   AuthOrchestrationOperateScope,
@@ -17,6 +18,9 @@ import { WS_METHODS } from "./rpc.ts";
 
 /** Incremental client enforcement; the server still authorizes every request. */
 export const CLIENT_GUARDED_RPC_SCOPES = {
+  [WS_METHODS.t3poArtifactRead]: AuthFilesystemReadScope,
+  [WS_METHODS.t3poArtifactSave]: AuthOrchestrationOperateScope,
+  [WS_METHODS.t3poMemoryCorrect]: AuthOrchestrationOperateScope,
   [WS_METHODS.t3poMutate]: AuthOrchestrationOperateScope,
   [WS_METHODS.t3poLaunch]: AuthOrchestrationOperateScope,
   [WS_METHODS.providerAuthRemoveMethod]: AuthProvidersManageScope,
@@ -98,6 +102,10 @@ export function clientRpcRequiredScopes(
   method: string,
   input: unknown,
 ): readonly AuthEnvironmentScope[] {
+  if (method === WS_METHODS.t3poArtifactSave)
+    return [AuthOrchestrationOperateScope, AuthFilesystemReadScope];
+  if (method === WS_METHODS.t3poArtifactRead)
+    return [AuthOrchestrationReadScope, AuthFilesystemReadScope];
   if (method === WS_METHODS.gitPreparePullRequestThread && input !== undefined) {
     const payload = decodePrepareThread(input);
     if (payload.mode === "worktree" && payload.threadId !== undefined)

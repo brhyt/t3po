@@ -1,4 +1,6 @@
 import {
+  ArtifactError,
+  RunId,
   AuthEnvironmentMaintainScope,
   AuthDiagnosticsReadScope,
   AuthFilesystemReadScope,
@@ -35,6 +37,15 @@ import * as RpcAuthorization from "./RpcAuthorization.ts";
 
 describe("RPC authorization scopes", () => {
   it("lets readers observe T3PO work but reserves mutation and launch for operators", () => {
+    expect(requiredScopeForRpcMethod(WS_METHODS.t3poAttention)).toBe(AuthOrchestrationReadScope);
+    expect(requiredScopeForRpcMethod(WS_METHODS.t3poArtifactSave)).toBe(
+      AuthOrchestrationOperateScope,
+    );
+    expect(requiredScopeForRpcMethod(WS_METHODS.t3poArtifactRead)).toBe(AuthOrchestrationReadScope);
+    expect(requiredScopeForRpcMethod(WS_METHODS.t3poMemoryList)).toBe(AuthOrchestrationReadScope);
+    expect(requiredScopeForRpcMethod(WS_METHODS.t3poMemoryCorrect)).toBe(
+      AuthOrchestrationOperateScope,
+    );
     expect(requiredScopeForRpcMethod(WS_METHODS.t3poResults)).toBe(AuthOrchestrationReadScope);
     expect(requiredScopeForRpcMethod(WS_METHODS.t3poSnapshot)).toBe(AuthOrchestrationReadScope);
     expect(requiredScopeForRpcMethod(WS_METHODS.t3poSubscribe)).toBe(AuthOrchestrationReadScope);
@@ -612,4 +623,83 @@ it.effect("denies manual cleanup before the handler without settings permission"
     });
     expect(handled).toBe(false);
   }),
+);
+
+it.effect(
+  "requires both orchestration and filesystem grants before capturing or downloading artifacts",
+  () =>
+    Effect.gen(function* () {
+      const tested = [WS_METHODS.t3poArtifactSave, WS_METHODS.t3poArtifactRead] as const;
+      const group = WsRpcGroup.omit(
+        ...[...WsRpcGroup.requests.keys()].filter(
+          (tag): tag is Exclude<keyof typeof RPC_REQUIRED_SCOPES, (typeof tested)[number]> =>
+            !(tested as readonly string[]).includes(tag),
+        ),
+      );
+      let reached = 0;
+      const handlers = Layer.merge(
+        group.toLayerHandler(WS_METHODS.t3poArtifactSave, () =>
+          Effect.sync(() => {
+            reached++;
+          }).pipe(Effect.andThen(Effect.fail(new ArtifactError({ reason: "unavailable" })))),
+        ),
+        group.toLayerHandler(WS_METHODS.t3poArtifactRead, () =>
+          Effect.sync(() => {
+            reached++;
+            return { base64: "", sha256: "fixture" };
+          }),
+        ),
+      );
+      for (const scopes of [
+        [],
+        [AuthOrchestrationReadScope, AuthOrchestrationOperateScope],
+        [AuthFilesystemReadScope],
+      ]) {
+        const client = yield* RpcTest.makeClient(group).pipe(
+          Effect.provide(Layer.merge(handlers, RpcAuthorization.layer(scopes))),
+        );
+        expect(
+          yield* client[WS_METHODS.t3poArtifactSave]({
+            projectId: ProjectId.make("p"),
+            taskId: "t",
+            runId: RunId.make("r"),
+            paths: [],
+          }).pipe(Effect.flip),
+        ).toMatchObject({ _tag: "EnvironmentAuthorizationError" });
+        expect(
+          yield* client[WS_METHODS.t3poArtifactRead]({
+            projectId: ProjectId.make("p"),
+            versionId: "v",
+            path: "file",
+          }).pipe(Effect.flip),
+        ).toMatchObject({ _tag: "EnvironmentAuthorizationError" });
+      }
+      expect(reached).toBe(0);
+      const allowed = yield* RpcTest.makeClient(group).pipe(
+        Effect.provide(
+          Layer.merge(
+            handlers,
+            RpcAuthorization.layer([
+              AuthOrchestrationReadScope,
+              AuthOrchestrationOperateScope,
+              AuthFilesystemReadScope,
+            ]),
+          ),
+        ),
+      );
+      expect(
+        yield* allowed[WS_METHODS.t3poArtifactSave]({
+          projectId: ProjectId.make("p"),
+          taskId: "t",
+          runId: RunId.make("r"),
+          paths: [],
+        }).pipe(Effect.flip),
+      ).toMatchObject({ _tag: "ArtifactError" });
+      yield* allowed[WS_METHODS.t3poArtifactRead]({
+        projectId: ProjectId.make("p"),
+        versionId: "v",
+        path: "file",
+      });
+      expect(reached).toBe(2);
+    }),
 );

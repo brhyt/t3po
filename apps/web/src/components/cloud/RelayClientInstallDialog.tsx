@@ -73,9 +73,9 @@ export function RelayClientInstallDialog() {
           </DialogTitle>
           <DialogDescription>
             {isInstalling
-              ? gt("T3 Code is preparing this environment for secure access through T3 Connect.")
+              ? gt("T3 Code is preparing this environment for secure access through ro connect.")
               : gt(
-                  "T3 Code needs the relay client to make this environment available through T3 Connect.",
+                  "T3 Code needs the relay client to make this environment available through ro connect.",
                 )}
           </DialogDescription>
         </DialogHeader>

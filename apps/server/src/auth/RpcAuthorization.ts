@@ -64,9 +64,15 @@ export const RPC_REQUIRED_SCOPES = {
   [ORCHESTRATION_V2_WS_METHODS.subscribeCommandOutput]: AuthOrchestrationReadScope,
   [ORCHESTRATION_V2_WS_METHODS.subscribePromptSuggestion]: AuthOrchestrationReadScope,
   [WS_METHODS.projectsMutate]: AuthOrchestrationOperateScope,
+  [WS_METHODS.t3poArtifactSave]: AuthOrchestrationOperateScope,
+  [WS_METHODS.t3poArtifactList]: AuthOrchestrationReadScope,
+  [WS_METHODS.t3poArtifactRead]: AuthOrchestrationReadScope,
+  [WS_METHODS.t3poAttention]: AuthOrchestrationReadScope,
   [WS_METHODS.t3poResults]: AuthOrchestrationReadScope,
   [WS_METHODS.t3poSnapshot]: AuthOrchestrationReadScope,
   [WS_METHODS.t3poSubscribe]: AuthOrchestrationReadScope,
+  [WS_METHODS.t3poMemoryList]: AuthOrchestrationReadScope,
+  [WS_METHODS.t3poMemoryCorrect]: AuthOrchestrationOperateScope,
   [WS_METHODS.t3poMutate]: AuthOrchestrationOperateScope,
   [WS_METHODS.t3poLaunch]: AuthOrchestrationOperateScope,
   [WS_METHODS.serverProbe]: AuthOrchestrationReadScope,
@@ -273,6 +279,10 @@ const requiredScopesForRpcCall = (
   method: string,
   payload: unknown,
 ): ReadonlyArray<AuthEnvironmentScope> => {
+  if (method === WS_METHODS.t3poArtifactSave)
+    return [AuthOrchestrationOperateScope, AuthFilesystemReadScope];
+  if (method === WS_METHODS.t3poArtifactRead)
+    return [AuthOrchestrationReadScope, AuthFilesystemReadScope];
   if (method === WS_METHODS.serverRetryResourceTelemetry) {
     return [AuthEnvironmentMaintainScope, AuthDiagnosticsReadScope];
   }

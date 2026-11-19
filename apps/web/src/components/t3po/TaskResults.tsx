@@ -1,7 +1,11 @@
+import { useAtomValue } from "@effect/atom-react";
+import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
+import { useAtomCommand } from "../../state/use-atom-command";
+import { ArtifactVersions } from "./ArtifactVersions";
 import { useNavigate } from "@tanstack/react-router";
 import { useRightPanelStore } from "../../rightPanelStore";
 import { useState } from "react";
-import { T, Var } from "gt-react";
+import { T, Var, useGT } from "gt-react";
 import type { EnvironmentId, T3poResult, T3poTaskView } from "@t3tools/contracts";
 import { useEnvironmentQuery } from "../../state/query";
 import { t3po } from "../../state/t3po";
@@ -137,6 +141,12 @@ function Result({
           });
         }}
       />
+      <SavedResult
+        key={`${task.id}:${result.runId}`}
+        task={task}
+        environmentId={environmentId}
+        result={result}
+      />
       {result.truncated ? (
         <p className="text-xs text-muted-foreground">
           <T>Excerpt shown. Open work for the full response.</T>
@@ -144,4 +154,112 @@ function Result({
       ) : null}
     </section>
   );
+}
+
+function SavedResult(props: {
+  task: T3poTaskView;
+  environmentId: EnvironmentId;
+  result: T3poResult;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="space-y-2">
+      <Button variant="ghost" size="sm" onClick={() => setOpen(!open)}>
+        <T>Saved versions</T>
+      </Button>
+      {open ? <SavedResultPanel {...props} /> : null}
+    </div>
+  );
+}
+function SavedResultPanel({
+  task,
+  environmentId,
+  result,
+}: {
+  task: T3poTaskView;
+  environmentId: EnvironmentId;
+  result: T3poResult;
+}) {
+  const gt = useGT();
+  const [before, setBefore] = useState<number | undefined>();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | undefined>();
+  const query = useEnvironmentQuery(
+    t3po.artifactList({
+      environmentId,
+      input: {
+        projectId: task.projectId,
+        taskId: task.id,
+        ...(before === undefined ? {} : { before }),
+      },
+    }),
+  );
+  const save = useAtomCommand(t3po.artifactSave);
+  const read = useAtomCommand(t3po.artifactRead);
+  const canSave = useAtomValue(t3po.artifactSave.permissionAtom(environmentId));
+  return (
+    <ArtifactVersions
+      page={query.data ?? undefined}
+      busy={busy}
+      canSave={canSave}
+      {...(error || query.error ? { error: error ?? query.error! } : {})}
+      onPage={(cursor) => {
+        setBefore(cursor);
+        query.refresh();
+      }}
+      onSave={async (paths) => {
+        if (busy) return;
+        setBusy(true);
+        setError(undefined);
+        try {
+          const saved = await save({
+            environmentId,
+            input: { projectId: task.projectId, taskId: task.id, runId: result.runId, paths },
+          });
+          if (saved._tag !== "Success") {
+            const cause = squashAtomCommandFailure(saved);
+            setError(cause instanceof Error ? cause.message : gt("Could not save changes."));
+          } else {
+            setBefore(undefined);
+            query.refresh();
+          }
+        } catch (cause) {
+          setError(cause instanceof Error ? cause.message : gt("Could not save changes."));
+        }
+        setBusy(false);
+      }}
+      onFile={async (version, path) => {
+        setError(undefined);
+        try {
+          const response = await read({
+            environmentId,
+            input: { projectId: task.projectId, versionId: version.id, path },
+          });
+          if (response._tag !== "Success") {
+            const cause = squashAtomCommandFailure(response);
+            setError(cause instanceof Error ? cause.message : gt("Could not save changes."));
+          } else {
+            downloadArtifact(response.value.base64, path);
+          }
+        } catch (cause) {
+          setError(cause instanceof Error ? cause.message : gt("Could not save changes."));
+        }
+      }}
+    />
+  );
+}
+
+function downloadArtifact(base64: string, path: string) {
+  const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+  const url = URL.createObjectURL(new Blob([bytes], { type: "application/octet-stream" }));
+  const link = document.createElement("a");
+  try {
+    link.href = url;
+    link.download = path.split(/[\\/]/).at(-1) || "artifact";
+    document.body.append(link);
+    link.click();
+  } finally {
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 0);
+  }
 }

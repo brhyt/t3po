@@ -1,3 +1,5 @@
+import * as Inspector from "./MemoryInspector.ts";
+import * as Deferred from "effect/Deferred";
 import * as TestClock from "effect/testing/TestClock";
 import * as PubSub from "effect/PubSub";
 import * as Fiber from "effect/Fiber";
@@ -633,4 +635,75 @@ it.effect(
       Effect.provideService(FetchHttpClient.Fetch, fetcher),
     );
   },
+);
+
+it.effect(
+  "serializes local corrections with delivery and retains corrections after reopening",
+  () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const directory = yield* fs.makeTempDirectoryScoped();
+      const filename = path.join(directory, "memory.sqlite");
+      yield* Effect.gen(function* () {
+        const store = yield* Store.Store;
+        const lock = yield* store.memoryDeliveryLock;
+        const inspector = yield* Inspector.MemoryInspector.pipe(
+          Effect.provide(
+            Inspector.layer.pipe(
+              Layer.provide(Layer.succeed(Inspector.MemoryDeliveryLock, lock)),
+              Layer.provide(
+                Layer.succeed(Inspector.MemoryAccess, {
+                  authorize: () => Effect.succeed("operator"),
+                }),
+              ),
+            ),
+          ),
+        );
+        yield* store.mutate({ type: "save_lead", projectId, name: "Lead", brief: "Original" });
+        const target = (yield* inspector.list({ projectId })).entries[0]!;
+        const entered = yield* Deferred.make<void>();
+        const release = yield* Deferred.make<void>();
+        const holder = yield* lock
+          .withPermit(
+            Deferred.succeed(entered, undefined).pipe(Effect.andThen(Deferred.await(release))),
+          )
+          .pipe(Effect.forkScoped);
+        yield* Deferred.await(entered);
+        const started = yield* Deferred.make<void>();
+        const correction = yield* Deferred.succeed(started, undefined).pipe(
+          Effect.andThen(
+            inspector.correct({
+              projectId,
+              targetId: target.id,
+              operationId: "correction",
+              expectedRevision: target.revision,
+              text: "Corrected",
+            }),
+          ),
+          Effect.forkScoped,
+        );
+        yield* Deferred.await(started);
+        expect(yield* Effect.sync(() => correction.pollUnsafe())).toBeUndefined();
+        expect((yield* inspector.list({ projectId })).entries[0]?.supersededBy).toBeNull();
+        yield* Deferred.succeed(release, undefined);
+        yield* Fiber.join(holder);
+        yield* Fiber.join(correction);
+        expect((yield* store.read).memory[0]?.pending).toBe(0);
+      }).pipe(
+        Effect.provide(
+          Store.layer.pipe(
+            Layer.provideMerge(Changes.layer),
+            Layer.provideMerge(Sqlite.layerFromPath(filename)),
+          ),
+        ),
+      );
+      const records = yield* Store.Store.pipe(
+        Effect.flatMap((store) => store.context(projectId, ThreadId.make("t3po-lead:project-a"))),
+        Effect.provide(Store.layer.pipe(Layer.provide(Sqlite.layerFromPath(filename)))),
+      );
+      expect(JSON.parse(records).memory.recentRecords).toEqual([
+        { kind: "local_correction", text: "Corrected" },
+      ]);
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
 );

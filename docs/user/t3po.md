@@ -53,3 +53,19 @@ The roc deployment now connects Honcho to the existing Codex login through a loc
 After setting up a lead, use **Refresh memory status** to check inference jobs. Operator-authorized projects can **Pause memory**, **Resume memory**, or **Retry memory jobs**. These controls apply to the shared memory service, not just the selected project. Pause allows active inference to finish; local capture and background delivery continue. Status is a snapshot refreshed on demand; counts describe adapter inference jobs, while Honcho may still be collecting a batch for up to one minute. A durable receipt does not mean reasoning is finished.
 
 A private `t3po-memory.json` in the server userdata directory can supply `url` and `token` without changing the launcher. The backend reads it at startup, only when neither environment setting is supplied. Keep it mode 600. New project IDs require an explicit gateway grant; current installation grants expire after 90 days and need renewal.
+
+## ro connect private beta
+
+ro connect links your devices to T3PO using the existing T3 Code connection protocols. The private source beta has its own installer, service name and data directory; use the [ro connect runbook](../operations/ro-connect-beta.md) for install, start, status, stop, update and pairing. Account-based access requires shared Brhyt sign-in with ro-specific relay configuration and an operator-provisioned relay. The hosted beta is not configured for that flow yet.
+
+## Inspect and correct local memory
+
+Open **Project memory** in a project to inspect captured records, twenty at a time. Receipt acceptance confirms that the gateway accepted a record; Honcho delivery and processing are not yet verified in this view.
+
+Operators can correct a record locally. The correction keeps its history, replaces the original in local journal recall, and suppresses any pending delivery of that original. Previously delivered Honcho memory can still be recalled; this does not edit project briefs, erase remote memory, or retract prior conversations. If saving fails, retry the same correction before making another edit.
+
+## Save deliverables and find work that needs you
+
+In a completed result, open **Saved versions** to save its response and selected workspace files. Enter workspace-relative paths, one per line. Files are captured when you save, not reconstructed from the earlier run. Each version preserves its bytes and provenance even after source files or execution history are removed. Limits are twenty files, 1 MiB per file, and 5 MiB total. Download saved files from the version; historical text links still refer to the original workspace. Saving another time creates another version.
+
+The project’s **Needs you** list collects pending questions, plans, failed work, and completed results awaiting review. Open an item to respond or review through its existing task conversation. It does not approve actions or start work. Lists are paginated, and a page can be empty while further pages remain. Reviewing an earlier run does not dismiss a newer result.

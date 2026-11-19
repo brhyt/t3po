@@ -622,6 +622,18 @@
     "./provider-instance-ids": {
       "types": "./src/providerInstanceIds.ts",
       "default": "./src/providerInstanceIds.ts"
+    },
+    "./state/t3poMemory": {
+      "types": "./src/state/t3poMemory.ts",
+      "default": "./src/state/t3poMemory.ts"
+    },
+    "./state/t3poArtifacts": {
+      "types": "./src/state/t3poArtifacts.ts",
+      "default": "./src/state/t3poArtifacts.ts"
+    },
+    "./state/t3poAttention": {
+      "types": "./src/state/t3poAttention.ts",
+      "default": "./src/state/t3poAttention.ts"
     }
   },
   "scripts": {

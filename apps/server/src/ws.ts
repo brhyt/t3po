@@ -1,3 +1,8 @@
+import * as T3poMemoryInspector from "./t3po/MemoryInspector.ts";
+import * as T3poMemoryAccess from "./t3po/MemoryAccess.ts";
+import * as T3poStore from "./t3po/Store.ts";
+import * as T3poArtifacts from "./t3po/Artifacts.ts";
+import * as T3poAttention from "./t3po/Attention.ts";
 import { T3poError, isT3poError } from "@t3tools/contracts";
 import * as T3poService from "./t3po/Service.ts";
 import { OrchestrationDispatchCommandError } from "@t3tools/contracts";
@@ -1479,7 +1484,37 @@ export const layerWsRpc = (
         ).pipe(Effect.ignore);
       };
       const threadLaunch = yield* ThreadLaunchService.ThreadLaunchService;
-      const t3po = yield* T3poService.Service.pipe(Effect.provide(T3poService.layer));
+      const existingT3poStore = yield* Effect.serviceOption(T3poStore.Store);
+      const t3poStore = Option.isSome(existingT3poStore)
+        ? existingT3poStore.value
+        : yield* T3poStore.Store.pipe(Effect.provide(T3poStore.layer));
+      const t3po = yield* T3poService.Service.pipe(
+        Effect.provide(T3poService.layer),
+        Effect.provideService(T3poStore.Store, t3poStore),
+      );
+      const memoryDeliveryLock = yield* t3poStore.memoryDeliveryLock;
+      const artifacts = yield* T3poArtifacts.Artifacts.pipe(
+        Effect.provide(T3poArtifacts.layer.pipe(Layer.provide(T3poArtifacts.sourceLayer))),
+        Effect.provideService(T3poStore.Store, t3poStore),
+      );
+      const attention = yield* T3poAttention.Attention.pipe(
+        Effect.provide(T3poAttention.layer),
+        Effect.provideService(T3poStore.Store, t3poStore),
+      );
+      // User RPC middleware checks orchestration and filesystem scopes before these handlers run.
+      const artifactUserAccess = T3poArtifacts.ArtifactAccess.of({
+        authorize: Effect.fn("T3poArtifacts.ArtifactAccess.authorize")(() => Effect.void),
+      });
+      const memoryInspector = yield* T3poMemoryInspector.MemoryInspector.pipe(
+        Effect.provide(
+          T3poMemoryInspector.layer.pipe(
+            Layer.provide(T3poMemoryAccess.layer(currentSession)),
+            Layer.provide(
+              Layer.succeed(T3poMemoryInspector.MemoryDeliveryLock, memoryDeliveryLock),
+            ),
+          ),
+        ),
+      );
       const commandOutputHub = yield* CommandOutputHub.CommandOutputHub;
       const providerSessionManager = yield* ProviderSessionManager.ProviderSessionManagerV2;
       const scheduledTasks = yield* ScheduledTasks.ScheduledTaskService;
@@ -3026,6 +3061,21 @@ export const layerWsRpc = (
                 }),
             ),
           ),
+        [WS_METHODS.t3poArtifactSave]: (input) =>
+          artifacts
+            .save(input)
+            .pipe(Effect.provideService(T3poArtifacts.ArtifactAccess, artifactUserAccess)),
+        [WS_METHODS.t3poArtifactList]: (input) =>
+          artifacts
+            .list(input)
+            .pipe(Effect.provideService(T3poArtifacts.ArtifactAccess, artifactUserAccess)),
+        [WS_METHODS.t3poArtifactRead]: (input) =>
+          artifacts
+            .read(input)
+            .pipe(Effect.provideService(T3poArtifacts.ArtifactAccess, artifactUserAccess)),
+        [WS_METHODS.t3poAttention]: (input) => attention.list(input),
+        [WS_METHODS.t3poMemoryList]: (input) => memoryInspector.list(input),
+        [WS_METHODS.t3poMemoryCorrect]: (input) => memoryInspector.correct(input),
         [WS_METHODS.t3poResults]: (input) => t3po.results(input),
         [WS_METHODS.t3poSnapshot]: (input) => t3po.snapshot(input),
         [WS_METHODS.t3poSubscribe]: (input) => t3po.subscribe(input),

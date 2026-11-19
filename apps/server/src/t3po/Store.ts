@@ -58,6 +58,7 @@ const decodeResults = Schema.decodeEffect(Schema.Array(T3poResult));
 export class Store extends Context.Service<
   Store,
   {
+    readonly memoryDeliveryLock: Effect.Effect<Semaphore.Semaphore>;
     readonly runMemoryWorker: Effect.Effect<never>;
     readonly context: (
       projectId: ProjectId,
@@ -95,7 +96,7 @@ const make = Effect.gen(function* () {
     background = false,
   ) {
     const pending =
-      yield* sql<MemoryBridge.MemoryEvent>`SELECT event_id AS id, kind, text, occurred_at AS occurredAt FROM t3po_memory_events WHERE project_id = ${projectId} AND synced_at IS NULL ORDER BY sequence LIMIT 20`;
+      yield* sql<MemoryBridge.MemoryEvent>`SELECT event_id AS id, kind, text, occurred_at AS occurredAt FROM t3po_memory_events WHERE project_id = ${projectId} AND synced_at IS NULL AND superseded_by IS NULL AND kind != 'local_correction' ORDER BY sequence LIMIT 20`;
     const status = yield* sql<{
       failures: number;
       nextAttempt: number;
@@ -128,7 +129,7 @@ const make = Effect.gen(function* () {
     const rows = yield* sql<{
       projectId: string;
       nextAttempt: number;
-    }>`SELECT e.project_id AS projectId, COALESCE(s.next_attempt, 0) AS nextAttempt FROM t3po_memory_events e LEFT JOIN t3po_memory_status s ON s.project_id = e.project_id WHERE e.synced_at IS NULL GROUP BY e.project_id ORDER BY nextAttempt, e.project_id LIMIT 1`;
+    }>`SELECT e.project_id AS projectId, COALESCE(s.next_attempt, 0) AS nextAttempt FROM t3po_memory_events e LEFT JOIN t3po_memory_status s ON s.project_id = e.project_id WHERE e.synced_at IS NULL AND e.superseded_by IS NULL AND e.kind != 'local_correction' GROUP BY e.project_id ORDER BY nextAttempt, e.project_id LIMIT 1`;
     const row = rows[0];
     if (!row) {
       yield* Queue.take(wake);
@@ -262,7 +263,7 @@ const make = Effect.gen(function* () {
         pending: number;
         available: number | null;
         lastCheckedAt: string | null;
-      }>`SELECT l.project_id AS projectId, s.available, s.last_sync_at AS lastCheckedAt, (SELECT count(*) FROM t3po_memory_events e WHERE e.project_id = l.project_id AND e.synced_at IS NULL) AS pending FROM t3po_leads l LEFT JOIN t3po_memory_status s ON s.project_id = l.project_id WHERE ${input.projectId ? sql`l.project_id = ${input.projectId}` : sql`1 = 1`}`;
+      }>`SELECT l.project_id AS projectId, s.available, s.last_sync_at AS lastCheckedAt, (SELECT count(*) FROM t3po_memory_events e WHERE e.project_id = l.project_id AND e.synced_at IS NULL AND e.superseded_by IS NULL AND e.kind != 'local_correction') AS pending FROM t3po_leads l LEFT JOIN t3po_memory_status s ON s.project_id = l.project_id WHERE ${input.projectId ? sql`l.project_id = ${input.projectId}` : sql`1 = 1`}`;
       const processing = yield* memory.statuses;
       return {
         memory: memoryRows.map((row) => ({
@@ -501,7 +502,7 @@ const make = Effect.gen(function* () {
       const recentRecords = yield* sql<{
         kind: string;
         text: string;
-      }>`SELECT kind, substr(text, 1, 2000) AS text FROM t3po_memory_events WHERE project_id = ${projectId} ORDER BY sequence DESC LIMIT 5`;
+      }>`SELECT kind, substr(text, 1, 2000) AS text FROM t3po_memory_events WHERE project_id = ${projectId} AND superseded_by IS NULL ORDER BY sequence DESC LIMIT 5`;
       return yield* encodeUnknownJson({
         memory: {
           configured: memory.configured,
@@ -524,6 +525,7 @@ const make = Effect.gen(function* () {
     Effect.mapError((cause) => new T3poError({ operation: "read", cause })),
   );
   return Store.of({
+    memoryDeliveryLock: Effect.succeed(sends),
     runMemoryWorker,
     controlMemory: memory.control,
     read,
