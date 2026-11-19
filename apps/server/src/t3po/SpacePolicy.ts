@@ -1,3 +1,4 @@
+import * as SpaceConnections from "./SpaceConnections.ts";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -88,7 +89,16 @@ const make = Effect.gen(function* () {
         const target = yield* sql<{
           spaceId: string;
         }>`SELECT space_id AS spaceId FROM t3po_project_spaces WHERE project_id = ${projectId}`;
-        if (owner.spaceId === null || target[0]?.spaceId !== owner.spaceId) return false;
+        if (owner.spaceId === null || target[0]?.spaceId !== owner.spaceId) {
+          if (
+            name !== "t3_work_route" ||
+            threads.size > 0 ||
+            !(yield* SpaceConnections.connection(owner.projectId, projectId).pipe(
+              Effect.provideService(SqlClient.SqlClient, sql),
+            ))
+          )
+            return false;
+        }
       }
       return true;
     },

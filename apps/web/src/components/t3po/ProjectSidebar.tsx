@@ -6,6 +6,7 @@ import { useLocalStorage } from "../../hooks/useLocalStorage";
 import * as Schema from "effect/Schema";
 import { readLocalApi } from "../../localApi";
 import { contextMenuSourceOf } from "../../contextMenuSource";
+import { SpaceConnections } from "./SpaceConnections";
 import { useRoName } from "./useRoName";
 import { useRef, useState } from "react";
 import { useAtomValue } from "@effect/atom-react";
@@ -169,6 +170,7 @@ function SpaceProjects({
   const mutate = useAtomCommand(t3po.mutate);
   const canMutate = useAtomValue(t3po.mutate.permissionAtom(environmentId));
   const [editing, setEditing] = useState<T3poSpace | null>(null);
+  const [connections, setConnections] = useState<T3poSpace | null>(null);
   const [error, setError] = useState<string | null>(null);
   const spaces = query.data?.spaces ?? [];
   const anchor = projects[0];
@@ -183,6 +185,14 @@ function SpaceProjects({
   }
   return (
     <>
+      {connections && anchor ? (
+        <SpaceConnections
+          environmentId={environmentId}
+          projectId={anchor.id}
+          space={connections}
+          onClose={() => setConnections(null)}
+        />
+      ) : null}
       {[...spaces, { id: "", name: gt("Unassigned") }].map((space) => {
         const members = projects.filter(
           (project) =>
@@ -217,6 +227,7 @@ function SpaceProjects({
                     ?.contextMenu.show(
                       [
                         { id: "rename", label: gt("Rename"), disabled: !canMutate },
+                        { id: "connections", label: gt("Connections"), disabled: !anchor },
                         {
                           id: "remove",
                           label: gt("Remove empty space"),
@@ -232,6 +243,7 @@ function SpaceProjects({
                       contextMenuSourceOf(event.nativeEvent),
                     )
                     .then(async (action) => {
+                      if (action === "connections") setConnections(space);
                       if (action === "rename") setEditing(space);
                       if (action === "remove") await save(space, true);
                     })

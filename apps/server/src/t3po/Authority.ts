@@ -1,4 +1,5 @@
 import { T3poError, type OrchestrationV2DomainEvent } from "@t3tools/contracts";
+import * as SpaceConnections from "./SpaceConnections.ts";
 import * as Effect from "effect/Effect";
 import * as SqlClient from "effect/sql/SqlClient";
 
@@ -79,6 +80,10 @@ const checkSpace = Effect.fn("T3po.checkSpace")(function* (event: OrchestrationV
     )
       return yield* new T3poError({ operation: "approval" });
   } else if (event.type === "run.created") {
+    const jobs = yield* sql<{
+      id: string;
+    }>`SELECT id FROM t3po_tasks WHERE json_extract(data, '$.threadId') = ${event.threadId}`;
+    for (const job of jobs) yield* SpaceConnections.checkHandoff(job.id);
     const thread = yield* sql<{
       mode: string;
     }>`SELECT t.runtime_mode AS mode FROM orchestration_v2_projection_threads t JOIN t3po_project_spaces s ON s.project_id = t.project_id WHERE t.thread_id = ${event.threadId}`;

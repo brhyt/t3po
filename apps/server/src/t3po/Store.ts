@@ -5,6 +5,8 @@ import * as Semaphore from "effect/Semaphore";
 import * as MemoryBridge from "./MemoryBridge.ts";
 import {
   T3poSpace,
+  T3poSharedResource,
+  T3poSpaceConnection,
   T3poProjectSpace,
   T3poConversation,
   ProjectId,
@@ -55,6 +57,8 @@ type TaskRecord = T3poTask & {
   readonly dispatch?: T3poWorkReceipt;
 };
 type Page = {
+  spaceConnections: readonly (typeof T3poSpaceConnection.Type)[];
+  sharedResources: readonly (typeof T3poSharedResource.Type)[];
   spaces: readonly T3poSpace[];
   projectSpaces: readonly (typeof T3poProjectSpace.Type)[];
   conversations: readonly (typeof T3poConversation.Type)[];
@@ -287,6 +291,12 @@ const make = Effect.gen(function* () {
       }>`SELECT l.project_id AS projectId, s.available, s.last_sync_at AS lastCheckedAt, (SELECT count(*) FROM t3po_memory_events e WHERE e.project_id = l.project_id AND e.synced_at IS NULL AND e.superseded_by IS NULL AND e.kind != 'local_correction') AS pending FROM t3po_leads l LEFT JOIN t3po_memory_status s ON s.project_id = l.project_id WHERE ${input.projectId ? sql`l.project_id = ${input.projectId}` : sql`1 = 1`}`;
       const processing = yield* memory.statuses;
       return {
+        spaceConnections: yield* sql<
+          typeof T3poSpaceConnection.Type
+        >`SELECT source_space_id AS sourceSpaceId, target_space_id AS targetSpaceId, target_project_id AS targetProjectId FROM t3po_space_connections`,
+        sharedResources: yield* sql<
+          typeof T3poSharedResource.Type
+        >`SELECT id, owner_space_id AS ownerSpaceId, target_space_id AS targetSpaceId, name, location FROM t3po_shared_resources`,
         spaces: yield* sql<T3poSpace>`SELECT id, name FROM t3po_spaces ORDER BY rowid`,
         projectSpaces: yield* sql<
           typeof T3poProjectSpace.Type
@@ -348,7 +358,32 @@ const make = Effect.gen(function* () {
     function* (input: T3poMutation, reviewedRunId?: RunId) {
       if (input.type === "memory_control") return yield* new T3poError({ operation: "invalid" });
       const now = DateTime.formatIso(yield* DateTime.now);
-      if (input.type === "save_space") {
+      if (input.type === "connect_space") {
+        const source = yield* sql`SELECT id FROM t3po_spaces WHERE id = ${input.sourceSpaceId}`;
+        const target =
+          yield* sql`SELECT project_id FROM t3po_project_spaces WHERE project_id = ${input.targetProjectId} AND space_id = ${input.targetSpaceId}`;
+        if (!source.length || !target.length || input.sourceSpaceId === input.targetSpaceId)
+          return yield* new T3poError({ operation: "invalid" });
+        if (input.enabled)
+          yield* sql`INSERT INTO t3po_space_connections (source_space_id, target_space_id, target_project_id) VALUES (${input.sourceSpaceId}, ${input.targetSpaceId}, ${input.targetProjectId}) ON CONFLICT(source_space_id, target_project_id) DO UPDATE SET target_space_id = excluded.target_space_id`;
+        else {
+          yield* sql`UPDATE t3po_space_handoffs SET revoked = 1 WHERE source_space_id = ${input.sourceSpaceId} AND target_project_id = ${input.targetProjectId}`;
+          yield* sql`DELETE FROM t3po_space_connections WHERE source_space_id = ${input.sourceSpaceId} AND target_project_id = ${input.targetProjectId}`;
+        }
+      } else if (input.type === "share_resource") {
+        const spaces =
+          yield* sql`SELECT id FROM t3po_spaces WHERE id IN (${input.ownerSpaceId}, ${input.targetSpaceId})`;
+        // References never store URL credentials, query tokens, or executable schemes.
+        let valid = input.location.startsWith("/") || input.location.startsWith("~/");
+        if (input.location.startsWith("https://")) {
+          const url = new URL(input.location);
+          valid = !url.username && !url.password && !url.search && !url.hash;
+        }
+        if (spaces.length !== 2 || !valid) return yield* new T3poError({ operation: "invalid" });
+        yield* sql`INSERT INTO t3po_shared_resources (id, owner_space_id, target_space_id, name, location) VALUES (${input.id}, ${input.ownerSpaceId}, ${input.targetSpaceId}, ${input.name}, ${input.location}) ON CONFLICT(id) DO UPDATE SET owner_space_id = excluded.owner_space_id, target_space_id = excluded.target_space_id, name = excluded.name, location = excluded.location`;
+      } else if (input.type === "unshare_resource") {
+        yield* sql`DELETE FROM t3po_shared_resources WHERE id = ${input.id}`;
+      } else if (input.type === "save_space") {
         yield* sql`INSERT INTO t3po_spaces (id, name) VALUES (${input.id}, ${input.name}) ON CONFLICT(id) DO UPDATE SET name = excluded.name`;
       } else if (input.type === "remove_space") {
         const members =
@@ -364,6 +399,9 @@ const make = Effect.gen(function* () {
         const active =
           yield* sql`SELECT thread_id FROM orchestration_v2_projection_threads WHERE json_extract(payload_json, '$.activeRunId') IS NOT NULL OR json_array_length(json_extract(payload_json, '$.pendingBackgroundTasks')) > 0 UNION SELECT thread_id FROM orchestration_v2_projection_runs WHERE status IN ('preparing', 'queued', 'starting', 'running', 'waiting') LIMIT 1`;
         if (active.length) return yield* new T3poError({ operation: "space_busy" });
+        yield* sql`UPDATE t3po_space_handoffs SET revoked = 1 WHERE source_project_id = ${input.projectId} OR target_project_id = ${input.projectId}`;
+        yield* sql`DELETE FROM t3po_space_connections WHERE target_project_id = ${input.projectId}`;
+
         if (input.spaceId !== null) {
           const space = yield* sql`SELECT id FROM t3po_spaces WHERE id = ${input.spaceId}`;
           if (!space.length) return yield* new T3poError({ operation: "invalid" });
@@ -622,6 +660,16 @@ const make = Effect.gen(function* () {
         text: string;
       }>`SELECT kind, substr(text, 1, 2000) AS text FROM t3po_memory_events WHERE project_id = ${projectId} AND superseded_by IS NULL ORDER BY sequence DESC LIMIT 5`;
       return yield* encodeUnknownJson({
+        sharedResources:
+          yield* sql`SELECT r.name, r.location, r.owner_space_id AS ownerSpaceId FROM t3po_shared_resources r JOIN t3po_project_spaces p ON p.project_id = ${projectId} AND p.space_id IN (r.owner_space_id, r.target_space_id) ORDER BY r.rowid LIMIT 50`,
+        handoffDestinations:
+          threadId === lead.threadId || channel
+            ? yield* sql`SELECT c.target_project_id AS projectId, c.target_space_id AS spaceId, (SELECT name FROM t3po_spaces WHERE id = c.target_space_id) AS spaceName, (SELECT json_extract(data, '$.name') FROM t3po_leads WHERE project_id = c.target_project_id) AS leadName FROM t3po_space_connections c JOIN t3po_project_spaces p ON p.project_id = ${projectId} AND p.space_id = c.source_space_id JOIN t3po_project_spaces t ON t.project_id = c.target_project_id AND t.space_id = c.target_space_id LIMIT 50`
+            : [],
+        outgoingHandoffs:
+          threadId === lead.threadId || channel
+            ? yield* sql`SELECT h.job_id AS jobId, h.target_project_id AS projectId, r.state, r.reason FROM t3po_space_handoffs h JOIN t3po_work_routes r ON r.job_id = h.job_id WHERE h.source_project_id = ${projectId} AND r.caller_thread_id = ${threadId} ORDER BY r.sequence DESC LIMIT 30`
+            : [],
         sourceMessages:
           threadId === lead.threadId || channel
             ? yield* sql`SELECT message_id AS id, substr(json_extract(payload_json, '$.text'), 1, 1000) AS text FROM orchestration_v2_projection_messages WHERE thread_id = ${threadId} AND role = 'user' ORDER BY rowid DESC LIMIT 8`

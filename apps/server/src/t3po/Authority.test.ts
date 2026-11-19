@@ -131,6 +131,70 @@ it.effect.each([false, true])(
           yield* sql`SELECT thread_id FROM orchestration_v2_projection_threads WHERE thread_id = ${payload.id}`,
         ).toEqual([]);
       }
+      yield* store.mutate({
+        type: "create_task",
+        projectId: foreignProject,
+        id: "handoff",
+        channelId: null,
+        title: "Explicit handoff",
+        brief: "Only this brief",
+      });
+      yield* sql`INSERT INTO t3po_space_handoffs (job_id, source_project_id, source_space_id, target_project_id, target_space_id) VALUES ('handoff', ${projectId}, 'personal', ${foreignProject}, 'business')`;
+      const handoffThread = ThreadId.make("t3po-task:handoff");
+      const handoffEvents = () =>
+        sink.write({
+          events: [
+            {
+              id: EventId.make("handoff-thread"),
+              type: "thread.created",
+              threadId: handoffThread,
+              occurredAt: now,
+              payload: { ...thread(handoffThread, null), projectId: foreignProject },
+            },
+            {
+              id: EventId.make("handoff-run"),
+              type: "run.created",
+              threadId: handoffThread,
+              occurredAt: now,
+              payload: run("handoff", handoffThread),
+            },
+          ],
+        });
+      expect(yield* handoffEvents().pipe(Effect.isFailure)).toBe(true);
+      expect(
+        yield* sql`SELECT thread_id FROM orchestration_v2_projection_threads WHERE thread_id = ${handoffThread}`,
+      ).toEqual([]);
+      yield* store.mutate({
+        type: "connect_space",
+        projectId,
+        sourceSpaceId: "personal",
+        targetSpaceId: "business",
+        targetProjectId: foreignProject,
+        enabled: true,
+      });
+      expect(yield* handoffEvents().pipe(Effect.isFailure)).toBe(true);
+      yield* store.mutate({
+        type: "save_budget",
+        projectId: foreignProject,
+        maxRuns: 1,
+        maxConcurrent: 1,
+      });
+      yield* handoffEvents();
+      expect(yield* sql`SELECT project_id FROM t3po_admissions WHERE run_id = 'handoff'`).toEqual([
+        { project_id: foreignProject },
+      ]);
+      yield* sink.write({
+        events: [
+          {
+            id: EventId.make("handoff-done"),
+            type: "run.updated",
+            threadId: handoffThread,
+            occurredAt: now,
+            payload: { ...run("handoff", handoffThread), status: "completed", completedAt: now },
+          },
+        ],
+      });
+      yield* sql`DELETE FROM t3po_admissions WHERE run_id = 'handoff'`;
       yield* sink.write({
         events: [
           {

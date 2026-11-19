@@ -158,3 +158,100 @@ it.effect(
       expect((yield* store.read).projectSpaces).toEqual([]);
     }).pipe(Effect.provide(fixture)),
 );
+
+it.effect(
+  "shares references only with named spaces without expanding chat or handoff authority",
+  () =>
+    Effect.gen(function* () {
+      yield* seed;
+      const store = yield* Store.Store;
+      const guard = yield* SpacePolicy.SpacePolicy;
+      yield* store.mutate({ type: "save_space", projectId, id: "third", name: "Third" });
+      for (const [id, space] of [
+        ["a", "personal"],
+        ["b", "business"],
+        ["c", "third"],
+      ]) {
+        yield* store.mutate({
+          type: "assign_space",
+          projectId: ProjectId.make(id!),
+          spaceId: space!,
+        });
+        yield* store.mutate({
+          type: "save_lead",
+          projectId: ProjectId.make(id!),
+          name: "Lead",
+          brief: "Private brief",
+        });
+      }
+      const resource = {
+        type: "share_resource" as const,
+        projectId,
+        id: "service",
+        ownerSpaceId: "personal",
+        targetSpaceId: "business",
+        name: "Shared design service",
+        location: "https://design.example.com",
+      };
+      yield* store.mutate(resource);
+      for (const id of ["a", "b"])
+        expect(
+          yield* store.context(ProjectId.make(id), ThreadId.make(`t3po-lead:${id}`)),
+        ).toContain("https://design.example.com");
+      expect(yield* store.context(ProjectId.make("c"), ThreadId.make("t3po-lead:c"))).not.toContain(
+        "https://design.example.com",
+      );
+      expect(yield* guard.allows("t3_thread_read", { threadId: "b" }, scope)).toBe(false);
+      for (const location of [
+        "https://user:password@example.com",
+        "https://example.com?token=secret",
+        "javascript:alert(1)",
+      ])
+        expect(yield* store.mutate({ ...resource, location }).pipe(Effect.isFailure)).toBe(true);
+      const connect = {
+        type: "connect_space" as const,
+        projectId,
+        sourceSpaceId: "personal",
+        targetSpaceId: "business",
+        targetProjectId: ProjectId.make("b"),
+        enabled: true,
+      };
+      yield* store.mutate(connect);
+      yield* store.mutate({
+        ...connect,
+        sourceSpaceId: "business",
+        targetSpaceId: "third",
+        targetProjectId: ProjectId.make("c"),
+      });
+      expect(yield* guard.allows("t3_work_route", { destinationProjectId: "b" }, scope)).toBe(true);
+      expect(yield* guard.allows("t3_work_route", { destinationProjectId: "c" }, scope)).toBe(
+        false,
+      );
+      expect(yield* guard.allows("t3_thread_read", { threadId: "b" }, scope)).toBe(false);
+      expect(yield* guard.allows("t3_thread_send", { threadId: "b" }, scope)).toBe(false);
+      expect(
+        yield* guard.allows(
+          "t3_work_route",
+          { destinationProjectId: "a" },
+          { ...scope, thread: { ...scope.thread!, threadId: ThreadId.make("b") } },
+        ),
+      ).toBe(false);
+      yield* store.mutate({ type: "unshare_resource", projectId, id: resource.id });
+      expect(yield* store.context(ProjectId.make("b"), ThreadId.make("t3po-lead:b"))).not.toContain(
+        "https://design.example.com",
+      );
+      yield* store.mutate({
+        type: "assign_space",
+        projectId: ProjectId.make("b"),
+        spaceId: "third",
+      });
+      yield* store.mutate({
+        type: "assign_space",
+        projectId: ProjectId.make("b"),
+        spaceId: "business",
+      });
+      expect(yield* guard.allows("t3_work_route", { destinationProjectId: "b" }, scope)).toBe(
+        false,
+      );
+    }).pipe(Effect.provide(fixture)),
+);

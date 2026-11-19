@@ -12,6 +12,7 @@ import * as SqlClient from "effect/sql/SqlClient";
 import * as Store from "./Store.ts";
 import * as Changes from "./Changes.ts";
 import * as Sqlite from "../persistence/Sqlite.ts";
+import * as SpaceConnections from "./SpaceConnections.ts";
 import { reserve } from "./Work.ts";
 
 const projectId = ProjectId.make("project");
@@ -239,5 +240,65 @@ it.effect(
         state: string;
       }>`SELECT state FROM t3po_work_routes WHERE id = ${followup.id}`;
       expect(rejected[0]?.state).toBe("blocked");
+    }).pipe(Effect.provide(fixture)),
+);
+
+it.effect(
+  "hands off only the supplied brief, pins ownership, and permanently fences revoked retries",
+  () =>
+    Effect.gen(function* () {
+      yield* seed;
+      const store = yield* Store.Store;
+      const sql = yield* SqlClient.SqlClient;
+      const destination = ProjectId.make("receiving");
+      yield* store.mutate({
+        type: "save_lead",
+        projectId: destination,
+        name: "Receiver",
+        brief: "Destination context",
+      });
+      yield* store.mutate({ type: "assign_space", projectId, spaceId: "personal" });
+      yield* store.mutate({ type: "assign_space", projectId: destination, spaceId: "business" });
+      const handoff = { ...input, destinationProjectId: destination };
+      expect(yield* reserve(caller, handoff, model).pipe(Effect.isFailure)).toBe(true);
+      const grant = {
+        type: "connect_space" as const,
+        projectId,
+        sourceSpaceId: "personal",
+        targetSpaceId: "business",
+        targetProjectId: destination,
+        enabled: true,
+      };
+      yield* store.mutate(grant);
+      const receipt = yield* reserve(caller, handoff, model);
+      expect(yield* reserve(caller, handoff, model)).toEqual(receipt);
+      const task = yield* store.getTask(receipt.jobId, destination);
+      expect(task.brief).toBe(input.message);
+      expect(task.channelId).toBeNull();
+      expect(task.workspace).toEqual({ type: "worktree" });
+      expect((yield* store.list({ projectId, view: "all" })).tasks).toHaveLength(0);
+      expect(yield* SpaceConnections.checkHandoff(receipt.jobId).pipe(Effect.isSuccess)).toBe(true);
+      expect(
+        yield* reserve(
+          caller,
+          { ...handoff, requestId: "follow", action: "follow_up", jobId: receipt.jobId },
+          model,
+        ).pipe(Effect.isFailure),
+      ).toBe(true);
+      yield* store.mutate({ ...grant, enabled: false });
+      expect(yield* SpaceConnections.checkHandoff(receipt.jobId).pipe(Effect.isFailure)).toBe(true);
+      yield* store.mutate(grant);
+      expect(yield* reserve(caller, handoff, model).pipe(Effect.isFailure)).toBe(true);
+      const fresh = yield* reserve(
+        caller,
+        { ...handoff, requestId: "new-authorized-handoff" },
+        model,
+      );
+      expect(fresh.jobId).not.toBe(receipt.jobId);
+      expect(
+        yield* sql`SELECT source_project_id, target_project_id, revoked FROM t3po_space_handoffs WHERE job_id = ${receipt.jobId}`,
+      ).toEqual([{ source_project_id: projectId, target_project_id: destination, revoked: 1 }]);
+      expect(yield* store.context(projectId, caller)).toContain(receipt.jobId);
+      expect(yield* store.context(destination, task.threadId)).not.toContain("Improve the project");
     }).pipe(Effect.provide(fixture)),
 );

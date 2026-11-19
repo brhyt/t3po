@@ -4,6 +4,7 @@ import * as Effect from "effect/Effect";
 import * as DateTime from "effect/DateTime";
 import * as SqlClient from "effect/sql/SqlClient";
 import * as PubSub from "effect/PubSub";
+import * as SpaceConnections from "./SpaceConnections.ts";
 import * as Store from "./Store.ts";
 import * as Service from "./Service.ts";
 import * as Changes from "./Changes.ts";
@@ -25,6 +26,7 @@ export const drain = Effect.fn("T3poWork.drain")(function* (
     const projectId = ProjectId.make(row.projectId);
     const attempt = yield* Effect.result(
       Effect.gen(function* () {
+        yield* SpaceConnections.checkHandoff(row.jobId);
         const input = yield* decodeRoute(row.input);
         const launch = yield* decodeLaunch(row.launch);
         const task = yield* store.getTask(row.jobId, projectId);

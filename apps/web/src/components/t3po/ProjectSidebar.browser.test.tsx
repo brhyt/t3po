@@ -3,6 +3,7 @@ import { userEvent } from "vite-plus/test/browser";
 import { EnvironmentId, ProjectId, type T3poSnapshot } from "@t3tools/contracts";
 import { render } from "../../../test/render";
 import { SidebarProvider } from "../ui/sidebar";
+import { SpaceConnections } from "./SpaceConnections";
 import { ProjectSidebar } from "./ProjectSidebar";
 
 const state = vi.hoisted(() => ({
@@ -101,4 +102,75 @@ it("renames a Space inline on Enter once and cancels an unsaved rename with Esca
   await userEvent.keyboard("{Escape}");
   await expect.element(screen.getByRole("textbox", { name: "Space name" })).not.toBeInTheDocument();
   expect(state.calls).toHaveLength(1);
+});
+
+it("revokes the selected incoming direction and shares a reference with one space", async () => {
+  state.calls = [];
+  state.data = {
+    spaces: [
+      { id: "personal", name: "Personal" },
+      { id: "business", name: "Business" },
+    ],
+    projectSpaces: [{ projectId: ProjectId.make("project"), spaceId: "personal" }],
+    spaceConnections: [
+      {
+        sourceSpaceId: "business",
+        targetSpaceId: "personal",
+        targetProjectId: ProjectId.make("project"),
+      },
+    ],
+    sharedResources: [],
+    conversations: [],
+    memory: [],
+    leads: [],
+    channels: [],
+    tasks: [],
+    nextCursor: null,
+  };
+  await using screen = await render(
+    <SpaceConnections
+      environmentId={EnvironmentId.make("roc")}
+      projectId={ProjectId.make("project")}
+      space={{ id: "personal", name: "Personal" }}
+      onClose={() => {}}
+    />,
+  );
+  const grant = screen.getByRole("checkbox", { name: "Business → Personal / Studio" });
+  await expect.element(grant).toBeChecked();
+  await userEvent.click(grant);
+  await vi.waitFor(() =>
+    expect(state.calls).toEqual([
+      {
+        environmentId: "roc",
+        input: {
+          type: "connect_space",
+          projectId: "project",
+          sourceSpaceId: "business",
+          targetSpaceId: "personal",
+          targetProjectId: "project",
+          enabled: false,
+        },
+      },
+    ]),
+  );
+  await userEvent.fill(screen.getByRole("textbox", { name: "Resource name" }), "Design files");
+  await userEvent.fill(
+    screen.getByRole("textbox", { name: "Folder path or HTTPS address" }),
+    "/srv/shared/design",
+  );
+  await userEvent.selectOptions(screen.getByRole("combobox", { name: "Share with" }), "business");
+  await userEvent.click(screen.getByRole("button", { name: "Share resource", exact: true }));
+  await vi.waitFor(() => expect(state.calls).toHaveLength(2));
+  expect(state.calls[1]).toMatchObject({
+    environmentId: "roc",
+    input: {
+      type: "share_resource",
+      projectId: "project",
+      ownerSpaceId: "personal",
+      targetSpaceId: "business",
+      name: "Design files",
+      location: "/srv/shared/design",
+    },
+  });
+  await expect.element(screen.getByRole("textbox", { name: "Resource name" })).toHaveValue("");
 });

@@ -92,6 +92,8 @@ const make = Effect.gen(function* () {
         { concurrency: 8 },
       );
       return {
+        spaceConnections: records.spaceConnections,
+        sharedResources: records.sharedResources,
         spaces: records.spaces,
         projectSpaces: records.projectSpaces,
         conversations: records.conversations.filter((record) =>
@@ -150,6 +152,7 @@ const make = Effect.gen(function* () {
       yield* PubSub.publish(changes, {
         projectId: input.projectId,
         metadata:
+          input.type.endsWith("_resource") ||
           input.type.endsWith("_space") ||
           input.type === "move_conversation" ||
           input.type === "save_budget" ||

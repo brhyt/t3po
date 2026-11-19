@@ -61,6 +61,7 @@ export const T3poWorkstream = Schema.Struct({
 });
 export type T3poWorkstream = typeof T3poWorkstream.Type;
 export const T3poWorkRoute = Schema.Struct({
+  destinationProjectId: Schema.optional(ProjectId),
   requestId: TrimmedNonEmptyString.check(Schema.isMaxLength(200)),
   sourceMessageId: MessageId,
   action: Schema.Literals(["new_job", "follow_up"]),
@@ -166,6 +167,18 @@ export const T3poSpace = Schema.Struct({
   name: TrimmedNonEmptyString.check(Schema.isMaxLength(200)),
 });
 export type T3poSpace = typeof T3poSpace.Type;
+export const T3poSpaceConnection = Schema.Struct({
+  sourceSpaceId: TrimmedNonEmptyString,
+  targetSpaceId: TrimmedNonEmptyString,
+  targetProjectId: ProjectId,
+});
+export const T3poSharedResource = Schema.Struct({
+  id: TrimmedNonEmptyString,
+  ownerSpaceId: TrimmedNonEmptyString,
+  targetSpaceId: TrimmedNonEmptyString,
+  name: TrimmedNonEmptyString.check(Schema.isMaxLength(200)),
+  location: TrimmedNonEmptyString.check(Schema.isMaxLength(2000)),
+});
 export const T3poProjectSpace = Schema.Struct({
   projectId: ProjectId,
   spaceId: TrimmedNonEmptyString,
@@ -176,6 +189,8 @@ export const T3poConversation = Schema.Struct({
   channelId: TrimmedNonEmptyString,
 });
 export const T3poSnapshot = Schema.Struct({
+  spaceConnections: Schema.optional(Schema.Array(T3poSpaceConnection)),
+  sharedResources: Schema.optional(Schema.Array(T3poSharedResource)),
   spaces: Schema.optional(Schema.Array(T3poSpace)),
   projectSpaces: Schema.optional(Schema.Array(T3poProjectSpace)),
   conversations: Schema.optional(Schema.Array(T3poConversation)),
@@ -188,6 +203,22 @@ export const T3poSnapshot = Schema.Struct({
 });
 export const T3poMutation = Schema.Union([
   T3poMemoryControl,
+  Schema.Struct({
+    type: Schema.Literal("connect_space"),
+    projectId: ProjectId,
+    ...T3poSpaceConnection.fields,
+    enabled: Schema.Boolean,
+  }),
+  Schema.Struct({
+    type: Schema.Literal("share_resource"),
+    projectId: ProjectId,
+    ...T3poSharedResource.fields,
+  }),
+  Schema.Struct({
+    type: Schema.Literal("unshare_resource"),
+    projectId: ProjectId,
+    id: TrimmedNonEmptyString,
+  }),
   Schema.Struct({ type: Schema.Literal("save_space"), projectId: ProjectId, ...T3poSpace.fields }),
   Schema.Struct({
     type: Schema.Literal("remove_space"),
@@ -303,7 +334,7 @@ export class T3poError extends Schema.TaggedError<T3poError>()("T3poError", {
     if (this.operation === "space_nonempty")
       return "Move all projects, including archived projects, out of this Space before removing it.";
     if (this.operation === "space_boundary")
-      return "Spaces do not allow cross-space context transfers or agent handoffs.";
+      return "No active Space connection authorizes this operation.";
     if (this.operation === "budget")
       return "Configure or increase the project run budget before starting task work.";
     if (this.operation === "approval")

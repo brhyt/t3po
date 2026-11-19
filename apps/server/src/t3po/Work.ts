@@ -18,6 +18,7 @@ import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/sql/SqlClient";
 import * as PubSub from "effect/PubSub";
+import * as SpaceConnections from "./SpaceConnections.ts";
 import * as Store from "./Store.ts";
 import * as Changes from "./Changes.ts";
 
@@ -51,7 +52,7 @@ export const reserve = Effect.fn("T3poWork.reserve")(
         const owners = yield* sql<{ projectId: string; channelId: string | null }>`
         SELECT project_id AS projectId, NULL AS channelId FROM t3po_leads WHERE json_extract(data, '$.threadId') = ${callerThreadId}
         UNION SELECT project_id AS projectId, id AS channelId FROM t3po_channels WHERE 't3po-channel:' || id = ${callerThreadId} AND COALESCE(json_extract(data, '$.archived'), 0) = 0 LIMIT 1`;
-        const owner = owners[0];
+        let owner = owners[0];
         if (!owner) return yield* new T3poError({ operation: "invalid" });
         const source =
           yield* sql`SELECT message_id FROM orchestration_v2_projection_messages WHERE message_id = ${input.sourceMessageId} AND thread_id = ${callerThreadId} AND role = 'user'`;
@@ -62,13 +63,31 @@ export const reserve = Effect.fn("T3poWork.reserve")(
           yield* sql<RouteRow>`SELECT id, project_id AS projectId, job_id AS jobId, workstream_id AS workstreamId, input, state, reason FROM t3po_work_routes WHERE id = ${id}`;
         if (previous[0]) {
           if (previous[0].input !== encoded) return yield* new T3poError({ operation: "invalid" });
+          yield* SpaceConnections.checkHandoff(previous[0].jobId);
           return previous[0];
         }
+        const sourceProjectId = owner.projectId;
+        const grant = input.destinationProjectId
+          ? yield* SpaceConnections.connection(sourceProjectId, input.destinationProjectId)
+          : undefined;
+        if (input.destinationProjectId) {
+          if (!grant || input.action !== "new_job")
+            return yield* new T3poError({ operation: "space_boundary" });
+          const lead =
+            yield* sql`SELECT project_id FROM t3po_leads WHERE project_id = ${input.destinationProjectId}`;
+          if (!lead.length) return yield* new T3poError({ operation: "invalid" });
+          owner = { projectId: input.destinationProjectId, channelId: null };
+        }
         const projectId = ProjectId.make(owner.projectId);
-        const streamId = key(owner.projectId, owner.channelId ?? "", input.workstreamId);
+        const streamId = key(
+          owner.projectId,
+          owner.channelId ?? "",
+          ...(grant ? [sourceProjectId] : []),
+          input.workstreamId,
+        );
         const streams = yield* sql<{
           data: string;
-        }>`SELECT data FROM t3po_workstreams WHERE id IN (${input.workstreamId}, ${streamId}) AND project_id = ${projectId} AND channel_id IS ${owner.channelId} LIMIT 1`;
+        }>`SELECT data FROM t3po_workstreams WHERE id IN (${grant ? streamId : input.workstreamId}, ${streamId}) AND project_id = ${projectId} AND channel_id IS ${owner.channelId} LIMIT 1`;
         const stream = streams[0]
           ? yield* decodeStream(streams[0].data)
           : {
@@ -106,6 +125,8 @@ export const reserve = Effect.fn("T3poWork.reserve")(
           });
           yield* sql`UPDATE t3po_tasks SET data = json_set(data, '$.workstreamId', ${stream.id}, '$.reviewRequired', json(${input.reviewRequired ? "true" : "false"})) WHERE id = ${jobId}`;
         }
+        if (grant)
+          yield* sql`INSERT INTO t3po_space_handoffs (job_id, source_project_id, source_space_id, target_project_id, target_space_id) VALUES (${jobId}, ${sourceProjectId}, ${grant.sourceSpaceId}, ${projectId}, ${grant.targetSpaceId})`;
         const active = { ...stream, state: "active" as const };
         yield* sql`INSERT INTO t3po_workstreams (id, project_id, channel_id, data) VALUES (${stream.id}, ${projectId}, ${owner.channelId}, ${yield* encode(active)}) ON CONFLICT(id) DO UPDATE SET data = excluded.data`;
         const launch = yield* encodeLaunch({

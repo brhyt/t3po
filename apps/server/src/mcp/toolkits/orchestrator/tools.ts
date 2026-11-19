@@ -77,7 +77,7 @@ const threadMetadataDependencies = [
 
 const WorkRouteTool = Tool.make("t3_work_route", {
   description:
-    "Route authorized work from a T3PO lead/channel message. Use new_job for an independent deliverable, follow_up with jobId for an existing job. Reuse a matching workstreamId; otherwise choose a stable new key and goal. sourceMessageId must be a user message in this chat. One stable requestId per request within that message; retries must keep identical arguments. Saves before dispatch, queues under project limits, uses isolated local worktrees. Ordinary conversation needs no call. Never bypass a queued route with another dispatch tool.",
+    "Route authorized work from a T3PO lead/channel message. Use new_job for an independent deliverable, follow_up with jobId for an existing job. Reuse a matching workstreamId; otherwise choose a stable new key and goal. sourceMessageId must be a user message in this chat. One stable requestId per request within that message; retries must keep identical arguments. Saves before dispatch, queues under project limits, uses isolated local worktrees. For an explicitly authorized cross-space handoff, choose destinationProjectId from handoffDestinations and use new_job; send only the agreed brief. The receiving project owns the job and its allowance. No conversation, memory, or onward access is granted. Ordinary conversation needs no call. Never bypass a queued route with another dispatch tool.",
   parameters: T3poWorkRoute,
   success: T3poWorkReceipt,
   failure: OrchestratorMcpFailure,
