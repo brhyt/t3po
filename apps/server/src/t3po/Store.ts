@@ -4,6 +4,9 @@ import * as Queue from "effect/Queue";
 import * as Semaphore from "effect/Semaphore";
 import * as MemoryBridge from "./MemoryBridge.ts";
 import {
+  T3poSpace,
+  T3poProjectSpace,
+  T3poConversation,
   ProjectId,
   type T3poMemoryStatus,
   type T3poMemoryControl,
@@ -52,6 +55,9 @@ type TaskRecord = T3poTask & {
   readonly dispatch?: T3poWorkReceipt;
 };
 type Page = {
+  spaces: readonly T3poSpace[];
+  projectSpaces: readonly (typeof T3poProjectSpace.Type)[];
+  conversations: readonly (typeof T3poConversation.Type)[];
   workstreams: readonly T3poWorkstream[];
   memory: readonly (typeof T3poMemoryStatus.Type)[];
   leads: readonly T3poLead[];
@@ -281,6 +287,13 @@ const make = Effect.gen(function* () {
       }>`SELECT l.project_id AS projectId, s.available, s.last_sync_at AS lastCheckedAt, (SELECT count(*) FROM t3po_memory_events e WHERE e.project_id = l.project_id AND e.synced_at IS NULL AND e.superseded_by IS NULL AND e.kind != 'local_correction') AS pending FROM t3po_leads l LEFT JOIN t3po_memory_status s ON s.project_id = l.project_id WHERE ${input.projectId ? sql`l.project_id = ${input.projectId}` : sql`1 = 1`}`;
       const processing = yield* memory.statuses;
       return {
+        spaces: yield* sql<T3poSpace>`SELECT id, name FROM t3po_spaces ORDER BY rowid`,
+        projectSpaces: yield* sql<
+          typeof T3poProjectSpace.Type
+        >`SELECT project_id AS projectId, space_id AS spaceId FROM t3po_project_spaces WHERE ${projectFilter}`,
+        conversations: yield* sql<
+          typeof T3poConversation.Type
+        >`SELECT project_id AS projectId, thread_id AS threadId, channel_id AS channelId FROM t3po_conversations WHERE ${projectFilter}`,
         workstreams: yield* Effect.forEach(workstreams, (row) => decodeWorkstream(row.data)),
         memory: memoryRows.map((row) => ({
           ...row,
@@ -335,7 +348,64 @@ const make = Effect.gen(function* () {
     function* (input: T3poMutation, reviewedRunId?: RunId) {
       if (input.type === "memory_control") return yield* new T3poError({ operation: "invalid" });
       const now = DateTime.formatIso(yield* DateTime.now);
-      if (input.type === "save_workstream") {
+      if (input.type === "save_space") {
+        yield* sql`INSERT INTO t3po_spaces (id, name) VALUES (${input.id}, ${input.name}) ON CONFLICT(id) DO UPDATE SET name = excluded.name`;
+      } else if (input.type === "remove_space") {
+        const members =
+          yield* sql`SELECT project_id FROM t3po_project_spaces WHERE space_id = ${input.id} LIMIT 1`;
+        if (members.length) return yield* new T3poError({ operation: "space_nonempty" });
+        yield* sql`DELETE FROM t3po_spaces WHERE id = ${input.id}`;
+      } else if (input.type === "assign_space") {
+        const previous = yield* sql<{
+          id: string;
+        }>`SELECT space_id AS id FROM t3po_project_spaces WHERE project_id = ${input.projectId}`;
+        if ((previous[0]?.id ?? null) === input.spaceId) return;
+        // Any live caller could retain data from a project whose boundary is being changed.
+        const active =
+          yield* sql`SELECT thread_id FROM orchestration_v2_projection_threads WHERE json_extract(payload_json, '$.activeRunId') IS NOT NULL OR json_array_length(json_extract(payload_json, '$.pendingBackgroundTasks')) > 0 UNION SELECT thread_id FROM orchestration_v2_projection_runs WHERE status IN ('preparing', 'queued', 'starting', 'running', 'waiting') LIMIT 1`;
+        if (active.length) return yield* new T3poError({ operation: "space_busy" });
+        if (input.spaceId !== null) {
+          const space = yield* sql`SELECT id FROM t3po_spaces WHERE id = ${input.spaceId}`;
+          if (!space.length) return yield* new T3poError({ operation: "invalid" });
+          yield* sql`INSERT INTO t3po_project_spaces (project_id, space_id) VALUES (${input.projectId}, ${input.spaceId}) ON CONFLICT(project_id) DO UPDATE SET space_id = excluded.space_id`;
+        } else yield* sql`DELETE FROM t3po_project_spaces WHERE project_id = ${input.projectId}`;
+      } else if (input.type === "move_conversation") {
+        const ordinary =
+          yield* sql`SELECT thread_id FROM orchestration_v2_projection_threads WHERE thread_id = ${input.threadId} AND project_id = ${input.projectId} AND deleted_at IS NULL AND archived_at IS NULL AND json_extract(payload_json, '$.lineage.parentThreadId') IS NULL AND json_extract(payload_json, '$.delegatedFrom') IS NULL`;
+        const managed =
+          yield* sql`SELECT project_id FROM t3po_tasks WHERE json_extract(data, '$.threadId') = ${input.threadId} UNION SELECT project_id FROM t3po_leads WHERE json_extract(data, '$.threadId') = ${input.threadId}`;
+        if (
+          !ordinary.length ||
+          managed.length ||
+          /^t3po-(?:lead|task|channel):/.test(input.threadId)
+        )
+          return yield* new T3poError({ operation: "invalid" });
+        if (input.channelId === null) {
+          if (input.newChannelName) return yield* new T3poError({ operation: "invalid" });
+          yield* sql`DELETE FROM t3po_conversations WHERE thread_id = ${input.threadId} AND project_id = ${input.projectId}`;
+        } else {
+          if (input.newChannelName) {
+            const existing = yield* sql<{
+              data: string;
+            }>`SELECT data FROM t3po_channels WHERE id = ${input.channelId}`;
+            if (
+              existing.length &&
+              ((yield* decodeT3poChannelJson(existing[0]!.data)).name !== input.newChannelName ||
+                (yield* decodeT3poChannelJson(existing[0]!.data)).projectId !== input.projectId)
+            )
+              return yield* new T3poError({ operation: "invalid" });
+            const channel = {
+              id: input.channelId,
+              projectId: input.projectId,
+              name: input.newChannelName,
+              archived: false,
+            };
+            yield* sql`INSERT INTO t3po_channels (id, project_id, data) VALUES (${input.channelId}, ${input.projectId}, ${yield* encodeT3poChannelJson(channel)}) ON CONFLICT(id) DO NOTHING`;
+          }
+          yield* requireChannel(input.channelId, input.projectId);
+          yield* sql`INSERT INTO t3po_conversations (thread_id, project_id, channel_id) VALUES (${input.threadId}, ${input.projectId}, ${input.channelId}) ON CONFLICT(thread_id) DO UPDATE SET channel_id = excluded.channel_id`;
+        }
+      } else if (input.type === "save_workstream") {
         const rows = yield* sql<{
           data: string;
         }>`SELECT data FROM t3po_workstreams WHERE id = ${input.id} AND project_id = ${input.projectId}`;

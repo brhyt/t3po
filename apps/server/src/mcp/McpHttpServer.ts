@@ -1,3 +1,4 @@
+import * as SpacePolicy from "../t3po/SpacePolicy.ts";
 import * as T3poWork from "../t3po/Work.ts";
 import * as Cause from "effect/Cause";
 import * as Clock from "effect/Clock";
@@ -1170,6 +1171,7 @@ const withToolSpans = Effect.fn("McpHttpServer.withToolSpans")(function* <A, E, 
   registration: Effect.Effect<A, E, R>,
 ) {
   const server = yield* McpServer.McpServer;
+  const spacePolicy = yield* Effect.serviceOption(SpacePolicy.SpacePolicy);
   const tracingServer = McpServer.McpServer.of({
     ...server,
     addTool: Effect.fn("McpServer.addTool")(function (options) {
@@ -1187,7 +1189,28 @@ const withToolSpans = Effect.fn("McpHttpServer.withToolSpans")(function* <A, E, 
                 "mcp.tool.name": name,
               },
             },
-            () => options.handle(payload),
+            () =>
+              Effect.gen(function* () {
+                if (Option.isSome(spacePolicy)) {
+                  const scope = yield* Effect.serviceOption(
+                    McpInvocationContext.McpInvocationContext,
+                  );
+                  if (
+                    Option.isNone(scope) ||
+                    !(yield* spacePolicy.value.allows(name, payload, scope.value))
+                  )
+                    return new McpSchema.CallToolResult({
+                      isError: true,
+                      content: [
+                        {
+                          type: "text",
+                          text: "Space policy blocks this operation. Cross-space access, unscoped tools and remote handoffs are unavailable. Use an authorized user interface to manage Spaces.",
+                        },
+                      ],
+                    });
+                }
+                return yield* options.handle(payload);
+              }),
           ),
       });
     }),

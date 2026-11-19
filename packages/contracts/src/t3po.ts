@@ -161,7 +161,24 @@ export const T3poMemoryStatus = Schema.Struct({
   pending: NonNegativeInt,
   lastCheckedAt: Schema.NullOr(Schema.String),
 });
+export const T3poSpace = Schema.Struct({
+  id: TrimmedNonEmptyString,
+  name: TrimmedNonEmptyString.check(Schema.isMaxLength(200)),
+});
+export type T3poSpace = typeof T3poSpace.Type;
+export const T3poProjectSpace = Schema.Struct({
+  projectId: ProjectId,
+  spaceId: TrimmedNonEmptyString,
+});
+export const T3poConversation = Schema.Struct({
+  projectId: ProjectId,
+  threadId: ThreadId,
+  channelId: TrimmedNonEmptyString,
+});
 export const T3poSnapshot = Schema.Struct({
+  spaces: Schema.optional(Schema.Array(T3poSpace)),
+  projectSpaces: Schema.optional(Schema.Array(T3poProjectSpace)),
+  conversations: Schema.optional(Schema.Array(T3poConversation)),
   workstreams: Schema.optional(Schema.Array(T3poWorkstream)),
   memory: Schema.Array(T3poMemoryStatus),
   nextCursor: Schema.NullOr(NonNegativeInt),
@@ -171,6 +188,24 @@ export const T3poSnapshot = Schema.Struct({
 });
 export const T3poMutation = Schema.Union([
   T3poMemoryControl,
+  Schema.Struct({ type: Schema.Literal("save_space"), projectId: ProjectId, ...T3poSpace.fields }),
+  Schema.Struct({
+    type: Schema.Literal("remove_space"),
+    projectId: ProjectId,
+    id: TrimmedNonEmptyString,
+  }),
+  Schema.Struct({
+    type: Schema.Literal("assign_space"),
+    projectId: ProjectId,
+    spaceId: Schema.NullOr(TrimmedNonEmptyString),
+  }),
+  Schema.Struct({
+    type: Schema.Literal("move_conversation"),
+    projectId: ProjectId,
+    threadId: ThreadId,
+    channelId: Schema.NullOr(TrimmedNonEmptyString),
+    newChannelName: Schema.optional(TrimmedNonEmptyString.check(Schema.isMaxLength(200))),
+  }),
   Schema.Struct({
     type: Schema.Literal("move_job"),
     projectId: ProjectId,
@@ -253,6 +288,9 @@ export class T3poError extends Schema.TaggedError<T3poError>()("T3poError", {
     "launch",
     "invalid",
     "busy",
+    "space_busy",
+    "space_nonempty",
+    "space_boundary",
     "workspace",
     "budget",
     "approval",
@@ -260,6 +298,12 @@ export class T3poError extends Schema.TaggedError<T3poError>()("T3poError", {
   cause: Schema.optional(Schema.Defect()),
 }) {
   override get message() {
+    if (this.operation === "space_busy")
+      return "Wait for active runs and background agents on this computer to finish before changing a project’s Space.";
+    if (this.operation === "space_nonempty")
+      return "Move all projects, including archived projects, out of this Space before removing it.";
+    if (this.operation === "space_boundary")
+      return "Spaces do not allow cross-space context transfers or agent handoffs.";
     if (this.operation === "budget")
       return "Configure or increase the project run budget before starting task work.";
     if (this.operation === "approval")

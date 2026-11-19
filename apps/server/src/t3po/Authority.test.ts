@@ -100,6 +100,37 @@ it.effect.each([false, true])(
           },
         ],
       });
+      yield* store.mutate({ type: "assign_space", projectId, spaceId: "personal" });
+      const foreignProject = ProjectId.make("business-project");
+      yield* store.mutate({ type: "assign_space", projectId: foreignProject, spaceId: "business" });
+      for (const payload of [
+        { ...thread(ThreadId.make("space-child"), leadId), projectId: foreignProject },
+        { ...thread(ThreadId.make("space-escalation"), null), runtimeMode: "full-access" as const },
+        {
+          ...thread(ThreadId.make("space-fork"), null),
+          projectId: foreignProject,
+          forkedFrom: { type: "run" as const, threadId: leadId, runId: RunId.make("source") },
+        },
+      ]) {
+        expect(
+          yield* sink
+            .write({
+              events: [
+                {
+                  id: EventId.make(payload.id),
+                  type: "thread.created",
+                  threadId: payload.id,
+                  occurredAt: now,
+                  payload,
+                },
+              ],
+            })
+            .pipe(Effect.isFailure),
+        ).toBe(true);
+        expect(
+          yield* sql`SELECT thread_id FROM orchestration_v2_projection_threads WHERE thread_id = ${payload.id}`,
+        ).toEqual([]);
+      }
       yield* sink.write({
         events: [
           {

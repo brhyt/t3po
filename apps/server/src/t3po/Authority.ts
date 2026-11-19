@@ -23,8 +23,73 @@ const authorityProject = Effect.fn("T3po.authorityProject")(function* (
   return projectId;
 });
 
+const checkSpace = Effect.fn("T3po.checkSpace")(function* (event: OrchestrationV2DomainEvent) {
+  const sql = yield* SqlClient.SqlClient;
+  const scopeOf = Effect.fn("T3po.threadSpace")(function* (id: string) {
+    const rows = yield* sql<{
+      projectId: string;
+      spaceId: string | null;
+    }>`SELECT t.project_id AS projectId, s.space_id AS spaceId FROM orchestration_v2_projection_threads t LEFT JOIN t3po_project_spaces s ON s.project_id = t.project_id WHERE t.thread_id = ${id}`;
+    return rows[0];
+  });
+  if (event.type === "thread.created") {
+    const membership = yield* sql<{
+      spaceId: string;
+    }>`SELECT space_id AS spaceId FROM t3po_project_spaces WHERE project_id = ${event.payload.projectId}`;
+    const space = membership[0]?.spaceId ?? null;
+    if (
+      space &&
+      (event.payload.runtimeMode !== "approval-required" ||
+        event.payload.linkOrigin ||
+        event.payload.delegatedFrom)
+    )
+      return yield* new T3poError({ operation: "approval" });
+    const parentId = event.payload.lineage.parentThreadId;
+    if (parentId) {
+      const parent = yield* scopeOf(parentId);
+      if (parent && parent.projectId !== event.payload.projectId && parent.spaceId !== space)
+        return yield* new T3poError({ operation: "space_boundary" });
+    }
+    if (event.payload.forkedFrom) {
+      const configured = yield* sql`SELECT project_id FROM t3po_project_spaces LIMIT 1`;
+      if (configured.length && event.payload.forkedFrom.type !== "run")
+        return yield* new T3poError({ operation: "space_boundary" });
+      const source =
+        event.payload.forkedFrom.type === "run"
+          ? yield* scopeOf(event.payload.forkedFrom.threadId)
+          : undefined;
+      if ((space || source?.spaceId) && (!source || source.spaceId !== space))
+        return yield* new T3poError({ operation: "approval" });
+    }
+  } else if (
+    event.type === "context-transfer.created" ||
+    event.type === "context-transfer.updated"
+  ) {
+    const source = yield* scopeOf(event.payload.sourceThreadId);
+    const target = yield* scopeOf(event.payload.targetThreadId);
+    if (source?.spaceId !== target?.spaceId)
+      return yield* new T3poError({ operation: "space_boundary" });
+  } else if (
+    event.type === "thread.runtime-mode-updated" ||
+    event.type === "thread.provider-switched"
+  ) {
+    if (
+      (yield* scopeOf(event.threadId))?.spaceId &&
+      event.payload.runtimeMode !== "approval-required"
+    )
+      return yield* new T3poError({ operation: "approval" });
+  } else if (event.type === "run.created") {
+    const thread = yield* sql<{
+      mode: string;
+    }>`SELECT t.runtime_mode AS mode FROM orchestration_v2_projection_threads t JOIN t3po_project_spaces s ON s.project_id = t.project_id WHERE t.thread_id = ${event.threadId}`;
+    if (thread[0] && thread[0].mode !== "approval-required")
+      return yield* new T3poError({ operation: "approval" });
+  }
+});
+
 // Called only inside the event sink transaction: rejection also rolls back receipts and outbox work.
 export const admitRun = Effect.fn("T3po.admitRun")(function* (event: OrchestrationV2DomainEvent) {
+  yield* checkSpace(event);
   if (
     event.type === "thread.runtime-mode-updated" ||
     event.type === "thread.created" ||

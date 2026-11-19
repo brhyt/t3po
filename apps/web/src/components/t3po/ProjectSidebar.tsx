@@ -9,7 +9,13 @@ import { contextMenuSourceOf } from "../../contextMenuSource";
 import { useRoName } from "./useRoName";
 import { useRef, useState } from "react";
 import { useAtomValue } from "@effect/atom-react";
-import type { EnvironmentId, ProjectId, T3poChannel } from "@t3tools/contracts";
+import type {
+  EnvironmentId,
+  ProjectId,
+  ThreadId,
+  T3poChannel,
+  T3poSpace,
+} from "@t3tools/contracts";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import { useEnvironmentQuery } from "../../state/query";
 import { useAtomCommand } from "../../state/use-atom-command";
@@ -118,19 +124,17 @@ export function ProjectSidebar() {
         </Button>
       </div>
       <div className="min-h-0 flex-1 space-y-1 overflow-y-auto px-(--sidebar-content-inset)">
-        {projects.map((project) => (
-          <ProjectChannels
-            key={`${project.environmentId}:${project.id}`}
-            projectId={project.id}
-            environmentId={project.environmentId}
-            title={project.title}
-            workspaceRoot={project.workspaceRoot}
+        {[...new Set(projects.map((project) => project.environmentId))].map((environmentId) => (
+          <SpaceProjects
+            key={environmentId}
+            environmentId={environmentId}
+            projects={projects.filter((project) => project.environmentId === environmentId)}
             machineLabel={
-              environments.find((env) => env.environmentId === project.environmentId)?.label ?? ""
+              environments.find((env) => env.environmentId === environmentId)?.label ?? ""
             }
             search={activeSearch}
             currentThreadId={
-              threadRef?.environmentId === project.environmentId ? threadRef.threadId : undefined
+              threadRef?.environmentId === environmentId ? threadRef.threadId : undefined
             }
           />
         ))}
@@ -142,6 +146,144 @@ export function ProjectSidebar() {
         </Button>
       </div>
     </div>
+  );
+}
+
+function SpaceProjects({
+  environmentId,
+  projects,
+  machineLabel,
+  search,
+  currentThreadId,
+}: {
+  environmentId: EnvironmentId;
+  projects: ReturnType<typeof useProjects>;
+  machineLabel: string;
+  search: ReturnType<typeof t3poSearch>;
+  currentThreadId: string | undefined;
+}) {
+  const gt = useGT();
+  const query = useEnvironmentQuery(
+    t3po.snapshot({ environmentId, input: { metadataOnly: true } }),
+  );
+  const mutate = useAtomCommand(t3po.mutate);
+  const canMutate = useAtomValue(t3po.mutate.permissionAtom(environmentId));
+  const [editing, setEditing] = useState<T3poSpace | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const spaces = query.data?.spaces ?? [];
+  const anchor = projects[0];
+  async function save(space: T3poSpace, remove = false) {
+    if (!anchor) return;
+    const input = remove
+      ? { type: "remove_space" as const, projectId: anchor.id, id: space.id }
+      : { type: "save_space" as const, projectId: anchor.id, ...space };
+    const result = await mutate({ environmentId, input });
+    if (result._tag !== "Success") throw squashAtomCommandFailure(result);
+    query.refresh();
+  }
+  return (
+    <>
+      {[...spaces, { id: "", name: gt("Unassigned") }].map((space) => {
+        const members = projects.filter(
+          (project) =>
+            (query.data?.projectSpaces?.find((entry) => entry.projectId === project.id)?.spaceId ??
+              "") === space.id,
+        );
+        return (
+          <div key={space.id} className="space-y-1 pt-2">
+            {editing?.id === space.id ? (
+              <InlineName
+                name={space.name}
+                label={gt("Space name")}
+                onClose={() => setEditing(null)}
+                onSave={(name) => save({ ...space, name })}
+              />
+            ) : (
+              <div
+                className="flex items-center justify-between px-2 py-1 text-xs text-sidebar-muted-foreground"
+                role={space.id ? "button" : undefined}
+                aria-label={space.name}
+                tabIndex={space.id ? 0 : undefined}
+                onKeyDown={(event) => {
+                  if (event.key === "F2" && space.id && canMutate) {
+                    event.preventDefault();
+                    setEditing(space);
+                  }
+                }}
+                onContextMenu={(event) => {
+                  if (!space.id) return;
+                  event.preventDefault();
+                  void readLocalApi()
+                    ?.contextMenu.show(
+                      [
+                        { id: "rename", label: gt("Rename"), disabled: !canMutate },
+                        {
+                          id: "remove",
+                          label: gt("Remove empty space"),
+                          disabled:
+                            !canMutate ||
+                            (query.data?.projectSpaces?.some(
+                              (entry) => entry.spaceId === space.id,
+                            ) ??
+                              false),
+                        },
+                      ],
+                      { x: event.clientX, y: event.clientY },
+                      contextMenuSourceOf(event.nativeEvent),
+                    )
+                    .then(async (action) => {
+                      if (action === "rename") setEditing(space);
+                      if (action === "remove") await save(space, true);
+                    })
+                    .catch((cause) =>
+                      setError(
+                        cause instanceof Error ? cause.message : gt("Could not save changes."),
+                      ),
+                    );
+                }}
+              >
+                <span>{space.name}</span>
+                <span>{machineLabel}</span>
+              </div>
+            )}
+            {members.map((project) => (
+              <ProjectChannels
+                key={project.id}
+                projectId={project.id}
+                environmentId={environmentId}
+                title={project.title}
+                workspaceRoot={project.workspaceRoot}
+                machineLabel={machineLabel}
+                search={search}
+                currentThreadId={currentThreadId}
+              />
+            ))}
+          </div>
+        );
+      })}
+      {editing && !spaces.some((space) => space.id === editing.id) ? (
+        <InlineName
+          name=""
+          label={gt("Space name")}
+          onClose={() => setEditing(null)}
+          onSave={(name) => save({ ...editing, name })}
+        />
+      ) : (
+        <SidebarMenuButton
+          size="sm"
+          disabled={!canMutate || !query.data?.spaces}
+          onClick={() => setEditing({ id: randomUUID(), name: "" })}
+        >
+          <PlusIcon />
+          <T>New space</T>
+        </SidebarMenuButton>
+      )}
+      {error ? (
+        <p role="alert" className="px-2 text-xs text-destructive">
+          {error}
+        </p>
+      ) : null}
+    </>
   );
 }
 
@@ -169,6 +311,11 @@ function ProjectChannels({
   const threads = useThreadShellsForProjectRefs([{ environmentId, projectId }]);
   const conversations = projectConversations(threads, { environmentId, projectId });
   const [conversationLimit, setConversationLimit] = useState(6);
+  const [moving, setMoving] = useState<ThreadId | null>(null);
+  const associations = query.data?.conversations ?? [];
+  const looseConversations = conversations.filter(
+    (thread) => !associations.some((entry) => entry.threadId === thread.id),
+  );
   const canMutate = useAtomValue(t3po.mutate.permissionAtom(environmentId));
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<typeof T3poChannel.Type | null>(null);
@@ -223,6 +370,77 @@ function ProjectChannels({
   const activeChannelId = currentThreadId?.startsWith("t3po-channel:")
     ? currentThreadId.slice("t3po-channel:".length)
     : search.channel;
+  function conversationRow(thread: (typeof conversations)[number]) {
+    return (
+      <SidebarMenuButton
+        key={thread.id}
+        render={
+          <Link to="/$environmentId/$threadId" params={{ environmentId, threadId: thread.id }} />
+        }
+        onClick={() => setOpenMobile(false)}
+        isActive={thread.id === currentThreadId}
+        title={thread.title}
+        size="lg"
+        onContextMenu={(event) => {
+          event.preventDefault();
+          void readLocalApi()
+            ?.contextMenu.show(
+              [
+                {
+                  id: "move",
+                  label: gt("Move to channel"),
+                  disabled: !canMutate,
+                  children: [
+                    ...channels
+                      .filter((channel) => !channel.archived)
+                      .map((channel) => ({ id: `channel:${channel.id}`, label: channel.name })),
+                    { id: "new", label: gt("New channel") },
+                  ],
+                },
+                {
+                  id: "detach",
+                  label: gt("Move to project history"),
+                  disabled:
+                    !canMutate || !associations.some((entry) => entry.threadId === thread.id),
+                },
+              ],
+              { x: event.clientX, y: event.clientY },
+              contextMenuSourceOf(event.nativeEvent),
+            )
+            .then(async (action) => {
+              if (action === "new") {
+                setMoving(thread.id);
+                setCreating(true);
+                setEditing(null);
+              }
+              if (action === "detach" || action?.startsWith("channel:")) {
+                const result = await mutate({
+                  environmentId,
+                  input: {
+                    type: "move_conversation",
+                    projectId,
+                    threadId: thread.id,
+                    channelId: action === "detach" ? null : action.slice(8),
+                  },
+                });
+                if (result._tag !== "Success") throw squashAtomCommandFailure(result);
+                query.refresh();
+              }
+            })
+            .catch((cause) =>
+              setError(cause instanceof Error ? cause.message : gt("Could not save changes.")),
+            );
+        }}
+      >
+        <SidebarLabel
+          label={thread.title}
+          timestamp={thread.updatedAt}
+          machine={machineLabel}
+          path={thread.worktreePath ?? workspaceRoot}
+        />
+      </SidebarMenuButton>
+    );
+  }
   return (
     <section aria-label={title}>
       <div className="flex items-center">
@@ -257,11 +475,31 @@ function ProjectChannels({
                   [
                     { id: "rename", label: gt("Rename"), disabled: !canUpdateProject },
                     { id: "archive", label: gt("Archive"), disabled: !canUpdateProject },
+                    {
+                      id: "space",
+                      label: gt("Move to space"),
+                      disabled: !canMutate,
+                      children: [
+                        ...(query.data?.spaces ?? []).map((space) => ({
+                          id: `space:${space.id}`,
+                          label: space.name,
+                        })),
+                        { id: "space:", label: gt("Unassigned") },
+                      ],
+                    },
                   ],
                   { x: event.clientX, y: event.clientY },
                   contextMenuSourceOf(event.nativeEvent),
                 )
                 .then(async (action) => {
+                  if (action?.startsWith("space:")) {
+                    const result = await mutate({
+                      environmentId,
+                      input: { type: "assign_space", projectId, spaceId: action.slice(6) || null },
+                    });
+                    if (result._tag !== "Success") throw squashAtomCommandFailure(result);
+                    query.refresh();
+                  }
                   if (action === "rename") setRenamingProject(true);
                   if (action === "archive") {
                     await updateProjectDetails({ archived: true });
@@ -388,6 +626,15 @@ function ProjectChannels({
                   )}
                 </Button>
               </div>
+              <div className="ml-4">
+                {conversations
+                  .filter((thread) =>
+                    associations.some(
+                      (entry) => entry.threadId === thread.id && entry.channelId === channel.id,
+                    ),
+                  )
+                  .map(conversationRow)}
+              </div>
             </div>
           ))}
         {channels.some((channel) => channel.archived) || showArchived ? (
@@ -408,12 +655,17 @@ function ProjectChannels({
             projectId={projectId}
             environmentId={environmentId}
             canMutate={canMutate}
-            onClose={() => setCreating(false)}
+            {...(moving ? { conversationId: moving } : {})}
+            onClose={() => {
+              setCreating(false);
+              setMoving(null);
+            }}
           />
         ) : (
           <SidebarMenuButton
             onClick={() => {
               setCreating(true);
+              setMoving(null);
               setEditing(null);
               setShowArchived(false);
             }}
@@ -425,36 +677,15 @@ function ProjectChannels({
             </span>
           </SidebarMenuButton>
         )}
-        {conversations.length > 0 ? (
+        {looseConversations.length > 0 ? (
           <div className="pt-2">
             <div className="px-2 py-1 text-xs text-sidebar-muted-foreground">
               <T>Conversations</T>
             </div>
-            {conversations
+            {looseConversations
               .filter((thread, index) => index < conversationLimit || thread.id === currentThreadId)
-              .map((thread) => (
-                <SidebarMenuButton
-                  key={thread.id}
-                  render={
-                    <Link
-                      to="/$environmentId/$threadId"
-                      params={{ environmentId, threadId: thread.id }}
-                    />
-                  }
-                  onClick={() => setOpenMobile(false)}
-                  isActive={thread.id === currentThreadId}
-                  title={thread.title}
-                  size="lg"
-                >
-                  <SidebarLabel
-                    label={thread.title}
-                    timestamp={thread.updatedAt}
-                    machine={machineLabel}
-                    path={thread.worktreePath ?? workspaceRoot}
-                  />
-                </SidebarMenuButton>
-              ))}
-            {conversations.length > conversationLimit ? (
+              .map(conversationRow)}
+            {looseConversations.length > conversationLimit ? (
               <SidebarMenuButton
                 size="sm"
                 onClick={() => setConversationLimit((limit) => limit + 6)}
@@ -547,12 +778,14 @@ function ChannelForm({
   environmentId,
   canMutate,
   channel,
+  conversationId,
   onClose,
 }: {
   projectId: ProjectId;
   environmentId: EnvironmentId;
   canMutate: boolean;
   channel?: typeof T3poChannel.Type;
+  conversationId?: ThreadId;
   onClose: () => void;
 }) {
   const gt = useGT();
@@ -570,12 +803,20 @@ function ChannelForm({
     try {
       const result = await mutate({
         environmentId,
-        input: {
-          type: channel ? "edit_channel" : "create_channel",
-          projectId,
-          id,
-          name: name.trim(),
-        },
+        input: conversationId
+          ? {
+              type: "move_conversation",
+              projectId,
+              threadId: conversationId,
+              channelId: id,
+              newChannelName: name.trim(),
+            }
+          : {
+              type: channel ? "edit_channel" : "create_channel",
+              projectId,
+              id,
+              name: name.trim(),
+            },
       });
       if (result._tag !== "Success") {
         const cause = squashAtomCommandFailure(result);

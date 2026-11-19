@@ -1,4 +1,5 @@
 import Migration0106 from "./Migrations/106_T3poWorkstreams.ts";
+import Migration0107 from "./Migrations/107_T3poSpaces.ts";
 import Migration0105 from "./Migrations/105_T3poArtifacts.ts";
 import * as Migrator from "effect/sql/Migrator";
 import * as Effect from "effect/Effect";
@@ -225,6 +226,7 @@ const migrationEntries = [
   [104, "T3poMemoryCorrections", Migration0104],
   [105, "T3poArtifacts", Migration0105],
   [106, "T3poWorkstreams", Migration0106],
+  [107, "T3poSpaces", Migration0107],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);

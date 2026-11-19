@@ -1,3 +1,4 @@
+import * as SpacePolicy from "./t3po/SpacePolicy.ts";
 import * as T3poWork from "./t3po/Work.ts";
 import * as T3poWorkRunner from "./t3po/WorkRunner.ts";
 import * as T3poService from "./t3po/Service.ts";
@@ -875,6 +876,7 @@ const layerMakeRoutes = Layer.mergeAll(
     speechStreamRouteLayer,
   ),
   McpHttpServer.layer.pipe(
+    Layer.provide(SpacePolicy.layer),
     Layer.provide(ProviderAdapterRegistry.layerFromProviderInstanceRegistry),
     Layer.provide(McpOAuth.layerMcpClientAuthenticator),
   ),

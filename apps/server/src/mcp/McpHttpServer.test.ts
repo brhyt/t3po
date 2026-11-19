@@ -1,3 +1,5 @@
+import * as SpacePolicy from "../t3po/SpacePolicy.ts";
+import * as SqlClient from "effect/sql/SqlClient";
 import * as Orchestrator from "../orchestration-v2/Orchestrator.ts";
 import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
 import * as ThreadManagementService from "../orchestration-v2/ThreadManagementService.ts";
@@ -2116,3 +2118,32 @@ it.effect("lists optional tools to a deferring client only after tool_search loa
     }),
   ).pipe(Effect.provide(NodeHttpServer.layerTest)),
 );
+
+it.effect("applies persisted space boundaries before invoking a registered tool handler", () => {
+  const calls: Array<unknown> = [];
+  return Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    for (const [id, project, space] of [
+      [threadId, "p", "personal"],
+      ["foreign", "b", "business"],
+    ]) {
+      yield* sql`INSERT INTO orchestration_v2_projection_threads (thread_id, project_id, title, default_provider, runtime_mode, interaction_mode, created_at, updated_at, payload_json) VALUES (${id}, ${project}, 'Thread', 'codex', 'approval-required', 'default', '2026-11-19', '2026-11-19', '{}')`;
+      yield* sql`INSERT INTO t3po_project_spaces (project_id, space_id) VALUES (${project}, ${space})`;
+    }
+    yield* callTool("t3_thread_read", { threadId });
+    expect(calls).toHaveLength(1);
+    const blocked = yield* callTool("t3_thread_read", { threadId: "foreign" });
+    expect(blocked.isError).toBe(true);
+    expect(calls).toHaveLength(1);
+    const global = yield* callTool("t3_project_list", {});
+    expect(global.isError).toBe(true);
+    expect(calls).toHaveLength(1);
+  }).pipe(
+    Effect.provide(
+      layerRecordingTools(calls).pipe(
+        Layer.provide(SpacePolicy.layer),
+        Layer.provideMerge(Sqlite.layerMemory),
+      ),
+    ),
+  );
+});

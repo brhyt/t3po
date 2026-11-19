@@ -92,6 +92,11 @@ const make = Effect.gen(function* () {
         { concurrency: 8 },
       );
       return {
+        spaces: records.spaces,
+        projectSpaces: records.projectSpaces,
+        conversations: records.conversations.filter((record) =>
+          activeProjects.has(record.projectId),
+        ),
         workstreams: records.workstreams.filter((stream) => activeProjects.has(stream.projectId)),
         memory: records.memory.filter((record) => activeProjects.has(record.projectId)),
         nextCursor: records.nextCursor,
@@ -145,6 +150,8 @@ const make = Effect.gen(function* () {
       yield* PubSub.publish(changes, {
         projectId: input.projectId,
         metadata:
+          input.type.endsWith("_space") ||
+          input.type === "move_conversation" ||
           input.type === "save_budget" ||
           input.type === "save_lead" ||
           input.type.endsWith("channel"),
