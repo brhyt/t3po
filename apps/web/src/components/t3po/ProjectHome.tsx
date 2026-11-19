@@ -127,7 +127,7 @@ export function ProjectHome() {
   );
 }
 
-function ProjectBoard({
+export function ProjectBoard({
   environmentId,
   projectId,
   title,

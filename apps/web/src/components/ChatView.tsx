@@ -1,4 +1,5 @@
 import { ChatNavigation } from "./t3po/ChatNavigation";
+import { ProjectBoard } from "./t3po/ProjectHome";
 import { m } from "../i18n/messages";
 import { thrownErrorMessage } from "@t3tools/client-runtime/errors";
 import { useGT, useMessages } from "gt-react";
@@ -138,7 +139,7 @@ import {
 } from "react";
 import { BackgroundThreadContext } from "./chat/backgroundThread";
 import { WorkspaceMutationIdContext } from "./chat/ChatMarkdownMedia";
-import { useLocation, useNavigate } from "@tanstack/react-router";
+import { useLocation, useNavigate, useSearch } from "@tanstack/react-router";
 import {
   assistantCitationFromLocation,
   useSideChatCitationReveal,
@@ -457,6 +458,10 @@ export default function ChatView(props: ChatViewProps) {
     embedded: parentPanel,
   } = props;
   const embedded = parentPanel !== undefined;
+  const boardRequested = useSearch({ strict: false, select: (search) => search.view === "board" });
+  const projectConversation =
+    threadId.startsWith("t3po-lead:") || threadId.startsWith("t3po-channel:");
+  const showProjectBoard = !embedded && projectConversation && boardRequested;
   const canOperateThread = useEnvironmentScope(environmentId, AuthOrchestrationOperateScope);
   const canOperateTerminal = useEnvironmentScope(environmentId, AuthTerminalOperateScope);
   const draftId = routeKind === "draft" ? props.draftId : null;
@@ -3429,12 +3434,32 @@ export default function ChatView(props: ChatViewProps) {
         {!embedded && activeThread && activeProject ? (
           <ChatNavigation
             environmentId={environmentId}
-            projectId={activeProject.id}
             threadId={activeThread.id}
+            view={showProjectBoard ? "board" : "chat"}
           />
         ) : null}
 
-        <div className="relative flex min-h-0 min-w-0 flex-1">
+        {showProjectBoard && activeProject ? (
+          <div className="min-h-0 flex-1 overflow-y-auto scrollbar-gutter-both">
+            <div className="mx-auto max-w-5xl px-5 py-8 sm:px-10">
+              <ProjectBoard
+                key={activeThreadKey}
+                environmentId={environmentId}
+                projectId={activeProject.id}
+                title={activeProject.title}
+                channelId={
+                  threadId.startsWith("t3po-channel:")
+                    ? threadId.slice("t3po-channel:".length)
+                    : null
+                }
+              />
+            </div>
+          </div>
+        ) : null}
+        <div
+          className={cn("relative min-h-0 min-w-0 flex-1", showProjectBoard ? "hidden" : "flex")}
+          inert={showProjectBoard}
+        >
           <ThreadFindCanvas
             findOptions={{
               skills: timelineSkills,

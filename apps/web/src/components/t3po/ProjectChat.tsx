@@ -26,10 +26,12 @@ export function ProjectChat({
   environmentId,
   projectId,
   channelId,
+  view,
 }: {
   environmentId: EnvironmentId;
   projectId: ProjectId;
   channelId?: string | undefined;
+  view?: "board" | undefined;
 }) {
   const gt = useGT();
   const navigate = useNavigate();
@@ -78,6 +80,7 @@ export function ProjectChat({
       void navigate({
         to: "/$environmentId/$threadId",
         params: { environmentId, threadId: result.value.threadId },
+        search: view ? { view } : {},
         replace: true,
       });
     });
@@ -93,13 +96,21 @@ export function ProjectChat({
     environmentId,
     projectId,
     channelId,
+    view,
     navigate,
     gt,
     error,
   ]);
   if (query.data && !lead) return <ProjectHome />;
   if (available && thread && threadId)
-    return <Navigate to="/$environmentId/$threadId" params={{ environmentId, threadId }} replace />;
+    return (
+      <Navigate
+        to="/$environmentId/$threadId"
+        params={{ environmentId, threadId }}
+        search={view ? { view } : {}}
+        replace
+      />
+    );
   return (
     <SidebarInset className="h-dvh min-h-0">
       <WorkspacePageHeader electron={isElectron}>

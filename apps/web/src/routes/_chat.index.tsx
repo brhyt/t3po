@@ -19,13 +19,14 @@ function ProjectHomeRoute() {
     if (!isReady) return null;
     if (environments.length === 0) return <HostedEmptyState />;
   }
-  if (search.project && search.machine && search.view !== "board")
+  if (search.project && search.machine)
     return (
       <ProjectChat
         key={`${search.machine}:${search.project}:${search.channel ?? "lead"}`}
         environmentId={EnvironmentId.make(search.machine)}
         projectId={ProjectId.make(search.project)}
         channelId={search.channel}
+        view={search.view}
       />
     );
   return <ProjectHome />;

@@ -1,16 +1,16 @@
 import { Link } from "@tanstack/react-router";
 import { T } from "gt-react";
-import type { EnvironmentId, ProjectId, ThreadId } from "@t3tools/contracts";
+import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { Button } from "../ui/button";
 
 export function ChatNavigation({
   environmentId,
-  projectId,
   threadId,
+  view = "chat",
 }: {
   environmentId: EnvironmentId;
-  projectId: ProjectId;
   threadId: ThreadId;
+  view?: "chat" | "board";
 }) {
   const channelId = threadId.startsWith("t3po-channel:")
     ? threadId.slice("t3po-channel:".length)
@@ -18,21 +18,29 @@ export function ChatNavigation({
   if (!channelId && !threadId.startsWith("t3po-lead:")) return null;
   return (
     <nav aria-label="T3PO" className="flex shrink-0 items-center gap-2 border-b px-4 py-1.5">
-      <span className="px-2 text-xs font-medium">
-        <T>Chat</T>
-      </span>
       <Button
         size="sm"
-        variant="ghost"
+        variant={view === "chat" ? "secondary" : "ghost"}
         render={
           <Link
-            to="/"
-            search={{
-              project: projectId,
-              machine: environmentId,
-              channel: channelId,
-              view: "board",
-            }}
+            to="/$environmentId/$threadId"
+            params={{ environmentId, threadId }}
+            search={{}}
+            aria-current={view === "chat" ? "page" : undefined}
+          />
+        }
+      >
+        <T>Chat</T>
+      </Button>
+      <Button
+        size="sm"
+        variant={view === "board" ? "secondary" : "ghost"}
+        render={
+          <Link
+            to="/$environmentId/$threadId"
+            params={{ environmentId, threadId }}
+            search={{ view: "board" }}
+            aria-current={view === "board" ? "page" : undefined}
           />
         }
       >
