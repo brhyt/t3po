@@ -43,10 +43,8 @@ export function HostedEmptyState() {
             <EmptyDescription>
               {localEnvironmentOff ? (
                 <T>Turn it back on, or connect a different computer.</T>
-              ) : cloudEnabled ? (
-                <T>Your agents run on your computer.</T>
               ) : (
-                <T>Your agents run on your computer. Start T3 Code there first.</T>
+                <T>Your agents run on your computer.</T>
               )}
             </EmptyDescription>
           </EmptyHeader>
@@ -132,7 +130,12 @@ function PairingSteps() {
   return (
     <>
       <SetupStep number={1}>
-        <RunOnComputer command="t3 pair" />
+        <p>
+          <T>
+            Open T3PO on the computer that runs your agents. In Settings → Sharing &amp; access,
+            create a pairing link.
+          </T>
+        </p>
       </SetupStep>
       <SetupStep number={2}>
         <Button render={<Link to="/settings/connections" />} size="sm">
