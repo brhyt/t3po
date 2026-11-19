@@ -51,7 +51,39 @@ export const T3poChannel = Schema.Struct({
   projectId: ProjectId,
   name: TrimmedNonEmptyString.check(Schema.isMaxLength(200)),
 });
+export const T3poWorkstream = Schema.Struct({
+  id: TrimmedNonEmptyString,
+  projectId: ProjectId,
+  channelId: Schema.NullOr(TrimmedNonEmptyString),
+  title: TrimmedNonEmptyString.check(Schema.isMaxLength(200)),
+  goal: Schema.String.check(Schema.isMaxLength(12000)),
+  state: Schema.Literals(["active", "waiting", "completed", "archived"]),
+});
+export type T3poWorkstream = typeof T3poWorkstream.Type;
+export const T3poWorkRoute = Schema.Struct({
+  requestId: TrimmedNonEmptyString.check(Schema.isMaxLength(200)),
+  sourceMessageId: MessageId,
+  action: Schema.Literals(["new_job", "follow_up"]),
+  workstreamId: TrimmedNonEmptyString.check(Schema.isMaxLength(200)),
+  workstreamTitle: TrimmedNonEmptyString.check(Schema.isMaxLength(200)),
+  goal: Schema.String.check(Schema.isMaxLength(12000)),
+  jobId: Schema.optional(TrimmedNonEmptyString),
+  title: TrimmedNonEmptyString.check(Schema.isMaxLength(200)),
+  message: TrimmedNonEmptyString.check(Schema.isMaxLength(12000)),
+  reviewRequired: Schema.optional(Schema.Boolean),
+});
+export type T3poWorkRoute = typeof T3poWorkRoute.Type;
+export const T3poWorkReceipt = Schema.Struct({
+  id: Schema.String,
+  jobId: Schema.String,
+  workstreamId: Schema.String,
+  state: Schema.Literals(["queued", "sent", "blocked"]),
+  reason: Schema.String,
+});
+export type T3poWorkReceipt = typeof T3poWorkReceipt.Type;
 export const T3poTask = Schema.Struct({
+  workstreamId: Schema.optional(TrimmedNonEmptyString),
+  reviewRequired: Schema.optional(Schema.Boolean),
   archived: Schema.optional(Schema.Boolean),
   workspace: Schema.optional(T3poWorkspace),
   id: TrimmedNonEmptyString,
@@ -94,6 +126,7 @@ export const T3poResultsPage = Schema.Struct({
 });
 export type T3poResultsPage = typeof T3poResultsPage.Type;
 export const T3poTaskView = Schema.Struct({
+  dispatch: Schema.optional(T3poWorkReceipt),
   ...T3poTask.fields,
   status: T3poTaskStatus,
   latestResult: Schema.NullOr(T3poResult),
@@ -129,6 +162,7 @@ export const T3poMemoryStatus = Schema.Struct({
   lastCheckedAt: Schema.NullOr(Schema.String),
 });
 export const T3poSnapshot = Schema.Struct({
+  workstreams: Schema.optional(Schema.Array(T3poWorkstream)),
   memory: Schema.Array(T3poMemoryStatus),
   nextCursor: Schema.NullOr(NonNegativeInt),
   leads: Schema.Array(T3poLead),
@@ -137,6 +171,16 @@ export const T3poSnapshot = Schema.Struct({
 });
 export const T3poMutation = Schema.Union([
   T3poMemoryControl,
+  Schema.Struct({
+    type: Schema.Literal("move_job"),
+    projectId: ProjectId,
+    id: TrimmedNonEmptyString,
+    workstreamId: TrimmedNonEmptyString,
+  }),
+  Schema.Struct({
+    type: Schema.Literal("save_workstream"),
+    ...T3poWorkstream.fields,
+  }),
   Schema.Struct({
     type: Schema.Literal("save_budget"),
     projectId: ProjectId,

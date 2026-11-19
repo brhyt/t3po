@@ -1,4 +1,7 @@
+import * as T3poWork from "../../../t3po/Work.ts";
 import {
+  T3poWorkRoute,
+  T3poWorkReceipt,
   OrchestratorMcpCapabilitiesInput,
   OrchestratorMcpCapabilitiesResult,
   OrchestrationV2StopWorkflowInput,
@@ -71,6 +74,20 @@ const threadMetadataDependencies = [
   ThreadManagementService.ThreadManagementService,
   ThreadMetadataMcpService.ThreadMetadataMcpService,
 ];
+
+const WorkRouteTool = Tool.make("t3_work_route", {
+  description:
+    "Route authorized work from a T3PO lead/channel message. Use new_job for an independent deliverable, follow_up with jobId for an existing job. Reuse a matching workstreamId; otherwise choose a stable new key and goal. sourceMessageId must be a user message in this chat. One stable requestId per request within that message; retries must keep identical arguments. Saves before dispatch, queues under project limits, uses isolated local worktrees. Ordinary conversation needs no call. Never bypass a queued route with another dispatch tool.",
+  parameters: T3poWorkRoute,
+  success: T3poWorkReceipt,
+  failure: OrchestratorMcpFailure,
+  failureMode: "return",
+  dependencies: [...dependencies, T3poWork.Work],
+})
+  .annotate(Tool.Title, "Route project work")
+  .annotate(Tool.Destructive, true)
+  .annotate(Tool.Idempotent, true)
+  .annotate(McpSchema.EnabledWhen, McpInvocationContext.hiddenFromOutsideClients);
 
 const OrchestratorCapabilitiesTool = Tool.make("orchestrator_capabilities", {
   description:
@@ -363,6 +380,7 @@ const EnvironmentUnlinkTool = Tool.make("t3_environment_unlink", {
   .annotate(McpSchema.EnabledWhen, McpInvocationContext.hiddenWhileLinksOff);
 
 export const OrchestratorToolkit = Toolkit.make(
+  WorkRouteTool,
   OrchestratorCapabilitiesTool,
   DelegateTaskTool,
   TaskStatusTool,

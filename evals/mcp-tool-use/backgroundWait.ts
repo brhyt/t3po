@@ -1,3 +1,4 @@
+import * as T3poWork from "../../apps/server/src/t3po/Work.ts";
 // @effect-diagnostics nodeBuiltinImport:off
 /**
  * T3's real `t3_background_wait` handler and ThreadManagementService over a Claude session.
@@ -101,6 +102,7 @@ export const makeBackgroundWait = Effect.fn("evaluateMcpToolUse.makeBackgroundWa
       Layer.provideMerge(McpHttpServer.layerInProcessMcpServer),
       Layer.provide(Layer.mock(OrchestratorMcpService.OrchestratorMcpService)({})),
       Layer.provide(Layer.mock(ThreadMetadataMcpService.ThreadMetadataMcpService)({})),
+      Layer.provide(T3poWork.optionalLayer),
       Layer.provide(threads),
       Layer.provide(Layer.mock(PeerForwarding.PeerForwarding)({})),
       Layer.provide(Layer.mock(PeerLinkRequests.PeerLinkRequests)({})),

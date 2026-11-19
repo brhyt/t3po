@@ -21,3 +21,15 @@ it("requires review after execution and exposes new work or failures even on a r
   for (const status of ["failed", "interrupted", "cancelled", "rolled_back"] as const)
     expect(taskStatus(true, { ...finished, status })).toBe("needs_you");
 });
+
+it("routine jobs finish without acceptance while requests, children and failures remain visible", () => {
+  expect(taskStatus(false, finished, null, false)).toBe("completed");
+  expect(taskStatus(false, { ...finished, hasActionableProposedPlan: true }, null, false)).toBe(
+    "needs_you",
+  );
+  expect(taskStatus(false, { ...finished, status: "failed" }, null, false)).toBe("needs_you");
+  expect(taskStatus(false, { ...finished, activeRunId: RunId.make("child") }, null, false)).toBe(
+    "active",
+  );
+  expect(taskStatus(false, finished, null, true)).toBe("ready_for_review");
+});

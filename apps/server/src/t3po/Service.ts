@@ -70,7 +70,12 @@ const make = Effect.gen(function* () {
                 .results[0] ?? null;
             return {
               ...task,
-              status: taskStatus(task.completed, shell, task.reviewedRunId),
+              status:
+                task.dispatch?.state === "blocked"
+                  ? "needs_you"
+                  : task.dispatch?.state === "queued" && !shell?.activeRunId
+                    ? "up_next"
+                    : taskStatus(task.completed, shell, task.reviewedRunId, task.reviewRequired),
               executionExists: shell !== null,
               workspaceLocked: task.workspaceLocked || shell !== null,
               workspacePath: shell
@@ -87,6 +92,7 @@ const make = Effect.gen(function* () {
         { concurrency: 8 },
       );
       return {
+        workstreams: records.workstreams.filter((stream) => activeProjects.has(stream.projectId)),
         memory: records.memory.filter((record) => activeProjects.has(record.projectId)),
         nextCursor: records.nextCursor,
         leads: records.leads.filter((lead) => activeProjects.has(lead.projectId)),

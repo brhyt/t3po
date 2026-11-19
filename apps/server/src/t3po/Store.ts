@@ -13,6 +13,8 @@ import {
   type RunId,
   ThreadId,
   T3poLead,
+  T3poWorkstream,
+  type T3poWorkReceipt,
   T3poChannel,
   T3poTask,
   T3poError,
@@ -30,6 +32,7 @@ import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/sql/SqlClient";
 
+const decodeWorkstream = Schema.decodeEffect(Schema.fromJsonString(T3poWorkstream));
 const decodeT3poLeadJson = Schema.decodeEffect(Schema.fromJsonString(T3poLead));
 const decodeT3poChannelJson = Schema.decodeEffect(Schema.fromJsonString(T3poChannel));
 const decodeT3poTaskJson = Schema.decodeEffect(Schema.fromJsonString(T3poTask));
@@ -44,8 +47,12 @@ const LaunchReservation = Schema.Struct({
 });
 const encodeT3poLaunchInputJson = Schema.encodeEffect(Schema.fromJsonString(LaunchReservation));
 const decodeT3poLaunchInputJson = Schema.decodeEffect(Schema.fromJsonString(LaunchReservation));
-type TaskRecord = T3poTask & { readonly workspaceLocked: boolean };
+type TaskRecord = T3poTask & {
+  readonly workspaceLocked: boolean;
+  readonly dispatch?: T3poWorkReceipt;
+};
 type Page = {
+  workstreams: readonly T3poWorkstream[];
   memory: readonly (typeof T3poMemoryStatus.Type)[];
   leads: readonly T3poLead[];
   channels: readonly (typeof T3poChannel.Type)[];
@@ -238,6 +245,9 @@ const make = Effect.gen(function* () {
       const leads = yield* sql<{
         data: string;
       }>`SELECT data FROM t3po_leads WHERE ${projectFilter}`;
+      const workstreams = yield* sql<{
+        data: string;
+      }>`SELECT data FROM t3po_workstreams WHERE ${projectFilter} AND ${input.channelId ? sql`channel_id = ${input.channelId}` : sql`1 = 1`} ORDER BY rowid DESC LIMIT 100`;
       const channels = yield* sql<{
         data: string;
       }>`SELECT data FROM t3po_channels WHERE ${projectFilter} ORDER BY rowid`;
@@ -271,6 +281,7 @@ const make = Effect.gen(function* () {
       }>`SELECT l.project_id AS projectId, s.available, s.last_sync_at AS lastCheckedAt, (SELECT count(*) FROM t3po_memory_events e WHERE e.project_id = l.project_id AND e.synced_at IS NULL AND e.superseded_by IS NULL AND e.kind != 'local_correction') AS pending FROM t3po_leads l LEFT JOIN t3po_memory_status s ON s.project_id = l.project_id WHERE ${input.projectId ? sql`l.project_id = ${input.projectId}` : sql`1 = 1`}`;
       const processing = yield* memory.statuses;
       return {
+        workstreams: yield* Effect.forEach(workstreams, (row) => decodeWorkstream(row.data)),
         memory: memoryRows.map((row) => ({
           ...row,
           projectId: ProjectId.make(row.projectId),
@@ -295,9 +306,16 @@ const make = Effect.gen(function* () {
         ),
         channels: yield* Effect.forEach(channels, (row) => decodeT3poChannelJson(row.data)),
         tasks: yield* Effect.forEach(tasks.slice(0, 50), (row) =>
-          decodeT3poTaskJson(row.data).pipe(
-            Effect.map((task) => ({ ...task, workspaceLocked: row.launch !== null })),
-          ),
+          Effect.gen(function* () {
+            const task = yield* decodeT3poTaskJson(row.data);
+            const routes =
+              yield* sql<T3poWorkReceipt>`SELECT id, job_id AS jobId, workstream_id AS workstreamId, state, reason FROM t3po_work_routes WHERE job_id = ${task.id} ORDER BY sequence DESC LIMIT 1`;
+            return {
+              ...task,
+              workspaceLocked: row.launch !== null,
+              ...(routes[0] ? { dispatch: routes[0] } : {}),
+            };
+          }),
         ),
         nextCursor: tasks.length > 50 ? tasks[49]!.cursor : null,
       };
@@ -317,7 +335,23 @@ const make = Effect.gen(function* () {
     function* (input: T3poMutation, reviewedRunId?: RunId) {
       if (input.type === "memory_control") return yield* new T3poError({ operation: "invalid" });
       const now = DateTime.formatIso(yield* DateTime.now);
-      if (input.type === "save_budget") {
+      if (input.type === "save_workstream") {
+        const rows = yield* sql<{
+          data: string;
+        }>`SELECT data FROM t3po_workstreams WHERE id = ${input.id} AND project_id = ${input.projectId}`;
+        if (!rows[0]) return yield* new T3poError({ operation: "invalid" });
+        const previous = yield* decodeWorkstream(rows[0].data);
+        if (previous.channelId !== input.channelId)
+          return yield* new T3poError({ operation: "invalid" });
+        yield* sql`UPDATE t3po_workstreams SET data = ${yield* encodeUnknownJson({ ...previous, title: input.title, goal: input.goal, state: input.state })} WHERE id = ${input.id}`;
+      } else if (input.type === "move_job") {
+        const task = yield* getTask(input.id, input.projectId);
+        const rows =
+          yield* sql`SELECT id FROM t3po_workstreams WHERE id = ${input.workstreamId} AND project_id = ${input.projectId} AND channel_id IS ${task.channelId} AND json_extract(data, '$.state') != 'archived'`;
+        if (!rows.length) return yield* new T3poError({ operation: "invalid" });
+        yield* sql`UPDATE t3po_tasks SET data = json_set(data, '$.workstreamId', ${input.workstreamId}) WHERE id = ${task.id}`;
+        yield* sql`UPDATE t3po_work_routes SET workstream_id = ${input.workstreamId} WHERE job_id = ${task.id}`;
+      } else if (input.type === "save_budget") {
         yield* sql`INSERT INTO t3po_budgets (project_id, max_runs, max_concurrent) VALUES (${input.projectId}, ${input.maxRuns}, ${input.maxConcurrent}) ON CONFLICT(project_id) DO UPDATE SET max_runs = excluded.max_runs, max_concurrent = excluded.max_concurrent`;
       } else if (input.type === "save_lead") {
         const previous = yield* sql<{
@@ -393,6 +427,7 @@ const make = Effect.gen(function* () {
             title: input.title,
             brief: input.brief,
             channelId: input.channelId,
+            ...(input.channelId !== task.channelId ? { workstreamId: undefined } : {}),
             ...(input.workspace ? { workspace: input.workspace } : {}),
             ...(input.brief !== task.brief ? { completed: false, reviewedRunId: null } : {}),
           };
@@ -517,6 +552,19 @@ const make = Effect.gen(function* () {
         text: string;
       }>`SELECT kind, substr(text, 1, 2000) AS text FROM t3po_memory_events WHERE project_id = ${projectId} AND superseded_by IS NULL ORDER BY sequence DESC LIMIT 5`;
       return yield* encodeUnknownJson({
+        sourceMessages:
+          threadId === lead.threadId || channel
+            ? yield* sql`SELECT message_id AS id, substr(json_extract(payload_json, '$.text'), 1, 1000) AS text FROM orchestration_v2_projection_messages WHERE thread_id = ${threadId} AND role = 'user' ORDER BY rowid DESC LIMIT 8`
+            : [],
+        workstreams:
+          threadId === lead.threadId || channel
+            ? yield* Effect.forEach(
+                yield* sql<{
+                  data: string;
+                }>`SELECT data FROM t3po_workstreams WHERE project_id = ${projectId} AND channel_id IS ${channel?.id ?? null} ORDER BY rowid DESC LIMIT 30`,
+                (row) => decodeWorkstream(row.data),
+              )
+            : [],
         memory: {
           configured: memory.configured,
           available: memoryAvailable,
@@ -528,9 +576,15 @@ const make = Effect.gen(function* () {
         projectBrief: lead.brief,
         channel: channel ? { id: channel.id, name: channel.name } : null,
         assignment: assignment?.brief ?? null,
+        queuedWork:
+          threadId === lead.threadId || channel
+            ? yield* sql`SELECT r.job_id AS jobId, r.workstream_id AS workstreamId, r.state, r.reason FROM t3po_work_routes r JOIN t3po_tasks t ON t.id = r.job_id WHERE r.project_id = ${projectId} AND r.state != 'sent' AND json_extract(t.data, '$.channelId') IS ${channel?.id ?? null} ORDER BY r.sequence DESC LIMIT 30`
+            : [],
         recentTasks: records
           .filter((task) => !channel || task.channelId === channel.id)
           .map((task) => ({
+            id: task.id,
+            workstreamId: task.workstreamId,
             title: task.title,
             threadId: task.threadId,
             reviewedComplete: task.completed,

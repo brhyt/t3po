@@ -1,3 +1,4 @@
+import * as T3poWork from "../../../t3po/Work.ts";
 import { OrchestratorMcpFailure } from "@t3tools/contracts";
 import { OrchestratorToolkit } from "./tools.ts";
 import * as Effect from "effect/Effect";
@@ -13,6 +14,33 @@ import * as OrchestratorMcpService from "../../OrchestratorMcpService.ts";
 import * as ThreadMetadataMcpService from "../../ThreadMetadataMcpService.ts";
 
 const handlers = {
+  t3_work_route: McpToolAccess.actsAsCaller((input) =>
+    Effect.gen(function* () {
+      const { scope, caller: shell } = yield* readCaller();
+      const service = yield* T3poWork.Work;
+      const caller = yield* McpInvocationContext.requireThreadScope(scope, "t3_work_route");
+      if (
+        !shell ||
+        shell.deletedAt ||
+        shell.interactionMode === "plan" ||
+        shell.providerInstanceId !== caller.thread.providerInstanceId
+      )
+        return yield* new OrchestratorMcpFailure({
+          code: "invalid_request",
+          message: "A live project lead or channel is required.",
+        });
+      return yield* service.reserve(caller.thread.threadId, input, shell.modelSelection).pipe(
+        Effect.mapError(
+          () =>
+            new OrchestratorMcpFailure({
+              code: "invalid_request",
+              message:
+                "The route must name a user message and work in this lead's scope; retries require unchanged arguments.",
+            }),
+        ),
+      );
+    }),
+  ),
   orchestrator_capabilities: McpToolAccess.reads((input) =>
     Effect.gen(function* () {
       const scope = yield* McpInvocationContext.McpInvocationContext;

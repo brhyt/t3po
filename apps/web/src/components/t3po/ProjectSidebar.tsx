@@ -1,3 +1,4 @@
+import { useRoName } from "./useRoName";
 import { useState } from "react";
 import { useAtomValue } from "@effect/atom-react";
 import type { EnvironmentId, ProjectId, T3poChannel } from "@t3tools/contracts";
@@ -11,7 +12,6 @@ import { Link, useLocation, useNavigate, useParams } from "@tanstack/react-route
 import { T, useGT, useMessages } from "gt-react";
 import {
   MonitorIcon,
-  LayersIcon,
   PlusIcon,
   SettingsIcon,
   FolderIcon,
@@ -24,7 +24,7 @@ import { useProjects, useThreadShell, useThreadShellsForProjectRefs } from "../.
 import { openCommandPalette } from "../../commandPaletteBus";
 import { Button } from "../ui/button";
 import { Tooltip, TooltipTrigger, TooltipPopup } from "../ui/tooltip";
-import { SidebarMenuButton, useSidebar } from "../ui/sidebar";
+import { SidebarMenuButton, SidebarTrigger, useSidebar } from "../ui/sidebar";
 import { t3poSearch } from "./search";
 import { resolveThreadRouteRef } from "../../threadRoutes";
 import { useEnvironments } from "../../state/environments";
@@ -34,6 +34,8 @@ import { projectConversations } from "./projectConversations";
 
 export function ProjectSidebar() {
   const gt = useGT();
+  const [roName, setRoName] = useRoName();
+  const [renamingRo, setRenamingRo] = useState(false);
   const { environments } = useEnvironments();
   const projects = useProjects().filter((project) => project.archivedAt == null);
   const search = useLocation({ select: (location) => t3poSearch(location.search) });
@@ -50,26 +52,31 @@ export function ProjectSidebar() {
           to="/"
           search={{}}
           aria-label="T3PO"
-          className="ml-[var(--workspace-titlebar-content-left)] inline-flex h-7 items-center gap-1 rounded-md text-sm font-medium tracking-tight outline-hidden ring-ring focus-visible:ring-2 focus-visible:ring-inset"
+          className="ml-3 inline-flex h-7 items-center gap-1 rounded-md text-sm font-medium tracking-tight outline-hidden ring-ring focus-visible:ring-2 focus-visible:ring-inset"
           onClick={() => setOpenMobile(false)}
         >
           {"T3PO"}
         </Link>
+        <div className="ml-auto">
+          <SidebarTrigger aria-label={gt("Toggle main sidebar")} />
+        </div>
       </div>
-      <div className="px-(--sidebar-content-inset)">
+      <div className="my-3 flex items-center gap-1 px-(--sidebar-content-inset)">
         <SidebarMenuButton
           render={<Link to="/" search={{}} />}
           onClick={() => setOpenMobile(false)}
           isActive={!activeSearch.project}
         >
-          <LayersIcon />
-          <span>
-            <T>Everything</T>
-          </span>
+          <span className="text-base font-semibold">{roName}</span>
         </SidebarMenuButton>
-      </div>
-      <div className="mt-4 mb-1 flex items-center justify-between px-3 text-xs text-sidebar-muted-foreground">
-        <T>Projects</T>
+        <Button
+          size="icon"
+          variant="ghost"
+          aria-label={gt("Rename Ro")}
+          onClick={() => setRenamingRo(!renamingRo)}
+        >
+          <PencilIcon className="size-3" />
+        </Button>
         <Button
           size="icon"
           variant="ghost"
@@ -79,6 +86,35 @@ export function ProjectSidebar() {
           <PlusIcon className="size-4" />
         </Button>
       </div>
+      {renamingRo ? (
+        <form
+          className="mb-3 px-3"
+          onSubmit={(event) => {
+            event.preventDefault();
+            const value = new FormData(event.currentTarget).get("name");
+            if (typeof value === "string" && value.trim()) {
+              setRoName(value.trim());
+              setRenamingRo(false);
+            }
+          }}
+        >
+          <Input
+            name="name"
+            aria-label={gt("Agent name")}
+            defaultValue={roName}
+            maxLength={80}
+            autoFocus
+          />
+          <div className="mt-1 flex gap-1">
+            <Button type="submit" size="sm">
+              <T>Save</T>
+            </Button>
+            <Button type="button" size="sm" variant="ghost" onClick={() => setRenamingRo(false)}>
+              <T>Cancel</T>
+            </Button>
+          </div>
+        </form>
+      ) : null}
       <div className="min-h-0 flex-1 space-y-1 overflow-y-auto px-(--sidebar-content-inset)">
         {projects.map((project) => (
           <ProjectChannels
@@ -442,10 +478,10 @@ function SidebarLabel({
   return (
     <span className="block min-w-0 flex-1">
       <span className="flex min-w-0 items-center gap-2">
-        <span className="min-w-0 flex-1 truncate text-base font-semibold">{label}</span>
+        <span className="min-w-0 flex-1 truncate text-sm font-semibold">{label}</span>
         <SidebarTime timestamp={timestamp} />
       </span>
-      <span className="mt-0.5 flex min-w-0 items-center gap-1 text-xs font-normal text-sidebar-muted-foreground">
+      <span className="mt-0.5 flex min-w-0 items-center gap-1 text-xs font-normal text-sidebar-muted-foreground/80">
         <MonitorIcon className="size-3 shrink-0" />
         <span className="shrink-0">{machine}</span>
         <FolderIcon className="ml-1 size-3 shrink-0" />
@@ -472,7 +508,7 @@ function SidebarTime({ timestamp }: { timestamp: string | null }) {
     <time
       dateTime={timestamp ?? undefined}
       aria-label={timestamp ?? undefined}
-      className="shrink-0 text-xs font-normal text-sidebar-muted-foreground"
+      className="shrink-0 text-xs font-normal text-sidebar-muted-foreground/80"
     >
       {relative.value}
     </time>

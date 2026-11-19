@@ -1,3 +1,6 @@
+import * as T3poWork from "./t3po/Work.ts";
+import * as T3poWorkRunner from "./t3po/WorkRunner.ts";
+import * as T3poService from "./t3po/Service.ts";
 import * as T3poStore from "./t3po/Store.ts";
 import * as T3poChanges from "./t3po/Changes.ts";
 import * as ProviderEventLoggers from "@t3tools/provider-core/server/ProviderEventLoggers";
@@ -732,6 +735,9 @@ const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
       yield* store.runMemoryWorker.pipe(Effect.forkScoped);
     }),
   ),
+  Layer.effectDiscard(T3poWorkRunner.run.pipe(Effect.forkScoped)).pipe(
+    Layer.provide(T3poService.layer),
+  ),
   ProviderUsageLimitsIngestion.layer,
   layerProviderInstallationRefresh,
   ProviderInstallation.layer,
@@ -739,7 +745,7 @@ const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
   Layer.effectDiscard(ProjectSettingsOverrideSweep.sweep),
 ).pipe(
   Layer.provideMerge(layerOrchestrationApplication),
-  Layer.provideMerge(T3poStore.layer),
+  Layer.provideMerge(T3poWork.layer.pipe(Layer.provideMerge(T3poStore.layer))),
   Layer.provideMerge(RuntimeLayer.layerEventInfrastructure),
   Layer.provideMerge(T3poChanges.layer),
   Layer.provideMerge(Layer.merge(ProjectStore.layer, ThreadSearch.layer)),

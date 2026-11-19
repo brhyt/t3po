@@ -1,3 +1,4 @@
+import { WorkPanel } from "../t3po/WorkPanel";
 import type {
   EditorId,
   EnvironmentId,
@@ -266,6 +267,16 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
                 </ThreadDetailsSection>
               ) : null}
 
+              {!props.draftId &&
+              (props.threadId.startsWith("t3po-channel:") ||
+                props.threadId.startsWith("t3po-lead:")) ? (
+                <WorkPanel
+                  key={`${props.environmentId}:${props.threadId}`}
+                  environmentId={props.environmentId}
+                  projectId={props.projectId}
+                  threadId={props.threadId}
+                />
+              ) : null}
               {density === "full" && !props.draftId && visible.servers ? (
                 <ThreadServersPanel environmentId={props.environmentId} threadId={props.threadId} />
               ) : null}

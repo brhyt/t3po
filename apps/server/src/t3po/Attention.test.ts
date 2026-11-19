@@ -164,3 +164,14 @@ effectIt.effect("bounds project scans and resumes strictly after the previous ta
     ),
   ),
 );
+
+it("does not request acceptance for routine job results", () => {
+  const routine = { ...task, completed: false, reviewedRunId: null, reviewRequired: false };
+  expect(taskAttention(routine, shell, result)).toEqual([]);
+  expect(
+    taskAttention(routine, { ...shell, status: "failed" }, result).map((item) => item.reason),
+  ).toEqual(["failed"]);
+  expect(
+    taskAttention({ ...routine, reviewRequired: true }, shell, result).map((item) => item.reason),
+  ).toEqual(["review"]);
+});

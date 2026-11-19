@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 // @effect-diagnostics nodeBuiltinImport:off
+import { workRoutingInstructions } from "../../apps/server/src/t3po/WorkInstructions.ts";
 /**
  * Replays small fake threads on a Claude or Codex model to check T3's MCP tool use. A trimmed
  * harness capture supplies the prompt and native tools; a cheap model plays the shell. See
@@ -313,6 +314,7 @@ export const McpToolUseCase = Schema.Struct({
     /** delegate_task `role` for a delegated child. T3 builds the child's first message from it. */
     delegateRole: Schema.optional(OrchestratorMcpTaskRole),
     context: Schema.optional(Schema.String),
+    t3poLead: Schema.optional(Schema.Boolean),
     priorTurns: Schema.optional(
       Schema.Array(
         Schema.Struct({
@@ -1052,6 +1054,7 @@ export const buildMessages = (sample: Sample) => {
     native
       ? "You are a subagent started by the parent agent's Agent tool. Your final message goes to the parent agent, not to the user."
       : undefined,
+    testCase.setup.t3poLead ? workRoutingInstructions : undefined,
     context,
   ];
   const reminders = base.reminders.toSpliced(base.gitStatusAt, 0, reminder(gitStatus(testCase)));

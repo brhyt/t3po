@@ -1,3 +1,4 @@
+import * as T3poWork from "../t3po/Work.ts";
 import * as Cause from "effect/Cause";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
@@ -1291,7 +1292,11 @@ export const layerPreviewToolkit = Layer.mergeAll(
 export const layerOrchestratorToolkit = toolkitRegistration(
   OrchestratorToolkit,
   OrchestratorHandlers.layer,
-).pipe(Layer.provide(OrchestratorMcpService.layer), Layer.provide(ThreadMetadataMcpService.layer));
+).pipe(
+  Layer.provide(OrchestratorMcpService.layer),
+  Layer.provide(ThreadMetadataMcpService.layer),
+  Layer.provide(T3poWork.optionalLayer),
+);
 
 export const layerThreadToolkit = toolkitRegistration(ThreadToolkit, ThreadHandlers.layer);
 

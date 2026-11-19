@@ -22,6 +22,20 @@ const provider: ServerProvider = {
 };
 
 describe("getProviderSummary", () => {
+  it("does not label an unprobed provider as missing", () => {
+    const unchecked: ServerProvider = {
+      ...provider,
+      installed: false,
+      status: "warning",
+      auth: { status: "unknown" },
+      message: "Codex provider status has not been checked in this session yet.",
+    };
+    expect(getProviderSummary(unchecked).headline).toBe("Checking provider status");
+    expect(getProviderStatusKey(unchecked)).toBe("neutral");
+    expect(
+      getProviderSummary({ ...unchecked, message: "CLI not detected on PATH." }).headline,
+    ).toBe("Not found");
+  });
   it("does not hide a provider error behind a previous authenticated state", () => {
     expect(
       getProviderSummary({

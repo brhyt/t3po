@@ -388,7 +388,7 @@ function SidebarControl({ showSidebar }: { readonly showSidebar: boolean }) {
       )}
       data-sidebar-control=""
     >
-      {showSidebar ? (
+      {showSidebar && !isSidebarVisible ? (
         <Tooltip>
           <TooltipTrigger
             render={

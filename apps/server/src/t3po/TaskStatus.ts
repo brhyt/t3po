@@ -12,6 +12,7 @@ export function taskStatus(
     | "latestRunId"
   > | null,
   reviewedRunId: RunId | null = null,
+  reviewRequired = true,
 ): T3poTaskView["status"] {
   if (!shell) return completed ? "completed" : "up_next";
   if (shell.pendingRuntimeRequest || shell.hasActionableProposedPlan) return "needs_you";
@@ -24,5 +25,9 @@ export function taskStatus(
   if (["failed", "interrupted", "cancelled", "rolled_back"].includes(shell.status))
     return "needs_you";
   if (completed && reviewedRunId === shell.latestRunId) return "completed";
-  return shell.status === "completed" ? "ready_for_review" : "up_next";
+  return shell.status === "completed"
+    ? reviewRequired
+      ? "ready_for_review"
+      : "completed"
+    : "up_next";
 }

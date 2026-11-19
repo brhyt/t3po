@@ -1,3 +1,4 @@
+import { useRoName } from "./useRoName";
 import { NeedsYou } from "./NeedsYou";
 import { ProjectMemory } from "./MemoryInspector";
 import { NativeChildren } from "./NativeChildren.tsx";
@@ -37,6 +38,7 @@ import { WorkspacePageHeader } from "../WorkspacePageHeader";
 import { isElectron } from "../../env";
 
 export function ProjectHome() {
+  const [roName] = useRoName();
   const search = Route.useSearch();
   const projects = useProjects().filter((project) => project.archivedAt == null);
   const { environments } = useEnvironments();
@@ -53,7 +55,7 @@ export function ProjectHome() {
         <span className="text-sm text-muted-foreground">
           {"T3PO"}
           {" / "}
-          {selected?.title ?? <T>Everything</T>}
+          {selected?.title ?? roName}
         </span>
         {selected ? (
           <Button
@@ -81,9 +83,7 @@ export function ProjectHome() {
               <p className="mb-2 text-xs font-medium uppercase tracking-widest text-primary">
                 <T>Your project team</T>
               </p>
-              <h1 className="text-3xl font-semibold tracking-tight">
-                {selected?.title ?? <T>Everything</T>}
-              </h1>
+              <h1 className="text-3xl font-semibold tracking-tight">{selected?.title ?? roName}</h1>
               <p className="mt-3 text-sm text-muted-foreground">
                 {selected ? (
                   <T>One lead. Shared context. Work that carries forward.</T>

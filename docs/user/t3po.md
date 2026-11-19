@@ -1,6 +1,6 @@
 # T3PO project work
 
-Open the home screen to see work across projects. Add a workspace with **Add project**, select it in the sidebar, and choose **Set up lead**. Save a name and the project goals your lead should keep in mind. Selecting the project opens its continuing lead conversation. Choose **Tasks & context** from the chat to manage tasks, memory, the lead brief, and allowances.
+Open **Ro** to see work across projects. You can rename this entry; its name is saved in this browser. Add a workspace with **Add project**, select it in the sidebar, and choose **Set up lead**. Save a name and the project goals your lead should keep in mind. Selecting the project opens its continuing lead conversation. Choose **Tasks & context** from the chat to manage tasks, memory, the lead brief, and allowances.
 
 Existing chats appear under **Conversations** beneath their project in the sidebar. Choose a conversation to continue its saved history, or **Show more** for older chats. Task conversations remain accessible through **Open work**, and the lead by selecting its project.
 
@@ -57,6 +57,14 @@ A private `t3po-memory.json` in the server userdata directory can supply `url` a
 ## ro connect private beta
 
 ro connect links your devices to T3PO using the existing T3 Code connection protocols. The private source beta has its own installer, service name and data directory; use the [ro connect runbook](../operations/ro-connect-beta.md) for install, start, status, stop, update and pairing. Account-based access requires shared Brhyt sign-in with ro-specific relay configuration and an operator-provisioned relay. The hosted beta is not configured for that flow yet.
+
+## Workstreams in chat
+
+Ask the lead to take on work in the normal chat composer. It can continue an existing job, add an independent job to a matching workstream, or start a new workstream. Ordinary conversation does not need a job. When the intent materially changes scope or permissions, the lead should ask for clarification.
+
+The **Work** panel groups jobs under workstreams and links to their conversations. **Move** corrects a grouping without replacing the job. Workstream completion is independent of job completion; completed and archived streams can be reopened. Archiving pauses undispatched work but does not stop a running job—stop that job explicitly if needed.
+
+Routed jobs use isolated worktrees on the current environment and wait for the project allowance, a concurrency slot, or machine capacity. Queued requests survive server restarts. Follow-ups reuse the job's conversation. Routine successful jobs finish without acceptance; explicitly requested reviews, failures, and approval requests still need attention. The lead should include verification criteria in each brief; a completed provider run is not independent proof that its claims are correct. This routing currently supports local execution, not automatic cross-machine dispatch. Web and desktop show the Work panel; native mobile retains the existing interface.
 
 ## Inspect and correct local memory
 

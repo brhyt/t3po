@@ -50,9 +50,18 @@ function isAntigravitySignInUnchecked(provider: ServerProvider): boolean {
   );
 }
 
+function isUnchecked(provider: ServerProvider): boolean {
+  return (
+    provider.status === "warning" &&
+    provider.auth.status === "unknown" &&
+    provider.message?.endsWith("provider status has not been checked in this session yet.") === true
+  );
+}
+
 export function getProviderStatusKey(provider: ServerProvider | undefined): ProviderStatusKey {
   if (provider && !provider.enabled) return "disabled";
-  if (provider && isAntigravitySignInUnchecked(provider)) return "neutral";
+  if (provider && (isUnchecked(provider) || isAntigravitySignInUnchecked(provider)))
+    return "neutral";
   return provider?.status ?? "warning";
 }
 
@@ -75,6 +84,9 @@ export function getProviderSummary(
         provider.message ??
         resolve(msg("This provider is installed but disabled for new sessions in T3 Code.")),
     };
+  }
+  if (isUnchecked(provider)) {
+    return { headline: resolve(msg("Checking provider status")), detail: provider.message ?? null };
   }
   if (!provider.installed) {
     return {

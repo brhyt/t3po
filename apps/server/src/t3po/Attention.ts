@@ -50,6 +50,7 @@ export function taskAttention(
     reasons.push("failed");
   if (
     !active &&
+    task.reviewRequired !== false &&
     result &&
     result.runId === runId &&
     (!task.completed || task.reviewedRunId !== runId) &&
