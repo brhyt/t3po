@@ -2081,28 +2081,10 @@
   "6b4bbecf3df324fa": "Retry sign-in",
   "83be7aade7ff6360": "Signed in",
   "ec21b232e0eacd4a": "Sign in",
+  "7419eed743ecdd3e": "Set up T3PO on your computer",
   "665d27df5960e6b2": "Waiting for your computer…",
-  "73a65a982c89c273": "Open T3PO on the computer that runs your agents. In Settings → Sharing & access, create a pairing link.",
   "c65de112b48a66ed": "Add pairing link",
-  "bc8ab792af1d656f": "Run on your computer:",
-  "0ba14e4e920cfa00": "Or download the desktop app",
-  "0e79b7a6508a6286": "Then",
-  "363b9991fa23d36b": [
-    "Skip the install if you already have ",
-    {
-      "t": "code",
-      "i": 1,
-      "c": "t3"
-    },
-    ". If",
-    " ",
-    {
-      "t": "code",
-      "i": 2,
-      "c": "t3"
-    },
-    " is not found after installing, add the folder the installer names to your PATH."
-  ],
+  "73a65a982c89c273": "Open T3PO on the computer that runs your agents. In Settings → Sharing & access, create a pairing link.",
   "87b24d00c08f54bb": "Unable to open keybindings file",
   "0ee16208cbfcdbf4": "Unknown error opening file.",
   "9e20856550715c74": [

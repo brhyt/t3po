@@ -37,7 +37,19 @@ The restriction is checked for session and CLI OAuth authentication, token excha
 
 Follow [connect setup](./connect-setup.md) for the actual claim and redirect requirements. Supply the Brhyt publishable key, JWT template name, public CLI OAuth client ID, and own relay URL through `T3CODE_CLERK_PUBLISHABLE_KEY`, `T3CODE_CLERK_JWT_TEMPLATE`, `T3CODE_CLERK_CLI_OAUTH_CLIENT_ID`, and `T3CODE_RELAY_URL` before building the web client. The JWT audience must match the relay's `CLERK_JWT_AUDIENCE`. CLI OAuth needs PKCE, `http://127.0.0.1:34338/callback`, the documented scopes, and device authorization enabled if using headless login. Allow the actual hosted application origin. Desktop/mobile callbacks are needed only for separately prepared native clients; do not rename their protocol schemes here.
 
-The relay alone receives the Brhyt `CLERK_SECRET_KEY`; never put it into frontend build configuration. The currently deployed static client has no Clerk/relay configuration. Naming the UI ro connect does not enable account-based connectivity.
+The relay alone receives the Brhyt `CLERK_SECRET_KEY`; never put it into frontend build configuration. Build the hosted client with the public configuration before publishing it; naming the UI ro connect alone does not enable account-based connectivity.
+
+## Enroll an existing source checkout
+
+Keep the existing data directory when enrolling a computer. For the private 1421 installation, run from the T3PO checkout after the operator has provided `.t3/ro-relay-client.env` containing only the public configuration above:
+
+```sh
+node --env-file=.t3/ro-relay-client.env apps/server/src/bin.ts connect link --base-dir .t3 --headless
+```
+
+Approve installation of the relay client if prompted, then follow the displayed Brhyt sign-in URL and code. Use the production Brhyt account authorized for this relay. The headless flow works when the browser is on another machine. After linking, restart the existing T3PO service when no tasks are running; its startup environment must load the same public configuration. This does not install another server or move conversations. Do not use these `.t3` paths for an installation with a different data directory.
+
+Open the hosted T3PO app, sign in with the same Brhyt account, and select the enrolled computer. Existing manual pairing remains available. Cloudflare Access protects the page separately from the Brhyt account used for computer discovery.
 
 ## Private relay preparation
 

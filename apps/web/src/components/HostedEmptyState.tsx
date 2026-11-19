@@ -5,12 +5,11 @@ import { T } from "gt-react";
 import { CheckIcon } from "lucide-react";
 import { type ReactNode, useState } from "react";
 
-import { APP_DISPLAY_NAME, DESKTOP_DOWNLOAD_URL } from "~/branding";
+import { APP_DISPLAY_NAME } from "~/branding";
 import { hasCloudPublicConfig } from "~/cloud/publicConfig";
 import { isElectron } from "../env";
 import { isLocalEnvironmentDisabled } from "../localEnvironment";
 import { useRelayEnvironmentDiscovery } from "../state/environments";
-import { InstallT3Commands } from "./InstallT3Commands";
 import { retryClerkLoad, useClerkLoadFailed } from "./clerk/clerkLoadFailure";
 import { useT3ConnectAuthPrompt } from "./clerk/useT3ConnectAuthPrompt";
 import { CloudEnvironmentConnectRows } from "./cloud/CloudEnvironmentConnectList";
@@ -95,7 +94,14 @@ function T3ConnectSteps() {
         )}
       </SetupStep>
       <SetupStep number={2}>
-        <RunOnComputer command="t3 connect" />
+        <a
+          className="underline underline-offset-2"
+          href="https://github.com/brhyt/t3po/blob/main/docs/operations/ro-connect-beta.md"
+          target="_blank"
+          rel="noreferrer noopener"
+        >
+          <T>Set up T3PO on your computer</T>
+        </a>
         {isSignedIn ? (
           <div className="mt-4 space-y-1.5">
             <CloudEnvironmentConnectRows
@@ -121,6 +127,11 @@ function T3ConnectSteps() {
             />
           </div>
         ) : null}
+      </SetupStep>
+      <SetupStep number={3}>
+        <Button render={<Link to="/settings/connections" />} size="sm">
+          <T>Add pairing link</T>
+        </Button>
       </SetupStep>
     </>
   );
@@ -158,24 +169,5 @@ function SetupStep({
       <span className="w-2 shrink-0 pt-1 text-muted-foreground">{number}</span>
       <div className="min-w-0 flex-1">{children}</div>
     </li>
-  );
-}
-
-function RunOnComputer({ command }: { readonly command: string }) {
-  return (
-    <>
-      <p>
-        <T>Run on your computer:</T>
-      </p>
-      <InstallT3Commands command={command} className="mt-2" />
-      <a
-        className="mt-2 inline-block text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground"
-        href={DESKTOP_DOWNLOAD_URL}
-        target="_blank"
-        rel="noreferrer noopener"
-      >
-        <T>Or download the desktop app</T>
-      </a>
-    </>
   );
 }

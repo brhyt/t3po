@@ -2081,28 +2081,10 @@
   "6b4bbecf3df324fa": "Réessayer la connexion",
   "83be7aade7ff6360": "Connecté",
   "ec21b232e0eacd4a": "Se connecter",
+  "7419eed743ecdd3e": "Configurer T3PO sur votre ordinateur",
   "665d27df5960e6b2": "En attente de votre ordinateur…",
-  "73a65a982c89c273": "Ouvrez T3PO sur l’ordinateur qui exécute vos agents. Dans Paramètres → Partage et accès, créez un lien d’association.",
   "c65de112b48a66ed": "Ajouter un lien d’appairage",
-  "bc8ab792af1d656f": "Exécutez sur votre ordinateur :",
-  "0ba14e4e920cfa00": "Ou téléchargez l’app desktop",
-  "0e79b7a6508a6286": "Puis",
-  "363b9991fa23d36b": [
-    "Ignorez l’installation si vous avez déjà ",
-    {
-      "t": "code",
-      "i": 1,
-      "c": "t3"
-    },
-    ". Si",
-    " ",
-    {
-      "t": "code",
-      "i": 2,
-      "c": "t3"
-    },
-    " est introuvable après l’installation, ajoutez à votre PATH le dossier indiqué par l’installateur."
-  ],
+  "73a65a982c89c273": "Ouvrez T3PO sur l’ordinateur qui exécute vos agents. Dans Paramètres → Partage et accès, créez un lien d’association.",
   "87b24d00c08f54bb": "Impossible d’ouvrir le fichier des raccourcis clavier",
   "0ee16208cbfcdbf4": "Erreur inconnue à l’ouverture du fichier.",
   "9e20856550715c74": [

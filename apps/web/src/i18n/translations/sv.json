@@ -2081,28 +2081,10 @@
   "6b4bbecf3df324fa": "Försök logga in igen",
   "83be7aade7ff6360": "Inloggad",
   "ec21b232e0eacd4a": "Logga in",
+  "7419eed743ecdd3e": "Konfigurera T3PO på din dator",
   "665d27df5960e6b2": "Väntar på din dator…",
-  "73a65a982c89c273": "Öppna T3PO på datorn som kör dina agenter. Skapa en parkopplingslänk under Inställningar → Delning och åtkomst.",
   "c65de112b48a66ed": "Lägg till parkopplingslänk",
-  "bc8ab792af1d656f": "Kör på din dator:",
-  "0ba14e4e920cfa00": "Eller ladda ned skrivbordsappen",
-  "0e79b7a6508a6286": "Sedan",
-  "363b9991fa23d36b": [
-    "Hoppa över installationen om du redan har ",
-    {
-      "t": "code",
-      "i": 1,
-      "c": "t3"
-    },
-    ". Om",
-    " ",
-    {
-      "t": "code",
-      "i": 2,
-      "c": "t3"
-    },
-    " inte hittas efter installationen, lägg till mappen som installationsprogrammet anger i din PATH."
-  ],
+  "73a65a982c89c273": "Öppna T3PO på datorn som kör dina agenter. Skapa en parkopplingslänk under Inställningar → Delning och åtkomst.",
   "87b24d00c08f54bb": "Det gick inte att öppna filen med kortkommandon",
   "0ee16208cbfcdbf4": "Okänt fel när filen öppnades.",
   "9e20856550715c74": [
