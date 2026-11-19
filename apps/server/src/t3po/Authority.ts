@@ -16,6 +16,8 @@ const authorityProject = Effect.fn("T3po.authorityProject")(function* (
   ) SELECT project_id AS projectId FROM t3po_tasks WHERE json_extract(data, '$.threadId') IN (SELECT thread_id FROM ancestors)
     UNION SELECT project_id AS projectId FROM t3po_leads WHERE json_extract(data, '$.threadId') IN (SELECT thread_id FROM ancestors)
       AND (json_extract(data, '$.threadId') <> ${threadId} OR ${includeLead ? 1 : 0} = 1)
+    UNION SELECT project_id AS projectId FROM t3po_channels WHERE 't3po-channel:' || id IN (SELECT thread_id FROM ancestors)
+      AND ('t3po-channel:' || id <> ${threadId} OR ${includeLead ? 1 : 0} = 1)
     LIMIT 1`;
   const projectId = projects[0]?.projectId;
   return projectId;

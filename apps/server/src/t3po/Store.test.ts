@@ -259,6 +259,23 @@ it.effect("records a lead delegation atomically and preserves review state on re
     expect(tasks[0]?.reviewedRunId).toBe("worker-run");
     expect(tasks[0]?.completed).toBe(true);
     expect(yield* store.context(projectId, childThreadId)).toContain("Project context");
+    yield* store.mutate({ type: "create_channel", projectId, id: "research", name: "Research" });
+    const channelThread = ThreadId.make("t3po-channel:research");
+    yield* sql.withTransaction(
+      recordDelegation({
+        ...event,
+        threadId: channelThread,
+        payload: {
+          ...event.payload,
+          id: NodeId.make("channel-child"),
+          threadId: channelThread,
+          childThreadId: ThreadId.make("channel-worker"),
+        },
+      }),
+    );
+    const channelTasks = (yield* store.list({ projectId, channelId: "research" })).tasks;
+    expect(channelTasks).toHaveLength(1);
+    expect(channelTasks[0]?.threadId).toBe("channel-worker");
   }).pipe(Effect.provide(Store.layer.pipe(Layer.provideMerge(Sqlite.layerMemory)))),
 );
 
@@ -713,4 +730,27 @@ it.effect(
         { kind: "local_correction", text: "Corrected" },
       ]);
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+);
+
+it.effect("channel conversations retain identity after rename and share scoped lead context", () =>
+  Effect.gen(function* () {
+    const store = yield* Store.Store;
+    yield* store.mutate({ type: "save_lead", projectId, name: "Lead", brief: "Project decisions" });
+    yield* store.mutate({ type: "create_channel", projectId, id: "research", name: "Research" });
+    yield* store.mutate({ ...task, channelId: "research" });
+    yield* store.mutate({ ...task, id: "unrelated", title: "Other channel task" });
+    const threadId = ThreadId.make("t3po-channel:research");
+    expect(yield* store.getTaskProject(threadId)).toBe(projectId);
+    const context = JSON.parse(yield* store.context(projectId, threadId));
+    expect(context.role).toBe("project lead");
+    expect(context.projectBrief).toBe("Project decisions");
+    expect(context.channel).toEqual({ id: "research", name: "Research" });
+    expect(context.recentTasks.map((item: { title: string }) => item.title)).toEqual([task.title]);
+    expect(yield* store.context(otherProjectId, threadId)).toBe("");
+    yield* store.mutate({ type: "edit_channel", projectId, id: "research", name: "Discovery" });
+    const restarted = yield* Store.Store.pipe(Effect.provide(Layer.fresh(Store.layer)));
+    expect(JSON.parse(yield* restarted.context(projectId, threadId)).channel.name).toBe(
+      "Discovery",
+    );
+  }).pipe(Effect.provide(Store.layer.pipe(Layer.provideMerge(Sqlite.layerMemory)))),
 );

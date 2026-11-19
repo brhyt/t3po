@@ -3530,6 +3530,38 @@ it.effect(
         Effect.provide(Layer.fresh(T3poService.layer)),
       );
       expect(yield* reconstructed.launch(launch)).toEqual(first);
+      yield* service.mutate({
+        type: "create_channel",
+        projectId,
+        id: "research",
+        name: "Research",
+      });
+      const channelInput = {
+        projectId,
+        channelId: "research",
+        modelSelection,
+        runtimeMode: "approval-required" as const,
+      };
+      const channel = yield* service.launch(channelInput);
+      expect(channel.threadId).toBe("t3po-channel:research");
+      expect(channel.threadId).not.toBe(lead.threadId);
+      yield* service.mutate({ type: "edit_channel", projectId, id: "research", name: "Discovery" });
+      expect(yield* reconstructed.launch(channelInput)).toEqual(channel);
+      expect(
+        yield* service.launch({ ...channelInput, taskId: "durable-task" }).pipe(Effect.isFailure),
+      ).toBe(true);
+      expect(
+        yield* service.launch({ ...channelInput, channelId: "missing" }).pipe(Effect.isFailure),
+      ).toBe(true);
+      yield* service.mutate({ type: "archive_channel", projectId, id: "research", archived: true });
+      expect(yield* service.launch(channelInput).pipe(Effect.isFailure)).toBe(true);
+      yield* service.mutate({
+        type: "archive_channel",
+        projectId,
+        id: "research",
+        archived: false,
+      });
+      expect(yield* service.launch(channelInput)).toEqual(channel);
       const snapshot = yield* reconstructed.snapshot({});
       expect(snapshot.leads[0]?.threadId).toBe(lead.threadId);
       expect(snapshot.tasks).toHaveLength(1);

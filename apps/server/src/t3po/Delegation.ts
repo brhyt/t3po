@@ -23,14 +23,16 @@ export const recordDelegation = Effect.fn("T3po.recordDelegation")(function* (
     return;
   const owners = yield* sql<{
     projectId: string;
-  }>`SELECT project_id AS projectId FROM t3po_leads WHERE json_extract(data, '$.threadId') = ${event.threadId}
-    UNION SELECT project_id AS projectId FROM t3po_tasks WHERE json_extract(data, '$.threadId') = ${event.threadId} LIMIT 1`;
+    channelId: string | null;
+  }>`SELECT project_id AS projectId, NULL AS channelId FROM t3po_leads WHERE json_extract(data, '$.threadId') = ${event.threadId}
+    UNION SELECT project_id AS projectId, json_extract(data, '$.channelId') AS channelId FROM t3po_tasks WHERE json_extract(data, '$.threadId') = ${event.threadId}
+    UNION SELECT project_id AS projectId, id AS channelId FROM t3po_channels WHERE 't3po-channel:' || id = ${event.threadId} LIMIT 1`;
   if (!owners[0]) return;
   const projectId = ProjectId.make(owners[0].projectId);
   const task: T3poTask = {
     id: `delegation:${event.payload.id}`,
     projectId,
-    channelId: null,
+    channelId: owners[0].channelId,
     title: (event.payload.title?.trim() || event.payload.prompt.trim() || "Delegated task").slice(
       0,
       200,

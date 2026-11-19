@@ -29,6 +29,7 @@ export function projectConversations<T extends ConversationShell>(
         thread.delegatedFrom === null &&
         !thread.id.startsWith("t3po-task:") &&
         !thread.id.startsWith("t3po-lead:") &&
+        !thread.id.startsWith("t3po-channel:") &&
         (thread.visibleItemCount > 0 || thread.latestUserMessageAt !== null),
     )
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || a.id.localeCompare(b.id));

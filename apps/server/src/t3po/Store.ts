@@ -183,7 +183,7 @@ const make = Effect.gen(function* () {
     function* (threadId: ThreadId) {
       const rows = yield* sql<{
         project_id: string;
-      }>`SELECT project_id FROM t3po_tasks WHERE json_extract(data, '$.threadId') = ${threadId} UNION SELECT project_id FROM t3po_leads WHERE json_extract(data, '$.threadId') = ${threadId} LIMIT 1`;
+      }>`SELECT project_id FROM t3po_tasks WHERE json_extract(data, '$.threadId') = ${threadId} UNION SELECT project_id FROM t3po_leads WHERE json_extract(data, '$.threadId') = ${threadId} UNION SELECT project_id FROM t3po_channels WHERE 't3po-channel:' || id = ${threadId} LIMIT 1`;
       return rows[0] ? ProjectId.make(rows[0].project_id) : null;
     },
     Effect.mapError((cause) => new T3poError({ operation: "read", cause })),
@@ -477,7 +477,11 @@ const make = Effect.gen(function* () {
   );
   const context = Effect.fn("T3poStore.context")(
     function* (projectId: ProjectId, threadId: ThreadId, query = "") {
-      if (!threadId.startsWith("t3po-lead:") && !threadId.startsWith("t3po-task:")) {
+      if (
+        !threadId.startsWith("t3po-lead:") &&
+        !threadId.startsWith("t3po-task:") &&
+        !threadId.startsWith("t3po-channel:")
+      ) {
         const linked =
           yield* sql`SELECT id FROM t3po_tasks WHERE project_id = ${projectId} AND json_extract(data, '$.threadId') = ${threadId} LIMIT 1`;
         if (linked.length === 0) return "";
@@ -487,18 +491,22 @@ const make = Effect.gen(function* () {
       }>`SELECT data FROM t3po_leads WHERE project_id = ${projectId}`;
       if (!leads[0]) return "";
       const lead = yield* decodeT3poLeadJson(leads[0].data);
+      const channelRows = yield* sql<{
+        data: string;
+      }>`SELECT data FROM t3po_channels WHERE project_id = ${projectId} AND 't3po-channel:' || id = ${threadId} LIMIT 1`;
+      const channel = channelRows[0] ? yield* decodeT3poChannelJson(channelRows[0].data) : null;
       const tasks = yield* sql<{
         data: string;
-      }>`SELECT data FROM t3po_tasks WHERE project_id = ${projectId} AND COALESCE(json_extract(data, '$.archived'), 0) = 0 ORDER BY rowid DESC LIMIT 30`;
+      }>`SELECT data FROM t3po_tasks WHERE project_id = ${projectId} AND COALESCE(json_extract(data, '$.archived'), 0) = 0 AND ${channel ? sql`json_extract(data, '$.channelId') = ${channel.id}` : sql`1 = 1`} ORDER BY rowid DESC LIMIT 30`;
       const records = yield* Effect.forEach(tasks, (row) => decodeT3poTaskJson(row.data));
       const assignments = yield* sql<{
         data: string;
       }>`SELECT data FROM t3po_tasks WHERE project_id = ${projectId} AND json_extract(data, '$.threadId') = ${threadId} LIMIT 1`;
       const assignment = assignments[0] ? yield* decodeT3poTaskJson(assignments[0].data) : null;
-      if (threadId !== lead.threadId && !assignment) return "";
+      if (threadId !== lead.threadId && !assignment && !channel) return "";
       let recall = "";
       let memoryAvailable = false;
-      if (threadId === lead.threadId && memory.configured) {
+      if ((threadId === lead.threadId || channel) && memory.configured) {
         const recalled = yield* exchangeMemory(projectId, (query || lead.brief).slice(0, 2000));
         if (!recalled) return "";
         recall = recalled.context;
@@ -515,16 +523,19 @@ const make = Effect.gen(function* () {
           recalledContext: recall,
           recentRecords,
         },
-        role: threadId === lead.threadId ? "project lead" : "task worker",
+        role: threadId === lead.threadId || channel ? "project lead" : "task worker",
         lead: lead.name,
         projectBrief: lead.brief,
+        channel: channel ? { id: channel.id, name: channel.name } : null,
         assignment: assignment?.brief ?? null,
-        recentTasks: records.map((task) => ({
-          title: task.title,
-          threadId: task.threadId,
-          reviewedComplete: task.completed,
-          brief: task.brief.slice(0, 300),
-        })),
+        recentTasks: records
+          .filter((task) => !channel || task.channelId === channel.id)
+          .map((task) => ({
+            title: task.title,
+            threadId: task.threadId,
+            reviewedComplete: task.completed,
+            brief: task.brief.slice(0, 300),
+          })),
       });
     },
     Effect.mapError((cause) => new T3poError({ operation: "read", cause })),

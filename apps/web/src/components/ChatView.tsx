@@ -1,3 +1,4 @@
+import { ChatNavigation } from "./t3po/ChatNavigation";
 import { m } from "../i18n/messages";
 import { thrownErrorMessage } from "@t3tools/client-runtime/errors";
 import { useGT, useMessages } from "gt-react";
@@ -3425,6 +3426,13 @@ export default function ChatView(props: ChatViewProps) {
             />
           </header>
         )}
+        {!embedded && activeThread && activeProject ? (
+          <ChatNavigation
+            environmentId={environmentId}
+            projectId={activeProject.id}
+            threadId={activeThread.id}
+          />
+        ) : null}
 
         <div className="relative flex min-h-0 min-w-0 flex-1">
           <ThreadFindCanvas

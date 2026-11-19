@@ -33,6 +33,7 @@ describe("projectConversations", () => {
     const threads = [
       saved,
       conversation("t3po-lead:lead"),
+      conversation("t3po-channel:research"),
       conversation("t3po-task:task"),
       child,
       { ...conversation("archived"), archivedAt: "2026-11-18T12:00:00Z" },

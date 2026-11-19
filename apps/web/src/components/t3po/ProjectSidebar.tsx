@@ -8,9 +8,9 @@ import { t3po } from "../../state/t3po";
 import { randomUUID } from "../../lib/utils";
 import { Input } from "../ui/input";
 import { Link, useLocation, useNavigate, useParams } from "@tanstack/react-router";
-import { T, useGT } from "gt-react";
+import { T, useGT, useMessages } from "gt-react";
 import {
-  MessageSquareIcon,
+  MonitorIcon,
   LayersIcon,
   PlusIcon,
   SettingsIcon,
@@ -23,13 +23,18 @@ import {
 import { useProjects, useThreadShell, useThreadShellsForProjectRefs } from "../../state/entities";
 import { openCommandPalette } from "../../commandPaletteBus";
 import { Button } from "../ui/button";
+import { Tooltip, TooltipTrigger, TooltipPopup } from "../ui/tooltip";
 import { SidebarMenuButton, useSidebar } from "../ui/sidebar";
 import { t3poSearch } from "./search";
 import { resolveThreadRouteRef } from "../../threadRoutes";
+import { useEnvironments } from "../../state/environments";
+import { useNowMinute } from "../../hooks/useNowMinute";
+import { formatRelativeTime } from "../../timestampFormat";
 import { projectConversations } from "./projectConversations";
 
 export function ProjectSidebar() {
   const gt = useGT();
+  const { environments } = useEnvironments();
   const projects = useProjects().filter((project) => project.archivedAt == null);
   const search = useLocation({ select: (location) => t3poSearch(location.search) });
   const threadRef = resolveThreadRouteRef(useParams({ strict: false }));
@@ -81,6 +86,10 @@ export function ProjectSidebar() {
             projectId={project.id}
             environmentId={project.environmentId}
             title={project.title}
+            workspaceRoot={project.workspaceRoot}
+            machineLabel={
+              environments.find((env) => env.environmentId === project.environmentId)?.label ?? ""
+            }
             search={activeSearch}
             currentThreadId={
               threadRef?.environmentId === project.environmentId ? threadRef.threadId : undefined
@@ -102,12 +111,16 @@ function ProjectChannels({
   projectId,
   environmentId,
   title,
+  workspaceRoot,
+  machineLabel,
   search,
   currentThreadId,
 }: {
   projectId: ProjectId;
   environmentId: EnvironmentId;
   title: string;
+  workspaceRoot: string;
+  machineLabel: string;
   search: ReturnType<typeof t3poSearch>;
   currentThreadId: string | undefined;
 }) {
@@ -149,17 +162,33 @@ function ProjectChannels({
     }
     setBusy(false);
   }
+  const latestActivity = threads.reduce<string | null>(
+    (latest, thread) => (!latest || thread.updatedAt > latest ? thread.updatedAt : latest),
+    null,
+  );
   const selected = search.project === projectId && search.machine === environmentId;
   const channels = query.data?.channels.filter((channel) => channel.projectId === projectId) ?? [];
+  const activeChannelId = currentThreadId?.startsWith("t3po-channel:")
+    ? currentThreadId.slice("t3po-channel:".length)
+    : search.channel;
   return (
     <section aria-label={title}>
       <SidebarMenuButton
         render={<Link to="/" search={{ project: projectId, machine: environmentId }} />}
         onClick={() => setOpenMobile(false)}
-        isActive={selected && !search.channel && !currentThreadId}
+        size="lg"
+        isActive={
+          selected &&
+          !activeChannelId &&
+          (!currentThreadId || currentThreadId.startsWith("t3po-lead:"))
+        }
       >
-        <FolderIcon />
-        <span>{title}</span>
+        <SidebarLabel
+          label={title}
+          timestamp={latestActivity}
+          machine={machineLabel}
+          path={workspaceRoot}
+        />
       </SidebarMenuButton>
       <div className="ml-4 space-y-0.5 border-l border-sidebar-border pl-2">
         {channels
@@ -175,7 +204,7 @@ function ProjectChannels({
                     />
                   }
                   onClick={() => setOpenMobile(false)}
-                  isActive={selected && search.channel === channel.id}
+                  isActive={selected && activeChannelId === channel.id}
                 >
                   <HashIcon />
                   <span>{channel.name}</span>
@@ -279,9 +308,14 @@ function ProjectChannels({
                   onClick={() => setOpenMobile(false)}
                   isActive={thread.id === currentThreadId}
                   title={thread.title}
+                  size="lg"
                 >
-                  <MessageSquareIcon />
-                  <span>{thread.title}</span>
+                  <SidebarLabel
+                    label={thread.title}
+                    timestamp={thread.updatedAt}
+                    machine={machineLabel}
+                    path={thread.worktreePath ?? workspaceRoot}
+                  />
                 </SidebarMenuButton>
               ))}
             {conversations.length > conversationLimit ? (
@@ -392,4 +426,51 @@ function ChannelForm({
       </div>
     </form>
   );
+}
+
+function SidebarLabel({
+  label,
+  timestamp,
+  machine,
+  path,
+}: {
+  label: string;
+  timestamp: string | null;
+  machine: string;
+  path: string;
+}) {
+  return (
+    <span className="block min-w-0 flex-1">
+      <span className="flex min-w-0 items-center gap-2">
+        <span className="min-w-0 flex-1 truncate">{label}</span>
+        <SidebarTime timestamp={timestamp} />
+      </span>
+      <span className="mt-0.5 flex min-w-0 items-center gap-1 text-xs font-normal text-sidebar-muted-foreground">
+        <MonitorIcon className="size-3 shrink-0" />
+        <span className="shrink-0">{machine}</span>
+        <FolderIcon className="ml-1 size-3 shrink-0" />
+        <Tooltip>
+          <TooltipTrigger render={<span className="truncate" />}>{path}</TooltipTrigger>
+          <TooltipPopup>{path}</TooltipPopup>
+        </Tooltip>
+      </span>
+    </span>
+  );
+}
+
+function SidebarTime({ timestamp }: { timestamp: string | null }) {
+  const minute = useNowMinute();
+  const messages = useMessages();
+  const relative = timestamp
+    ? formatRelativeTime(timestamp, Date.parse(`${minute}:00.000Z`), messages)
+    : null;
+  return relative ? (
+    <time
+      dateTime={timestamp ?? undefined}
+      aria-label={timestamp ?? undefined}
+      className="shrink-0 text-xs font-normal text-sidebar-muted-foreground"
+    >
+      {relative.value}
+    </time>
+  ) : null;
 }

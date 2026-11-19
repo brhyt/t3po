@@ -24,9 +24,9 @@ const layer = Layer.mergeAll(
   Store.layer,
   EventSink.layer.pipe(Layer.provide(Layer.merge(EventStore.layer, ProjectionStore.layer))),
 ).pipe(Layer.provideMerge(Sqlite.layerMemory));
-it.effect(
-  "atomically admits concurrent descendants, rolls back rejected work, retains usage and releases terminal slots",
-  () =>
+it.effect.each([false, true])(
+  "atomically accounts for lead descendants and releases terminal slots (channel=%s)",
+  (channelLead) =>
     Effect.gen(function* () {
       const store = yield* Store.Store;
       const sink = yield* EventSink.EventSinkV2;
@@ -34,7 +34,14 @@ it.effect(
       const now = yield* DateTime.now;
       const projectId = ProjectId.make("authority");
       const providerInstanceId = ProviderInstanceId.make("codex");
-      const leadId = ThreadId.make("t3po-lead:authority");
+      const leadId = ThreadId.make(channelLead ? "t3po-channel:research" : "t3po-lead:authority");
+      if (channelLead)
+        yield* store.mutate({
+          type: "create_channel",
+          projectId,
+          id: "research",
+          name: "Research",
+        });
       yield* store.mutate({ type: "save_lead", projectId, name: "Lead", brief: "Work" });
       const thread = (id: ThreadId, parent: ThreadId | null): OrchestrationV2AppThread => ({
         id,

@@ -1,4 +1,5 @@
 import {
+  ThreadId,
   CommandId,
   T3poError,
   isT3poError,
@@ -158,7 +159,16 @@ const make = Effect.gen(function* () {
           : yield* store.getTask(input.taskId, input.projectId);
       if (!lead || task?.archived) return yield* new T3poError({ operation: "invalid" });
       if (task && !lead.budget) return yield* new T3poError({ operation: "budget" });
-      const threadId = task?.threadId ?? lead.threadId;
+      if (input.taskId !== undefined && input.channelId !== undefined)
+        return yield* new T3poError({ operation: "invalid" });
+      const channel =
+        input.channelId === undefined
+          ? undefined
+          : records.channels.find((channel) => channel.id === input.channelId && !channel.archived);
+      if (input.channelId !== undefined && !channel)
+        return yield* new T3poError({ operation: "invalid" });
+      const threadId =
+        task?.threadId ?? (channel ? ThreadId.make(`t3po-channel:${channel.id}`) : lead.threadId);
       const existing = yield* threads.getThreadShell(threadId);
       if (existing && (!task || task.id.startsWith("delegation:"))) return { threadId };
       let workspaceStrategy: ThreadLaunch.ThreadLaunchWorkspaceStrategy = { type: "root" };
@@ -206,7 +216,10 @@ const make = Effect.gen(function* () {
         commandId: CommandId.make(`t3po-launch:${threadId}`),
         threadId,
         projectId: input.projectId,
-        title: ("title" in selection ? selection.title : undefined) ?? task?.title ?? lead.name,
+        title:
+          ("title" in selection ? selection.title : undefined) ??
+          task?.title ??
+          (channel ? `# ${channel.name}` : lead.name),
         modelSelection: selection.modelSelection,
         runtimeMode: selection.runtimeMode,
         interactionMode: "default",

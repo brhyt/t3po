@@ -55,6 +55,24 @@ export function ProjectHome() {
           {" / "}
           {selected?.title ?? <T>Everything</T>}
         </span>
+        {selected ? (
+          <Button
+            variant="ghost"
+            size="sm"
+            render={
+              <Link
+                to="/"
+                search={{
+                  project: selected.id,
+                  machine: selected.environmentId,
+                  channel: search.channel,
+                }}
+              />
+            }
+          >
+            <T>Chat</T>
+          </Button>
+        ) : null}
       </WorkspacePageHeader>
       <div className="min-h-0 flex-1 overflow-y-auto scrollbar-gutter-both">
         <div className="mx-auto max-w-5xl px-5 py-8 sm:px-10 sm:py-12">
@@ -387,7 +405,12 @@ function ProjectBoard({
           <div className="flex flex-wrap items-center gap-2">
             <Button
               variant={channelId === null ? "secondary" : "ghost"}
-              render={<Link to="/" search={{ project: projectId, machine: environmentId }} />}
+              render={
+                <Link
+                  to="/"
+                  search={{ project: projectId, machine: environmentId, view: "board" }}
+                />
+              }
             >
               <T>All channels</T>
             </Button>
@@ -398,7 +421,12 @@ function ProjectBoard({
                 render={
                   <Link
                     to="/"
-                    search={{ project: projectId, machine: environmentId, channel: channel.id }}
+                    search={{
+                      project: projectId,
+                      machine: environmentId,
+                      channel: channel.id,
+                      view: "board",
+                    }}
                   />
                 }
               >
@@ -697,6 +725,7 @@ function ProjectBoard({
               <Link
                 to="/"
                 search={{
+                  view: "board",
                   project: task.projectId,
                   machine: environmentId,
                   ...(task.channelId ? { channel: task.channelId } : {}),

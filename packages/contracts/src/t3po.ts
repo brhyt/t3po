@@ -196,6 +196,7 @@ export type T3poMutation = typeof T3poMutation.Type;
 export const T3poLaunchInput = Schema.Struct({
   projectId: ProjectId,
   taskId: Schema.optional(TrimmedNonEmptyString),
+  channelId: Schema.optional(TrimmedNonEmptyString),
   modelSelection: ModelSelection,
   runtimeMode: RuntimeMode,
 });
