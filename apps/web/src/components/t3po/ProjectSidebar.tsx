@@ -4,7 +4,8 @@ import { projectEnvironment } from "../../state/projects";
 import { useOrchestrationCommand } from "../../state/use-orchestration-command";
 import { useLocalStorage } from "../../hooks/useLocalStorage";
 import * as Schema from "effect/Schema";
-import { Menu, MenuTrigger, MenuPopup, MenuItem } from "../ui/menu";
+import { readLocalApi } from "../../localApi";
+import { contextMenuSourceOf } from "../../contextMenuSource";
 import { useRoName } from "./useRoName";
 import { useRef, useState } from "react";
 import { useAtomValue } from "@effect/atom-react";
@@ -20,7 +21,6 @@ import { T, useGT, useMessages } from "gt-react";
 import {
   ChevronDownIcon,
   ChevronRightIcon,
-  MoreHorizontalIcon,
   MonitorIcon,
   PlusIcon,
   SettingsIcon,
@@ -85,9 +85,17 @@ export function ProjectSidebar() {
           <SidebarMenuButton
             render={<Link to="/" search={{}} />}
             onClick={() => setOpenMobile(false)}
-            onDoubleClick={(event) => {
+            onContextMenu={(event) => {
               event.preventDefault();
-              setRenamingRo(true);
+              void readLocalApi()
+                ?.contextMenu.show(
+                  [{ id: "rename", label: gt("Rename") }],
+                  { x: event.clientX, y: event.clientY },
+                  contextMenuSourceOf(event.nativeEvent),
+                )
+                .then((action) => {
+                  if (action === "rename") setRenamingRo(true);
+                });
             }}
             onKeyDown={(event) => {
               if (event.key === "F2") {
@@ -242,6 +250,28 @@ function ProjectChannels({
           <SidebarMenuButton
             render={<Link to="/" search={{ project: projectId, machine: environmentId }} />}
             onClick={() => setOpenMobile(false)}
+            onContextMenu={(event) => {
+              event.preventDefault();
+              void readLocalApi()
+                ?.contextMenu.show(
+                  [
+                    { id: "rename", label: gt("Rename"), disabled: !canUpdateProject },
+                    { id: "archive", label: gt("Archive"), disabled: !canUpdateProject },
+                  ],
+                  { x: event.clientX, y: event.clientY },
+                  contextMenuSourceOf(event.nativeEvent),
+                )
+                .then(async (action) => {
+                  if (action === "rename") setRenamingProject(true);
+                  if (action === "archive") {
+                    await updateProjectDetails({ archived: true });
+                    await navigate({ to: "/", search: {} });
+                  }
+                })
+                .catch((cause) =>
+                  setError(cause instanceof Error ? cause.message : gt("Could not save changes.")),
+                );
+            }}
             size="lg"
             isActive={
               selected &&
@@ -257,32 +287,6 @@ function ProjectChannels({
             />
           </SidebarMenuButton>
         )}
-        <Menu>
-          <MenuTrigger
-            render={<Button size="icon-sm" variant="ghost" aria-label={gt("Project settings")} />}
-          >
-            <MoreHorizontalIcon className="size-3.5" />
-          </MenuTrigger>
-          <MenuPopup>
-            <MenuItem disabled={!canUpdateProject} onClick={() => setRenamingProject(true)}>
-              <T>Rename</T>
-            </MenuItem>
-            <MenuItem
-              disabled={!canUpdateProject}
-              onClick={() => {
-                void updateProjectDetails({ archived: true })
-                  .then(() => navigate({ to: "/", search: {} }))
-                  .catch((cause) =>
-                    setError(
-                      cause instanceof Error ? cause.message : gt("Could not save changes."),
-                    ),
-                  );
-              }}
-            >
-              <T>Archive</T>
-            </MenuItem>
-          </MenuPopup>
-        </Menu>
       </div>
       {error ? (
         <p role="alert" className="px-2 text-xs text-destructive">
@@ -325,12 +329,35 @@ function ProjectChannels({
                         search={{ project: projectId, machine: environmentId, channel: channel.id }}
                       />
                     }
-                    onDoubleClick={(event) => {
+                    onContextMenu={(event) => {
                       event.preventDefault();
-                      if (canMutate && !busy) {
-                        setEditing(channel);
-                        setCreating(false);
-                      }
+                      void readLocalApi()
+                        ?.contextMenu.show(
+                          [
+                            { id: "rename", label: gt("Rename"), disabled: !canMutate || busy },
+                            {
+                              id: "archive",
+                              label: channel.archived
+                                ? gt("Restore channel")
+                                : gt("Archive channel"),
+                              disabled: !canMutate || busy,
+                            },
+                          ],
+                          { x: event.clientX, y: event.clientY },
+                          contextMenuSourceOf(event.nativeEvent),
+                        )
+                        .then(async (action) => {
+                          if (action === "rename") {
+                            setEditing(channel);
+                            setCreating(false);
+                          }
+                          if (action === "archive") await archive(channel);
+                        })
+                        .catch((cause) =>
+                          setError(
+                            cause instanceof Error ? cause.message : gt("Could not save changes."),
+                          ),
+                        );
                     }}
                     onClick={() => setOpenMobile(false)}
                     onKeyDown={(event) => {
