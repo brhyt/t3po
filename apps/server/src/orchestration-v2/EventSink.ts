@@ -1,3 +1,4 @@
+import { admitRun } from "../t3po/Authority.ts";
 import { recordDelegation } from "../t3po/Delegation.ts";
 import {
   CommandId,
@@ -421,6 +422,7 @@ const layerBase: Layer.Layer<
               .pipe(
                 Effect.andThen(
                   recordDelegation(stored.event).pipe(
+                    Effect.andThen(admitRun(stored.event)),
                     Effect.provideService(SqlClient.SqlClient, sql),
                   ),
                 ),

@@ -137,7 +137,10 @@ const make = Effect.gen(function* () {
       else yield* store.mutate(input, reviewedRunId);
       yield* PubSub.publish(changes, {
         projectId: input.projectId,
-        metadata: input.type === "save_lead" || input.type.endsWith("channel"),
+        metadata:
+          input.type === "save_budget" ||
+          input.type === "save_lead" ||
+          input.type.endsWith("channel"),
       });
     },
     Effect.mapError((cause) =>
@@ -154,6 +157,7 @@ const make = Effect.gen(function* () {
           ? undefined
           : yield* store.getTask(input.taskId, input.projectId);
       if (!lead || task?.archived) return yield* new T3poError({ operation: "invalid" });
+      if (task && !lead.budget) return yield* new T3poError({ operation: "budget" });
       const threadId = task?.threadId ?? lead.threadId;
       const existing = yield* threads.getThreadShell(threadId);
       if (existing && (!task || task.id.startsWith("delegation:"))) return { threadId };

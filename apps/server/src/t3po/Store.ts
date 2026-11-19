@@ -177,7 +177,7 @@ const make = Effect.gen(function* () {
     function* (threadId: ThreadId) {
       const rows = yield* sql<{
         project_id: string;
-      }>`SELECT project_id FROM t3po_tasks WHERE json_extract(data, '$.threadId') = ${threadId} LIMIT 1`;
+      }>`SELECT project_id FROM t3po_tasks WHERE json_extract(data, '$.threadId') = ${threadId} UNION SELECT project_id FROM t3po_leads WHERE json_extract(data, '$.threadId') = ${threadId} LIMIT 1`;
       return rows[0] ? ProjectId.make(rows[0].project_id) : null;
     },
     Effect.mapError((cause) => new T3poError({ operation: "read", cause })),
@@ -272,7 +272,21 @@ const make = Effect.gen(function* () {
           configured: memory.configured,
           available: memory.configured && row.available === 1,
         })),
-        leads: yield* Effect.forEach(leads, (row) => decodeT3poLeadJson(row.data)),
+        leads: yield* Effect.forEach(leads, (row) =>
+          Effect.gen(function* () {
+            const lead = yield* decodeT3poLeadJson(row.data);
+            const budgets = yield* sql<{
+              maxRuns: number;
+              maxConcurrent: number;
+              usedRuns: number;
+              activeRuns: number;
+            }>`SELECT max_runs AS maxRuns, max_concurrent AS maxConcurrent,
+            (SELECT count(*) FROM t3po_admissions WHERE project_id = b.project_id) AS usedRuns,
+            (SELECT count(*) FROM t3po_admissions WHERE project_id = b.project_id AND active = 1) AS activeRuns
+            FROM t3po_budgets b WHERE project_id = ${lead.projectId}`;
+            return { ...lead, ...(budgets[0] ? { budget: budgets[0] } : {}) };
+          }),
+        ),
         channels: yield* Effect.forEach(channels, (row) => decodeT3poChannelJson(row.data)),
         tasks: yield* Effect.forEach(tasks.slice(0, 50), (row) =>
           decodeT3poTaskJson(row.data).pipe(
@@ -297,7 +311,9 @@ const make = Effect.gen(function* () {
     function* (input: T3poMutation, reviewedRunId?: RunId) {
       if (input.type === "memory_control") return yield* new T3poError({ operation: "invalid" });
       const now = DateTime.formatIso(yield* DateTime.now);
-      if (input.type === "save_lead") {
+      if (input.type === "save_budget") {
+        yield* sql`INSERT INTO t3po_budgets (project_id, max_runs, max_concurrent) VALUES (${input.projectId}, ${input.maxRuns}, ${input.maxConcurrent}) ON CONFLICT(project_id) DO UPDATE SET max_runs = excluded.max_runs, max_concurrent = excluded.max_concurrent`;
+      } else if (input.type === "save_lead") {
         const previous = yield* sql<{
           data: string;
         }>`SELECT data FROM t3po_leads WHERE project_id = ${input.projectId}`;

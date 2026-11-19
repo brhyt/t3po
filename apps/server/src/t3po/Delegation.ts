@@ -18,14 +18,15 @@ export const recordDelegation = Effect.fn("T3po.recordDelegation")(function* (
   if (
     event.type !== "subagent.updated" ||
     event.payload.origin !== "app_owned" ||
-    event.payload.childThreadId === null ||
-    !event.threadId.startsWith("t3po-lead:")
+    event.payload.childThreadId === null
   )
     return;
-  const projectId = ProjectId.make(event.threadId.slice("t3po-lead:".length));
-  const leads =
-    yield* sql`SELECT project_id FROM t3po_leads WHERE project_id = ${projectId} AND json_extract(data, '$.threadId') = ${event.threadId}`;
-  if (leads.length === 0) return;
+  const owners = yield* sql<{
+    projectId: string;
+  }>`SELECT project_id AS projectId FROM t3po_leads WHERE json_extract(data, '$.threadId') = ${event.threadId}
+    UNION SELECT project_id AS projectId FROM t3po_tasks WHERE json_extract(data, '$.threadId') = ${event.threadId} LIMIT 1`;
+  if (!owners[0]) return;
+  const projectId = ProjectId.make(owners[0].projectId);
   const task: T3poTask = {
     id: `delegation:${event.payload.id}`,
     projectId,

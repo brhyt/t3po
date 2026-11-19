@@ -8,5 +8,13 @@
   "ember-light",
   "ember-dark",
   "iris-light",
-  "iris-dark"
+  "iris-dark",
+  "t3po-ro-light",
+  "t3po-ro-dark",
+  "t3po-droid-light",
+  "t3po-droid-dark",
+  "t3po-lab-light",
+  "t3po-lab-dark",
+  "t3po-paper-light",
+  "t3po-paper-dark"
 ]

@@ -8,7 +8,9 @@ The lead's identity and brief are saved on the server. Each turn receives the cu
 
 Channels appear beneath their project in the sidebar. Use **New channel** there to group work by topic, then select a channel to see its tasks. Select the project to see work across all its channels. Use **New task** to save a brief and expected outcome in **Up next**, then **Start task** when ready. **Edit** changes its title, brief, and channel without replacing its history. Brief changes reach the worker on its next turn. The model selector applies to new executions; existing conversations retain their own model settings. New work starts with approvals required, subject to the provider's supported permissions.
 
-Local tasks delegated by a project lead through T3's delegation tools also appear on the task board. They keep T3's existing completion callbacks. Provider-native subagents and cross-machine delegations are not yet represented as separate board tasks.
+Local tasks delegated by a project lead or task worker through T3's delegation tools also appear on the task board. They keep T3's existing completion callbacks. Provider-native subagents and cross-machine delegations are not yet represented as separate board tasks.
+
+Expand **Native children** beneath a lead or task to inspect provider-reported child work, including its parent, provider, and status. A child links to its conversation when that conversation exists on the same environment. Children without a local conversation remain visible without a link; this panel does not create editable tasks or grant execution authority.
 
 **Active** shows work in progress, tasks needing your input, and results ready for review. **Open work** opens the conversation, where you can respond to questions, inspect changes, stop execution, or request a revision. **Outputs** keeps the final response from the latest completed run visible while you ask for revisions or new work runs. Each result shows its run number and completion date, and file links open in that task’s workspace. Use **Result history** to browse earlier completed responses, ten at a time. Long responses show an excerpt; **Open work** retains the full response and execution history. Results come from saved execution history and survive restarts and task archiving; deleting or rolling back that execution history can remove them. Linked files remain live workspace files, not immutable artifact copies.
 
@@ -24,9 +26,21 @@ Boards update when work changes. Use **Previous** and **Next** to browse pages o
 
 Projects currently use one existing T3 workspace each, with optional worktrees for tasks. Cross-project coordination, scheduling, messaging channels and automatic conversation-wide memory extraction are subsequent work. The new interface is available on web and its desktop wrapper; the native mobile application still uses the upstream interface.
 
+## Appearance
+
+Choose **ro**, **droid**, or **lab** for a dark palette, or **paper** for a light palette in Appearance settings. Existing theme selections and installation defaults are preserved.
+
+## Project run budgets
+
+Before starting task work, enter **Task run budget** and **Concurrent task runs** on the project page and choose **Save budget**. There are no default allowances. These are counts of T3 runs, not tokens, subscription quotas, or dollar costs. The run budget is a lifetime ceiling, including existing task history; increase it to authorize more work. Zero prevents new admissions. Lowering a limit does not stop already admitted work. Used and active counts are shown beside the controls; archiving tasks or restarting the server does not replenish the allowance.
+
+Starting a task, revising it in its conversation, and local T3 delegations (including nested workers) share the budget. Queued and waiting runs occupy concurrent slots. Successful, failed, interrupted, and cancelled runs retain their lifetime charge and release their active slot. Retrying the same launch does not charge twice; a new run does. Provider attempts within one run are not separately metered. Ordinary conversations and direct conversations with the lead remain manual work outside this task allowance; delegated-completion wake runs on the lead are charged.
+
+Project leads and workers require approval-required mode. Continue to ask the user before external actions. This mode preserves the provider's approval behavior; it is not a universal external-action firewall. Provider-native subagents, remote delegations, detached/background processes, scheduling into unrelated threads, and direct CLI or external MCP calls are not comprehensively charged to this local project budget. Do not use those paths to claim budget-controlled autonomous operation. Native mobile does not yet expose budget configuration; configure it in web or desktop first.
+
 ## Lead continuity
 
-The lead card shows local continuity, a connected memory service, or an awaiting-connection state. Pending counts refer to records not yet acknowledged by apps/memory; Honcho reasoning may still be processing acknowledged records. Delivery wakes after local edits and recovers pending records on server startup. Requests contain at most 20 records, rotate across eligible projects, and retry unacknowledged records with delays capped at one minute. Delivery status updates reach the board automatically. Sending a message to the lead still retrieves recall.
+The lead card shows local continuity, a connected memory service, or a recall unavailable/not-yet-checked state. Pending counts refer to records not yet acknowledged by apps/memory; Honcho reasoning may still be processing acknowledged records. Delivery wakes after local edits and recovers pending records on server startup. Requests contain at most 20 records, rotate across eligible projects, and retry unacknowledged records with delays capped at one minute. Delivery status updates reach the board automatically. Sending a message to the lead still retrieves recall.
 
 The journal captures saved lead briefs and user-reviewed task results. Reopening a task, or editing a completed task's brief, appends a correction. Existing briefs are backfilled on migration; previous conversations and old accepted results are not bulk imported. Raw tool output and failed executions are not automatically promoted into memory. Decisions, blockers, and next actions carry forward when included in the brief or reviewed result; automatic structured extraction from every conversation is future work.
 

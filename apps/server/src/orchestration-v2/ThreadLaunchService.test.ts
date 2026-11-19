@@ -3437,6 +3437,8 @@ it.effect(
         modelSelection,
         runtimeMode: "approval-required" as const,
       };
+      expect(yield* service.launch(launch).pipe(Effect.isFailure)).toBe(true);
+      yield* service.mutate({ type: "save_budget", projectId, maxRuns: 10, maxConcurrent: 2 });
       const first = yield* service.launch(launch);
       yield* preparationSettled(first.threadId);
       yield* service.mutate({
@@ -3449,6 +3451,7 @@ it.effect(
       });
       const retried = yield* service.launch(launch);
       expect(retried).toEqual(first);
+      expect((yield* service.snapshot({ projectId })).leads[0]?.budget?.usedRuns).toBe(1);
       const reconstructed = yield* T3poService.Service.pipe(
         Effect.provide(Layer.fresh(T3poService.layer)),
       );

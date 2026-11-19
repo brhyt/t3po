@@ -1,3 +1,4 @@
+import { NativeChildren } from "./NativeChildren";
 import { TaskResults } from "./TaskResults";
 import { randomUUID } from "../../lib/utils";
 import { useAtomValue } from "@effect/atom-react";
@@ -258,7 +259,9 @@ function ProjectBoard({
                     ) : memory.available ? (
                       <T>Memory: connected</T>
                     ) : (
-                      <T>Memory: awaiting connection; local continuity retained</T>
+                      <T>
+                        Memory: recall unavailable or not yet checked; local continuity retained
+                      </T>
                     )}
                     {memory?.configured && memory.pending > 0 ? (
                       <> · {gt("{count} records awaiting sync", { count: memory.pending })}</>
@@ -351,6 +354,13 @@ function ProjectBoard({
               ) : null}
             </div>
           </div>
+          {lead ? (
+            <NativeChildren
+              environmentId={environmentId}
+              threadId={lead.threadId}
+              parentTitle={lead.name}
+            />
+          ) : null}
           <div className="flex flex-wrap items-center gap-2">
             <Button
               variant={channelId === null ? "secondary" : "ghost"}
@@ -381,6 +391,60 @@ function ProjectBoard({
               <T>New channel</T>
             </Button>
           </div>
+          <form
+            key={`budget:${projectId}:${lead?.budget?.maxRuns}:${lead?.budget?.maxConcurrent}`}
+            className="flex flex-wrap items-end gap-3"
+            onSubmit={(event) => {
+              event.preventDefault();
+              const data = new FormData(event.currentTarget);
+              void save({
+                type: "save_budget",
+                projectId,
+                maxRuns: Number(data.get("maxRuns")),
+                maxConcurrent: Number(data.get("maxConcurrent")),
+              });
+            }}
+          >
+            <label className="text-xs">
+              <T>Task run budget</T>
+              <input
+                className="block w-32 rounded border bg-background p-2"
+                name="maxRuns"
+                type="number"
+                min="0"
+                step="1"
+                required
+                defaultValue={lead?.budget?.maxRuns}
+                disabled={!canMutate || busy}
+              />
+            </label>
+            <label className="text-xs">
+              <T>Concurrent task runs</T>
+              <input
+                className="block w-32 rounded border bg-background p-2"
+                name="maxConcurrent"
+                type="number"
+                min="0"
+                step="1"
+                required
+                defaultValue={lead?.budget?.maxConcurrent}
+                disabled={!canMutate || busy}
+              />
+            </label>
+            <Button type="submit" variant="outline" disabled={!canMutate || busy || !lead}>
+              <T>Save budget</T>
+            </Button>
+            <p className="text-xs text-muted-foreground">
+              {lead?.budget ? (
+                gt("{used} runs used; {active} active", {
+                  used: lead.budget.usedRuns,
+                  active: lead.budget.activeRuns,
+                })
+              ) : (
+                <T>Set a budget before starting tasks</T>
+              )}
+            </p>
+          </form>
           {form ? (
             <WorkForm
               key={`${form}:${lead?.name}`}
@@ -561,6 +625,11 @@ function ProjectBoard({
                 )}
               </div>
             </div>
+            <NativeChildren
+              environmentId={environmentId}
+              threadId={task.threadId}
+              parentTitle={task.title}
+            />
             {tab === "outputs" ? (
               <TaskResults task={task} environmentId={environmentId} />
             ) : (

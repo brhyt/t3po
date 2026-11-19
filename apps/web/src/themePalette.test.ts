@@ -12,6 +12,8 @@ import {
   getThemeDefinition,
   getThemeColorsForMode,
   getThemeModes,
+  isKnownThemePreference,
+  themeAllowsSidebarArtwork,
   getCustomThemes,
   getStandardThemeColors,
   getStoredCustomThemeCollection,
@@ -724,6 +726,37 @@ describe("context chip colors", () => {
 });
 
 describe("stored theme preferences", () => {
+  it.each([
+    ["t3po-ro", "dark"],
+    ["t3po-droid", "dark"],
+    ["t3po-lab", "dark"],
+    ["t3po-paper", "light"],
+  ] as const)(
+    "resolves %s through saved preferences and appearance selection",
+    (id, appearance) => {
+      const theme = getThemeDefinition(id)!;
+      expect(isKnownThemePreference(id)).toBe(true);
+      expect(canonicalThemePreference(id)).toBe(id);
+      expect(getThemeModes(theme)).toEqual([appearance]);
+      expect(parseThemeHalves(JSON.stringify({ [appearance]: id }))).toEqual({ [appearance]: id });
+      expect(themeAllowsSidebarArtwork(id)).toBe(false);
+      const colors = theme.colors;
+      for (const [foreground, background] of [
+        [colors.text, colors.canvas],
+        [colors.textMuted, colors.surfaceRaised],
+        [colors.sidebarMutedForeground, colors.sidebar],
+        [colors.accentForeground, colors.accent],
+        [colors.messageActionForeground, colors.messageActionHover],
+        [colors.errorForeground, colors.errorSurface],
+      ]) {
+        expect(contrastRatio(foreground!, background!)).toBeGreaterThanOrEqual(4.5);
+      }
+      expect(colors.error).not.toBe(colors.accent);
+      expect(colors.errorSurface).not.toBe(colors.accentSurface);
+      expect(contrastRatio(colors.focus, colors.surfaceRaised)).toBeGreaterThanOrEqual(3);
+    },
+  );
+
   it("lets built-in and published halves unlock an appearance the base theme lacks", () => {
     const lightOnly = parseThemeFile({
       version: THEME_FILE_VERSION,

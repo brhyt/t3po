@@ -31,8 +31,15 @@ export const T3poQuery = Schema.Struct({
 });
 export type T3poQuery = typeof T3poQuery.Type;
 
+const T3poBudget = Schema.Struct({
+  maxRuns: NonNegativeInt,
+  maxConcurrent: NonNegativeInt,
+  usedRuns: NonNegativeInt,
+  activeRuns: NonNegativeInt,
+});
 export const T3poLead = Schema.Struct({
   projectId: ProjectId,
+  budget: Schema.optional(T3poBudget),
   name: TrimmedNonEmptyString.check(Schema.isMaxLength(200)),
   brief: Schema.String.check(Schema.isMaxLength(12000)),
   threadId: ThreadId,
@@ -131,6 +138,12 @@ export const T3poSnapshot = Schema.Struct({
 export const T3poMutation = Schema.Union([
   T3poMemoryControl,
   Schema.Struct({
+    type: Schema.Literal("save_budget"),
+    projectId: ProjectId,
+    maxRuns: NonNegativeInt,
+    maxConcurrent: NonNegativeInt,
+  }),
+  Schema.Struct({
     type: Schema.Literal("save_lead"),
     projectId: ProjectId,
     name: TrimmedNonEmptyString.check(Schema.isMaxLength(200)),
@@ -189,10 +202,23 @@ export const T3poLaunchInput = Schema.Struct({
 export type T3poLaunchInput = typeof T3poLaunchInput.Type;
 export const T3poLaunchResult = Schema.Struct({ threadId: ThreadId });
 export class T3poError extends Schema.TaggedError<T3poError>()("T3poError", {
-  operation: Schema.Literals(["read", "save", "launch", "invalid", "busy", "workspace"]),
+  operation: Schema.Literals([
+    "read",
+    "save",
+    "launch",
+    "invalid",
+    "busy",
+    "workspace",
+    "budget",
+    "approval",
+  ]),
   cause: Schema.optional(Schema.Defect()),
 }) {
   override get message() {
+    if (this.operation === "budget")
+      return "Configure or increase the project run budget before starting task work.";
+    if (this.operation === "approval")
+      return "Project task work requires the approval-required runtime mode.";
     if (this.operation === "busy") return "Stop the running task before archiving it.";
     if (this.operation === "workspace")
       return "Choose an existing Git base branch for the worktree, or use the project folder.";
