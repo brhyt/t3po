@@ -442,7 +442,7 @@ function SidebarLabel({
   return (
     <span className="block min-w-0 flex-1">
       <span className="flex min-w-0 items-center gap-2">
-        <span className="min-w-0 flex-1 truncate">{label}</span>
+        <span className="min-w-0 flex-1 truncate text-base font-semibold">{label}</span>
         <SidebarTime timestamp={timestamp} />
       </span>
       <span className="mt-0.5 flex min-w-0 items-center gap-1 text-xs font-normal text-sidebar-muted-foreground">
@@ -450,7 +450,11 @@ function SidebarLabel({
         <span className="shrink-0">{machine}</span>
         <FolderIcon className="ml-1 size-3 shrink-0" />
         <Tooltip>
-          <TooltipTrigger render={<span className="truncate" />}>{path}</TooltipTrigger>
+          <TooltipTrigger render={<span className="truncate" />}>
+            {path
+              .replace(/\\/g, "/")
+              .replace(/^(?:\/(?:Users|home)\/[^/]+|\/root|[A-Za-z]:\/Users\/[^/]+)(?=\/|$)/, "~")}
+          </TooltipTrigger>
           <TooltipPopup>{path}</TooltipPopup>
         </Tooltip>
       </span>
