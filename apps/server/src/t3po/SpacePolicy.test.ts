@@ -255,3 +255,29 @@ it.effect(
       );
     }).pipe(Effect.provide(fixture)),
 );
+
+it.effect("persists space rules across renames and injects them only into assigned projects", () =>
+  Effect.gen(function* () {
+    const store = yield* Store.Store;
+    yield* store.mutate({ type: "save_lead", projectId, name: "Lead", brief: "Work" });
+    yield* store.mutate({
+      type: "save_space_rules",
+      projectId,
+      id: "personal",
+      rules: "Use personal accounts only.",
+    });
+    expect(yield* store.context(projectId, ThreadId.make("t3po-lead:a"))).not.toContain(
+      "Use personal accounts only.",
+    );
+    yield* store.mutate({ type: "assign_space", projectId, spaceId: "personal" });
+    yield* store.mutate({ type: "save_space", projectId, id: "personal", name: "Private" });
+    const rebuilt = yield* Store.Store.pipe(Effect.provide(Layer.fresh(Store.layer)));
+    expect(yield* rebuilt.context(projectId, ThreadId.make("t3po-lead:a"))).toContain(
+      "Use personal accounts only.",
+    );
+    yield* store.mutate({ type: "save_space_rules", projectId, id: "personal", rules: "" });
+    expect(yield* store.context(projectId, ThreadId.make("t3po-lead:a"))).not.toContain(
+      "Use personal accounts only.",
+    );
+  }).pipe(Effect.provide(fixture)),
+);

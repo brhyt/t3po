@@ -297,7 +297,7 @@ const make = Effect.gen(function* () {
         sharedResources: yield* sql<
           typeof T3poSharedResource.Type
         >`SELECT id, owner_space_id AS ownerSpaceId, target_space_id AS targetSpaceId, name, location FROM t3po_shared_resources`,
-        spaces: yield* sql<T3poSpace>`SELECT id, name FROM t3po_spaces ORDER BY rowid`,
+        spaces: yield* sql<T3poSpace>`SELECT id, name, rules FROM t3po_spaces ORDER BY rowid`,
         projectSpaces: yield* sql<
           typeof T3poProjectSpace.Type
         >`SELECT project_id AS projectId, space_id AS spaceId FROM t3po_project_spaces WHERE ${projectFilter}`,
@@ -358,7 +358,11 @@ const make = Effect.gen(function* () {
     function* (input: T3poMutation, reviewedRunId?: RunId) {
       if (input.type === "memory_control") return yield* new T3poError({ operation: "invalid" });
       const now = DateTime.formatIso(yield* DateTime.now);
-      if (input.type === "connect_space") {
+      if (input.type === "save_space_rules") {
+        const existing = yield* sql`SELECT id FROM t3po_spaces WHERE id = ${input.id}`;
+        if (!existing.length) return yield* new T3poError({ operation: "invalid" });
+        yield* sql`UPDATE t3po_spaces SET rules = ${input.rules} WHERE id = ${input.id}`;
+      } else if (input.type === "connect_space") {
         const source = yield* sql`SELECT id FROM t3po_spaces WHERE id = ${input.sourceSpaceId}`;
         const target =
           yield* sql`SELECT project_id FROM t3po_project_spaces WHERE project_id = ${input.targetProjectId} AND space_id = ${input.targetSpaceId}`;
@@ -660,6 +664,8 @@ const make = Effect.gen(function* () {
         text: string;
       }>`SELECT kind, substr(text, 1, 2000) AS text FROM t3po_memory_events WHERE project_id = ${projectId} AND superseded_by IS NULL ORDER BY sequence DESC LIMIT 5`;
       return yield* encodeUnknownJson({
+        spaceRules:
+          yield* sql`SELECT s.name, s.rules FROM t3po_spaces s JOIN t3po_project_spaces p ON p.space_id = s.id WHERE p.project_id = ${projectId}`,
         sharedResources:
           yield* sql`SELECT r.name, r.location, r.owner_space_id AS ownerSpaceId FROM t3po_shared_resources r JOIN t3po_project_spaces p ON p.project_id = ${projectId} AND p.space_id IN (r.owner_space_id, r.target_space_id) ORDER BY r.rowid LIMIT 50`,
         handoffDestinations:

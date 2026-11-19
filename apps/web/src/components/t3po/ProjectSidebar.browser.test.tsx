@@ -9,6 +9,7 @@ import { ProjectSidebar } from "./ProjectSidebar";
 const state = vi.hoisted(() => ({
   data: undefined as typeof T3poSnapshot.Type | undefined,
   calls: [] as unknown[],
+  archived: false,
 }));
 vi.mock(import("../../state/query"), async (original) => ({
   ...(await original()),
@@ -26,7 +27,10 @@ vi.mock(import("../../state/use-atom-command"), () => ({
   }) as never,
 }));
 vi.mock(import("../../state/use-orchestration-command"), () => ({
-  useOrchestrationCommand: (() => vi.fn()) as never,
+  useOrchestrationCommand: (() => async (input: unknown) => {
+    state.calls.push(input);
+    return { _tag: "Success" };
+  }) as never,
 }));
 vi.mock(import("../../state/session"), async (original) => ({
   ...(await original()),
@@ -46,7 +50,7 @@ vi.mock(import("../../state/entities"), async (original) => ({
       id: "project",
       title: "Studio",
       workspaceRoot: "/home/grr/Studio",
-      archivedAt: null,
+      archivedAt: state.archived ? "2026-11-19T00:00:00Z" : null,
     },
   ]) as never,
   useThreadShell: (() => undefined) as never,
@@ -58,6 +62,7 @@ vi.mock(import("../../state/environments"), async (original) => ({
 }));
 
 it("renames a Space inline on Enter once and cancels an unsaved rename with Escape", async () => {
+  state.archived = false;
   state.calls = [];
   state.data = {
     spaces: [
@@ -105,6 +110,7 @@ it("renames a Space inline on Enter once and cancels an unsaved rename with Esca
 });
 
 it("revokes the selected incoming direction and shares a reference with one space", async () => {
+  state.archived = false;
   state.calls = [];
   state.data = {
     spaces: [
@@ -173,4 +179,69 @@ it("revokes the selected incoming direction and shares a reference with one spac
     },
   });
   await expect.element(screen.getByRole("textbox", { name: "Resource name" })).toHaveValue("");
+});
+
+it("opens space settings and autosaves rules on blur", async () => {
+  state.archived = false;
+  state.calls = [];
+  state.data = {
+    spaces: [{ id: "personal", name: "Personal" }],
+    projectSpaces: [],
+    conversations: [],
+    memory: [],
+    leads: [],
+    channels: [],
+    tasks: [],
+    nextCursor: null,
+  };
+  await using screen = await render(
+    <SidebarProvider>
+      <ProjectSidebar />
+    </SidebarProvider>,
+  );
+  await userEvent.click(screen.getByRole("button", { name: "Space settings", exact: true }));
+  await userEvent.click(screen.getByRole("button", { name: "Rules", exact: true }));
+  await userEvent.fill(
+    screen.getByRole("textbox", { name: "Space rules" }),
+    "Keep personal purchases separate.",
+  );
+  await userEvent.click(screen.getByRole("button", { name: "Connections", exact: true }));
+  await vi.waitFor(() =>
+    expect(state.calls).toEqual([
+      {
+        environmentId: "roc",
+        input: {
+          type: "save_space_rules",
+          projectId: "project",
+          id: "personal",
+          rules: "Keep personal purchases separate.",
+        },
+      },
+    ]),
+  );
+});
+
+it("reveals an archived project through the archive view", async () => {
+  state.archived = true;
+  state.calls = [];
+  state.data = {
+    spaces: [],
+    projectSpaces: [],
+    conversations: [],
+    memory: [],
+    leads: [],
+    channels: [],
+    tasks: [],
+    nextCursor: null,
+  };
+  await using screen = await render(
+    <SidebarProvider>
+      <ProjectSidebar />
+    </SidebarProvider>,
+  );
+  await expect.element(screen.getByRole("link", { name: /Studio/ })).not.toBeInTheDocument();
+  await userEvent.click(screen.getByRole("button", { name: "Archived projects", exact: true }));
+  await expect.element(screen.getByRole("link", { name: /Studio/ })).toBeVisible();
+  await userEvent.click(screen.getByRole("button", { name: "Active projects", exact: true }));
+  await expect.element(screen.getByRole("link", { name: /Studio/ })).not.toBeInTheDocument();
 });

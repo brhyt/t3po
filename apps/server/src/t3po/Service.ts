@@ -152,6 +152,7 @@ const make = Effect.gen(function* () {
       yield* PubSub.publish(changes, {
         projectId: input.projectId,
         metadata:
+          input.type === "save_space_rules" ||
           input.type.endsWith("_resource") ||
           input.type.endsWith("_space") ||
           input.type === "move_conversation" ||

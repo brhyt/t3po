@@ -53,7 +53,8 @@ export function ProjectSidebar() {
   const [roName, setRoName] = useRoName();
   const [renamingRo, setRenamingRo] = useState(false);
   const { environments } = useEnvironments();
-  const projects = useProjects().filter((project) => project.archivedAt == null);
+  const projects = useProjects();
+  const [archivedProjects, setArchivedProjects] = useState(false);
   const search = useLocation({ select: (location) => t3poSearch(location.search) });
   const threadRef = resolveThreadRouteRef(useParams({ strict: false }));
   const currentThread = useThreadShell(threadRef);
@@ -125,11 +126,18 @@ export function ProjectSidebar() {
         </Button>
       </div>
       <div className="min-h-0 flex-1 space-y-1 overflow-y-auto px-(--sidebar-content-inset)">
+        <SidebarMenuButton size="sm" onClick={() => setArchivedProjects(!archivedProjects)}>
+          {archivedProjects ? <T>Active projects</T> : <T>Archived projects</T>}
+        </SidebarMenuButton>
         {[...new Set(projects.map((project) => project.environmentId))].map((environmentId) => (
           <SpaceProjects
             key={environmentId}
             environmentId={environmentId}
-            projects={projects.filter((project) => project.environmentId === environmentId)}
+            projects={projects.filter(
+              (project) =>
+                project.environmentId === environmentId &&
+                !!project.archivedAt === archivedProjects,
+            )}
             machineLabel={
               environments.find((env) => env.environmentId === environmentId)?.label ?? ""
             }
@@ -227,7 +235,7 @@ function SpaceProjects({
                     ?.contextMenu.show(
                       [
                         { id: "rename", label: gt("Rename"), disabled: !canMutate },
-                        { id: "connections", label: gt("Connections"), disabled: !anchor },
+                        { id: "connections", label: gt("Space settings"), disabled: !anchor },
                         {
                           id: "remove",
                           label: gt("Remove empty space"),
@@ -255,7 +263,19 @@ function SpaceProjects({
                 }}
               >
                 <span>{space.name}</span>
-                <span>{machineLabel}</span>
+                <span className="flex items-center gap-1">
+                  <span>{machineLabel}</span>
+                  {space.id && anchor ? (
+                    <Button
+                      size="icon-xs"
+                      variant="ghost"
+                      aria-label={gt("Space settings")}
+                      onClick={() => setConnections(space)}
+                    >
+                      <SettingsIcon className="size-3" />
+                    </Button>
+                  ) : null}
+                </span>
               </div>
             )}
             {members.map((project) => (
@@ -264,6 +284,7 @@ function SpaceProjects({
                 projectId={project.id}
                 environmentId={environmentId}
                 title={project.title}
+                archived={project.archivedAt != null}
                 workspaceRoot={project.workspaceRoot}
                 machineLabel={machineLabel}
                 search={search}
@@ -300,6 +321,7 @@ function SpaceProjects({
 }
 
 function ProjectChannels({
+  archived,
   projectId,
   environmentId,
   title,
@@ -308,6 +330,7 @@ function ProjectChannels({
   search,
   currentThreadId,
 }: {
+  archived: boolean;
   projectId: ProjectId;
   environmentId: EnvironmentId;
   title: string;
@@ -486,7 +509,11 @@ function ProjectChannels({
                 ?.contextMenu.show(
                   [
                     { id: "rename", label: gt("Rename"), disabled: !canUpdateProject },
-                    { id: "archive", label: gt("Archive"), disabled: !canUpdateProject },
+                    {
+                      id: "archive",
+                      label: archived ? gt("Restore project") : gt("Archive"),
+                      disabled: !canUpdateProject,
+                    },
                     {
                       id: "space",
                       label: gt("Move to space"),
@@ -514,7 +541,7 @@ function ProjectChannels({
                   }
                   if (action === "rename") setRenamingProject(true);
                   if (action === "archive") {
-                    await updateProjectDetails({ archived: true });
+                    await updateProjectDetails({ archived: !archived });
                     await navigate({ to: "/", search: {} });
                   }
                 })

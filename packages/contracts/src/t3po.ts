@@ -163,6 +163,7 @@ export const T3poMemoryStatus = Schema.Struct({
   lastCheckedAt: Schema.NullOr(Schema.String),
 });
 export const T3poSpace = Schema.Struct({
+  rules: Schema.optional(Schema.String.check(Schema.isMaxLength(12000))),
   id: TrimmedNonEmptyString,
   name: TrimmedNonEmptyString.check(Schema.isMaxLength(200)),
 });
@@ -203,6 +204,12 @@ export const T3poSnapshot = Schema.Struct({
 });
 export const T3poMutation = Schema.Union([
   T3poMemoryControl,
+  Schema.Struct({
+    type: Schema.Literal("save_space_rules"),
+    projectId: ProjectId,
+    id: TrimmedNonEmptyString,
+    rules: Schema.String.check(Schema.isMaxLength(12000)),
+  }),
   Schema.Struct({
     type: Schema.Literal("connect_space"),
     projectId: ProjectId,

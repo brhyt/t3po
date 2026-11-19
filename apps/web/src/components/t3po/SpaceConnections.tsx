@@ -39,6 +39,9 @@ export function SpaceConnections({
   );
   const mutate = useAtomCommand(t3po.mutate);
   const canMutate = useAtomValue(t3po.mutate.permissionAtom(environmentId));
+  const [tab, setTab] = useState<"connections" | "rules">("connections");
+  const [rules, setRules] = useState(space.rules ?? "");
+  const [savedRules, setSavedRules] = useState(space.rules ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [name, setName] = useState("");
@@ -85,7 +88,7 @@ export function SpaceConnections({
       <DialogPopup>
         <DialogHeader>
           <DialogTitle>
-            {space.name} · <T>Connections</T>
+            {space.name} · <T>Space settings</T>
           </DialogTitle>
           <DialogDescription>
             <T>
@@ -95,148 +98,204 @@ export function SpaceConnections({
           </DialogDescription>
         </DialogHeader>
         <DialogPanel>
-          <h3 className="font-medium">
-            <T>Incoming jobs</T>
-          </h3>
-          <p className="text-sm text-muted-foreground">
-            <T>
-              Each checked direction allows new jobs in that project, using its allowance. Only the
-              supplied brief crosses the boundary.
-            </T>
-          </p>
-          {others.map((other) => (
-            <div key={other.id} className="space-y-2">
-              {targets.map((project) => {
-                const enabled =
-                  query.data?.spaceConnections?.some(
-                    (entry) =>
-                      entry.sourceSpaceId === other.id && entry.targetProjectId === project.id,
-                  ) ?? false;
-                return (
-                  <label key={project.id} className="flex items-center gap-2 text-sm">
-                    <input
-                      type="checkbox"
-                      checked={enabled}
-                      disabled={busy || !canMutate || !query.data}
-                      onChange={(event) =>
-                        void save({
-                          type: "connect_space",
-                          projectId,
-                          sourceSpaceId: other.id,
-                          targetSpaceId: space.id,
-                          targetProjectId: project.id,
-                          enabled: event.target.checked,
-                        })
-                      }
-                    />
-                    <span>
-                      {other.name} → {space.name} / {project.title}
-                    </span>
-                  </label>
-                );
-              })}
-            </div>
-          ))}
-          {!targets.length ? (
-            <p className="text-sm text-muted-foreground">
-              <T>Assign a project to this space to receive jobs.</T>
-            </p>
-          ) : null}
-          <h3 className="font-medium">
-            <T>Shared resource references</T>
-          </h3>
-          <p className="text-sm text-muted-foreground">
-            <T>
-              Share a folder path or HTTPS service address. This shares a reference, not credentials
-              or additional tool permissions.
-            </T>
-          </p>
-          {resources.map((resource) => (
-            <div key={resource.id} className="flex items-start justify-between gap-3 text-sm">
-              <div className="min-w-0">
-                <div>{resource.name}</div>
-                <div className="break-all text-muted-foreground">{resource.location}</div>
-                <div className="text-muted-foreground">
-                  {nameOf(resource.ownerSpaceId)} → {nameOf(resource.targetSpaceId)}
-                </div>
-              </div>
-              <Button
-                size="sm"
-                variant="ghost"
-                disabled={busy || !canMutate}
-                onClick={() => void save({ type: "unshare_resource", projectId, id: resource.id })}
-              >
-                <T>Disconnect</T>
-              </Button>
-            </div>
-          ))}
-          <form
-            className="space-y-2"
-            onSubmit={(event) => {
-              event.preventDefault();
-              void save({
-                type: "share_resource",
-                projectId,
-                id: randomUUID(),
-                ownerSpaceId: space.id,
-                targetSpaceId,
-                name: name.trim(),
-                location: location.trim(),
-              }).then((saved) => {
-                if (saved) {
-                  setName("");
-                  setLocation("");
-                }
-              });
-            }}
-          >
-            <Input
-              required
-              aria-label={gt("Resource name")}
-              placeholder={gt("Resource name")}
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-              maxLength={200}
-            />
-            <Input
-              required
-              aria-label={gt("Folder path or HTTPS address")}
-              placeholder={gt("Folder path or HTTPS address")}
-              value={location}
-              onChange={(event) => setLocation(event.target.value)}
-              maxLength={2000}
-            />
-            <label className="flex items-center gap-2 text-sm">
-              <T>Share with</T>
-              <select
-                required
-                aria-label={gt("Share with")}
-                value={targetSpaceId}
-                onChange={(event) => setTargetSpaceId(event.target.value)}
-                className="min-w-0 flex-1 rounded border border-input bg-background p-2"
-              >
-                <option value="">{gt("Choose a space")}</option>
-                {others.map((other) => (
-                  <option key={other.id} value={other.id}>
-                    {other.name}
-                  </option>
-                ))}
-              </select>
-            </label>
+          <div className="flex gap-2">
             <Button
-              type="submit"
               size="sm"
-              disabled={busy || !canMutate || !targetSpaceId || !name.trim() || !location.trim()}
+              variant={tab === "connections" ? "secondary" : "ghost"}
+              onClick={() => setTab("connections")}
             >
-              <T>Share resource</T>
+              <T>Connections</T>
             </Button>
-          </form>
-          <p className="text-xs text-muted-foreground">
-            <T>
-              Disconnecting blocks future access and queued handoffs. It cannot retract context
-              already delivered or stop a running job.
-            </T>
-          </p>
+            <Button
+              size="sm"
+              variant={tab === "rules" ? "secondary" : "ghost"}
+              onClick={() => setTab("rules")}
+            >
+              <T>Rules</T>
+            </Button>
+          </div>
+          {tab === "rules" ? (
+            <div className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                <T>
+                  Rules guide every project lead and worker in this space. They do not grant
+                  permissions or override approval requirements. Changes save when you leave the
+                  field.
+                </T>
+              </p>
+              <textarea
+                aria-label={gt("Space rules")}
+                className="min-h-48 w-full rounded border border-input bg-background p-3 text-sm"
+                maxLength={12000}
+                value={rules}
+                disabled={!canMutate || busy}
+                onChange={(event) => setRules(event.target.value)}
+                onBlur={() => {
+                  if (rules !== savedRules)
+                    void save({ type: "save_space_rules", projectId, id: space.id, rules }).then(
+                      (saved) => {
+                        if (saved) setSavedRules(rules);
+                      },
+                    );
+                }}
+              />
+              <p className="text-xs text-muted-foreground">
+                <T>
+                  Memory remains project-scoped. Handoffs require an explicit connection and use the
+                  receiving project's allowance. External actions still require approval.
+                </T>
+              </p>
+            </div>
+          ) : (
+            <>
+              <h3 className="font-medium">
+                <T>Incoming jobs</T>
+              </h3>
+              <p className="text-sm text-muted-foreground">
+                <T>
+                  Each checked direction allows new jobs in that project, using its allowance. Only
+                  the supplied brief crosses the boundary.
+                </T>
+              </p>
+              {others.map((other) => (
+                <div key={other.id} className="space-y-2">
+                  {targets.map((project) => {
+                    const enabled =
+                      query.data?.spaceConnections?.some(
+                        (entry) =>
+                          entry.sourceSpaceId === other.id && entry.targetProjectId === project.id,
+                      ) ?? false;
+                    return (
+                      <label key={project.id} className="flex items-center gap-2 text-sm">
+                        <input
+                          type="checkbox"
+                          checked={enabled}
+                          disabled={busy || !canMutate || !query.data}
+                          onChange={(event) =>
+                            void save({
+                              type: "connect_space",
+                              projectId,
+                              sourceSpaceId: other.id,
+                              targetSpaceId: space.id,
+                              targetProjectId: project.id,
+                              enabled: event.target.checked,
+                            })
+                          }
+                        />
+                        <span>
+                          {other.name} → {space.name} / {project.title}
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+              ))}
+              {!targets.length ? (
+                <p className="text-sm text-muted-foreground">
+                  <T>Assign a project to this space to receive jobs.</T>
+                </p>
+              ) : null}
+              <h3 className="font-medium">
+                <T>Shared resource references</T>
+              </h3>
+              <p className="text-sm text-muted-foreground">
+                <T>
+                  Share a folder path or HTTPS service address. This shares a reference, not
+                  credentials or additional tool permissions.
+                </T>
+              </p>
+              {resources.map((resource) => (
+                <div key={resource.id} className="flex items-start justify-between gap-3 text-sm">
+                  <div className="min-w-0">
+                    <div>{resource.name}</div>
+                    <div className="break-all text-muted-foreground">{resource.location}</div>
+                    <div className="text-muted-foreground">
+                      {nameOf(resource.ownerSpaceId)} → {nameOf(resource.targetSpaceId)}
+                    </div>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    disabled={busy || !canMutate}
+                    onClick={() =>
+                      void save({ type: "unshare_resource", projectId, id: resource.id })
+                    }
+                  >
+                    <T>Disconnect</T>
+                  </Button>
+                </div>
+              ))}
+              <form
+                className="space-y-2"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void save({
+                    type: "share_resource",
+                    projectId,
+                    id: randomUUID(),
+                    ownerSpaceId: space.id,
+                    targetSpaceId,
+                    name: name.trim(),
+                    location: location.trim(),
+                  }).then((saved) => {
+                    if (saved) {
+                      setName("");
+                      setLocation("");
+                    }
+                  });
+                }}
+              >
+                <Input
+                  required
+                  aria-label={gt("Resource name")}
+                  placeholder={gt("Resource name")}
+                  value={name}
+                  onChange={(event) => setName(event.target.value)}
+                  maxLength={200}
+                />
+                <Input
+                  required
+                  aria-label={gt("Folder path or HTTPS address")}
+                  placeholder={gt("Folder path or HTTPS address")}
+                  value={location}
+                  onChange={(event) => setLocation(event.target.value)}
+                  maxLength={2000}
+                />
+                <label className="flex items-center gap-2 text-sm">
+                  <T>Share with</T>
+                  <select
+                    required
+                    aria-label={gt("Share with")}
+                    value={targetSpaceId}
+                    onChange={(event) => setTargetSpaceId(event.target.value)}
+                    className="min-w-0 flex-1 rounded border border-input bg-background p-2"
+                  >
+                    <option value="">{gt("Choose a space")}</option>
+                    {others.map((other) => (
+                      <option key={other.id} value={other.id}>
+                        {other.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <Button
+                  type="submit"
+                  size="sm"
+                  disabled={
+                    busy || !canMutate || !targetSpaceId || !name.trim() || !location.trim()
+                  }
+                >
+                  <T>Share resource</T>
+                </Button>
+              </form>
+              <p className="text-xs text-muted-foreground">
+                <T>
+                  Disconnecting blocks future access and queued handoffs. It cannot retract context
+                  already delivered or stop a running job.
+                </T>
+              </p>
+            </>
+          )}
           {error ? (
             <p role="alert" className="text-sm text-destructive">
               {error}
