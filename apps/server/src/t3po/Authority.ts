@@ -38,13 +38,8 @@ const checkSpace = Effect.fn("T3po.checkSpace")(function* (event: OrchestrationV
       spaceId: string;
     }>`SELECT space_id AS spaceId FROM t3po_project_spaces WHERE project_id = ${event.payload.projectId}`;
     const space = membership[0]?.spaceId ?? null;
-    if (
-      space &&
-      (event.payload.runtimeMode !== "approval-required" ||
-        event.payload.linkOrigin ||
-        event.payload.delegatedFrom)
-    )
-      return yield* new T3poError({ operation: "approval" });
+    if (space && (event.payload.linkOrigin || event.payload.delegatedFrom))
+      return yield* new T3poError({ operation: "space_boundary" });
     const parentId = event.payload.lineage.parentThreadId;
     if (parentId) {
       const parent = yield* scopeOf(parentId);
@@ -60,7 +55,7 @@ const checkSpace = Effect.fn("T3po.checkSpace")(function* (event: OrchestrationV
           ? yield* scopeOf(event.payload.forkedFrom.threadId)
           : undefined;
       if ((space || source?.spaceId) && (!source || source.spaceId !== space))
-        return yield* new T3poError({ operation: "approval" });
+        return yield* new T3poError({ operation: "space_boundary" });
     }
   } else if (
     event.type === "context-transfer.created" ||
@@ -70,25 +65,11 @@ const checkSpace = Effect.fn("T3po.checkSpace")(function* (event: OrchestrationV
     const target = yield* scopeOf(event.payload.targetThreadId);
     if (source?.spaceId !== target?.spaceId)
       return yield* new T3poError({ operation: "space_boundary" });
-  } else if (
-    event.type === "thread.runtime-mode-updated" ||
-    event.type === "thread.provider-switched"
-  ) {
-    if (
-      (yield* scopeOf(event.threadId))?.spaceId &&
-      event.payload.runtimeMode !== "approval-required"
-    )
-      return yield* new T3poError({ operation: "approval" });
   } else if (event.type === "run.created") {
     const jobs = yield* sql<{
       id: string;
     }>`SELECT id FROM t3po_tasks WHERE json_extract(data, '$.threadId') = ${event.threadId}`;
     for (const job of jobs) yield* SpaceConnections.checkHandoff(job.id);
-    const thread = yield* sql<{
-      mode: string;
-    }>`SELECT t.runtime_mode AS mode FROM orchestration_v2_projection_threads t JOIN t3po_project_spaces s ON s.project_id = t.project_id WHERE t.thread_id = ${event.threadId}`;
-    if (thread[0] && thread[0].mode !== "approval-required")
-      return yield* new T3poError({ operation: "approval" });
   }
 });
 
@@ -102,7 +83,7 @@ export const admitRun = Effect.fn("T3po.admitRun")(function* (event: Orchestrati
   ) {
     if (
       event.payload.runtimeMode !== "approval-required" &&
-      (yield* authorityProject(event.threadId, true))
+      (yield* authorityProject(event.threadId))
     )
       return yield* new T3poError({ operation: "approval" });
     return;
@@ -122,15 +103,16 @@ export const admitRun = Effect.fn("T3po.admitRun")(function* (event: Orchestrati
     return;
   }
   if (event.type !== "run.created") return;
-  const projectId = yield* authorityProject(event.threadId, true);
+  const projectId = yield* authorityProject(
+    event.threadId,
+    event.payload.delegatedCompletion !== undefined,
+  );
   if (!projectId) return;
   const thread = yield* sql<{
     mode: string;
   }>`SELECT json_extract(payload_json, '$.runtimeMode') AS mode FROM orchestration_v2_projection_threads WHERE thread_id = ${event.threadId}`;
   if (thread[0]?.mode !== "approval-required")
     return yield* new T3poError({ operation: "approval" });
-  if (!(yield* authorityProject(event.threadId, event.payload.delegatedCompletion !== undefined)))
-    return;
   const budget = yield* sql`SELECT project_id FROM t3po_budgets b WHERE project_id = ${projectId}
     AND max_runs > (SELECT count(*) FROM t3po_admissions WHERE project_id = b.project_id)
     AND max_concurrent > (SELECT count(*) FROM t3po_admissions WHERE project_id = b.project_id AND active = 1)`;

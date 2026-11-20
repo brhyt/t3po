@@ -100,12 +100,23 @@ it.effect.each([false, true])(
           },
         ],
       });
+      const ordinaryId = ThreadId.make("ordinary-chat");
+      yield* sink.write({
+        events: [
+          {
+            id: EventId.make("ordinary-before-space"),
+            type: "thread.created",
+            threadId: ordinaryId,
+            occurredAt: now,
+            payload: { ...thread(ordinaryId, null), runtimeMode: "full-access" },
+          },
+        ],
+      });
       yield* store.mutate({ type: "assign_space", projectId, spaceId: "personal" });
       const foreignProject = ProjectId.make("business-project");
       yield* store.mutate({ type: "assign_space", projectId: foreignProject, spaceId: "business" });
       for (const payload of [
         { ...thread(ThreadId.make("space-child"), leadId), projectId: foreignProject },
-        { ...thread(ThreadId.make("space-escalation"), null), runtimeMode: "full-access" as const },
         {
           ...thread(ThreadId.make("space-fork"), null),
           projectId: foreignProject,
@@ -195,6 +206,44 @@ it.effect.each([false, true])(
         ],
       });
       yield* sql`DELETE FROM t3po_admissions WHERE run_id = 'handoff'`;
+      for (const type of ["thread.runtime-mode-updated", "thread.provider-switched"] as const) {
+        yield* sink.write({
+          events: [
+            {
+              id: EventId.make(`manual:${type}`),
+              type,
+              threadId: leadId,
+              occurredAt: now,
+              payload: { ...thread(leadId, null), runtimeMode: "full-access" },
+            },
+          ],
+        });
+      }
+      yield* sink.write({
+        events: [
+          {
+            id: EventId.make("ordinary-after-space"),
+            type: "run.created",
+            threadId: ordinaryId,
+            occurredAt: now,
+            payload: run("ordinary", ordinaryId),
+          },
+          {
+            id: EventId.make("ordinary-complete"),
+            type: "run.updated",
+            threadId: ordinaryId,
+            occurredAt: now,
+            payload: { ...run("ordinary", ordinaryId), status: "completed", completedAt: now },
+          },
+          {
+            id: EventId.make("new-space-chat"),
+            type: "thread.created",
+            threadId: ThreadId.make("new-chat"),
+            occurredAt: now,
+            payload: { ...thread(ThreadId.make("new-chat"), null), runtimeMode: "full-access" },
+          },
+        ],
+      });
       yield* sink.write({
         events: [
           {
