@@ -1,0 +1,112 @@
+{
+  "service": "brega-consumer-t3.service",
+  "host": "srv859887",
+  "installation": {
+    "deployedAt": "2026-11-21T21:44:42.049191+00:00",
+    "sourceCommit": "aada0ec04300481b072a31052e00a3b5b08f29b6",
+    "previousSourceCommit": "65943039162084278f28cc3e2a56d973829e2674",
+    "releaseDirectory": "/opt/brega-ai/releases/aada0ec04300",
+    "backupDirectory": "/root/brega-ai-backups/pre-consumer-aada0ec04300-attempt2",
+    "binarySha256": {
+      "t3": "c002f4db1175a6380c12312559f467fbd230688f6e953afa1772fe6050a965f2",
+      "bin/claude": "a982d38030b97e750848add2cbb2df6d9a70d5544a22ca9b216a349ba25865e8"
+    },
+    "migrationApplied": 111,
+    "databaseIntegrity": "ok",
+    "preExistingCountsPreserved": true,
+    "projectRecordsPreserved": true,
+    "credentialsSettingsServiceUnchanged": true,
+    "operatorPort3773Unchanged": true,
+    "providerCallsPerformed": 0
+  },
+  "localRuntimeVerification": {
+    "checkedAt": "2026-11-21T21:44:45.076540+00:00",
+    "endpoint": "http://127.0.0.1:3874/mcp",
+    "mcpProtocolVersion": "2025-06-18",
+    "mcpToolsCount": 51,
+    "artifactReadToolAvailable": true,
+    "unknownArtifactDenied": true,
+    "consumerText": {
+      "protocolVersion": 1,
+      "provider": "anthropic",
+      "models": ["claude-haiku-4-5-20251001"],
+      "maxPromptBytes": 6000,
+      "maxRequestBytes": 7168,
+      "modelInputTokenLimits": {
+        "claude-haiku-4-5-20251001": 200000,
+        "claude-sonnet-4-6": 1000000
+      },
+      "inputBoundStrategy": "model-context-window",
+      "inputBoundVerified": true,
+      "durableSingleUseGrant": true,
+      "paidRetries": false,
+      "maxOutputTokens": 2048,
+      "maxUpstreamRequests": 1,
+      "maxDurationMs": 120000,
+      "caching": "disabled",
+      "tools": "none",
+      "mcp": false,
+      "localConfiguration": false,
+      "billingTier": "standard",
+      "region": "global",
+      "usageReceipts": "provider-reported",
+      "media": false
+    },
+    "consumerImageEnabled": false,
+    "serverOpenAIKeyConfigured": false,
+    "publicUnauthenticatedStatus": {
+      "/mcp": 401,
+      "/": 404,
+      "/api/consumer/anthropic/v1/messages": 404
+    },
+    "counts": {
+      "consumer_api_grants": 0,
+      "consumer_images": 0,
+      "orchestration_v2_projection_messages": 0,
+      "orchestration_v2_projection_runs": 0,
+      "orchestration_v2_projection_threads": 0,
+      "projection_projects": 1,
+      "projection_threads": 0
+    },
+    "latestMigrations": [
+      [111, "2026-11-21 21:44:40", "ConsumerImages"],
+      [110, "2026-11-21 19:53:49", "ConsumerApiGrants"],
+      [109, "2026-11-21 19:53:49", "T3poSpaceRules"]
+    ],
+    "databaseIntegrity": "ok",
+    "backgroundGenerationDisabled": true,
+    "otherProvidersDisabled": true,
+    "automaticRunSourcesDisabled": true,
+    "providerCallsPerformed": 0
+  },
+  "publicMcpVerification": {
+    "checkedAt": "2026-11-21T21:44:45.558Z",
+    "endpoint": "https://brega-ai.brhyt.com/mcp",
+    "transport": "Node fetch (same HTTP client API used by Brega Worker)",
+    "authenticatedRead": true,
+    "protocolVersion": "2025-06-18",
+    "consumerImageEnabled": false,
+    "providerCallsPerformed": 0
+  },
+  "releaseValidation": {
+    "standaloneBuild": "passed; Node26.13.1 linux-x64 target",
+    "checkChanged": "passed",
+    "tests": 649,
+    "typecheckedPackages": 38,
+    "dependencyFilesUnchangedFromPreviousRuntime": true
+  },
+  "rolloutNotes": [
+    "First switch was automatically rolled back after byte-level settings comparison observed default stripping; schema defaults were verified and the retry preserved normalized settings exactly.",
+    "The runtime contains the image integration, but OPENAI_API_KEY and T3_CONSUMER_IMAGE_POLICY remain absent.",
+    "Public authenticated MCP was verified with Node fetch. Cloudflare rejects the Python urllib user agent with error1010."
+  ],
+  "notPerformed": [
+    "No paid provider call or generated image.",
+    "No Brega chat enablement, pricing change, credit modification, customer invitation or website publication."
+  ],
+  "remainingImageActivationRequirements": [
+    "Explicit approval to enable customer chat/images.",
+    "Verified provider-side total image cost bound and configured OpenAI provider credential.",
+    "Customer Library/Canvas import verification in the Brega application."
+  ]
+}

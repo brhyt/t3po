@@ -2,7 +2,7 @@
 
 This is an opt-in policy for a dedicated Brega service. It does not change internal desktop providers when `T3_CONSUMER_CLAUDE_POLICY` is absent. Do not enable it on an operator's full-access runtime.
 
-The production pilot supports bounded Anthropic text chat. An additional image policy is available for review and fake-provider testing only. Paid image rollout must remain disabled until there is a verified financial bound for its pinned provider profile.
+The production runtime supports bounded Anthropic text chat and contains the image integration, with customer chat and the image policy disabled. Paid image rollout must remain disabled until there is a verified financial bound for its pinned provider profile. The [deployment verification](brega-consumer-runtime-verification-2026-11-21.json) records the installed binary, database migration, and authenticated transport checks; it does not claim a paid generation or a Brega Library import.
 
 ## Dedicated service configuration
 
