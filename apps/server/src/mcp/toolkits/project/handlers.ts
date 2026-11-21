@@ -17,6 +17,7 @@ import { OrchestratorRuntimeModeAboveCeilingError } from "../../../orchestration
 import * as ThreadLaunch from "../../../orchestration-v2/ThreadLaunchService.ts";
 import * as ThreadMessageIntake from "../../../orchestration-v2/ThreadMessageIntake.ts";
 import * as Claims from "../../../orchestration-v2/AttachmentClaims.ts";
+import { prepareConsumerImageGrant } from "../../../provider/ConsumerImageGeneration.ts";
 import * as Project from "../../../project/ProjectService.ts";
 import * as ProjectCloneTracker from "../../../project/ProjectCloneTracker.ts";
 import { mutateProjectWithClone } from "../../../project/ProjectMutation.ts";
@@ -341,6 +342,15 @@ export const layer = McpToolAccess.toLayer(ProjectToolkit, {
             )?.supportedRuntimeModes,
           });
         }
+        yield* prepareConsumerImageGrant({
+          grant: input.consumerGrant,
+          requestNamespace: scope.requestNamespace,
+          messageId,
+          threadId,
+          projectId,
+          model: modelSelection.model,
+          message: input.message ?? "",
+        }).pipe(Effect.mapError(unavailable));
         const result = yield* ThreadMessageIntake.launchThread({
           commandId,
           threadId,

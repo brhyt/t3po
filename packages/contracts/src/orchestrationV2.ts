@@ -1,4 +1,5 @@
 import { OrchestrationMessageContext } from "./composerContext.ts";
+import { ConsumerImageCapabilities } from "./consumerImage.ts";
 import { withRecordIdTable } from "./orchestrationV2IdTable.ts";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
@@ -397,7 +398,35 @@ export const OrchestrationV2IdentityCapabilities = Schema.Struct({
 });
 export type OrchestrationV2IdentityCapabilities = typeof OrchestrationV2IdentityCapabilities.Type;
 
+export const OrchestrationV2ConsumerTextCapabilities = Schema.Struct({
+  protocolVersion: Schema.Literal(1),
+  provider: Schema.Literal("anthropic"),
+  models: Schema.Array(Schema.String),
+  maxPromptBytes: Schema.Literal(6000),
+  maxRequestBytes: Schema.Literal(7168),
+  modelInputTokenLimits: Schema.Record(Schema.String, Schema.Number),
+  inputBoundStrategy: Schema.Literal("model-context-window"),
+  inputBoundVerified: Schema.Literal(true),
+  durableSingleUseGrant: Schema.Literal(true),
+  paidRetries: Schema.Literal(false),
+  maxOutputTokens: Schema.Number,
+  maxUpstreamRequests: Schema.Literal(1),
+  maxDurationMs: Schema.Literal(120000),
+  caching: Schema.Literal("disabled"),
+  tools: Schema.Literal("none"),
+  mcp: Schema.Literal(false),
+  localConfiguration: Schema.Literal(false),
+  billingTier: Schema.Literal("standard"),
+  region: Schema.Literal("global"),
+  usageReceipts: Schema.Literal("provider-reported"),
+  media: Schema.Literal(false),
+});
+export type OrchestrationV2ConsumerTextCapabilities =
+  typeof OrchestrationV2ConsumerTextCapabilities.Type;
+
 export const OrchestrationV2ProviderCapabilities = Schema.Struct({
+  consumerImage: Schema.optional(ConsumerImageCapabilities),
+  consumerText: Schema.optional(OrchestrationV2ConsumerTextCapabilities),
   sessions: OrchestrationV2SessionCapabilities,
   threads: OrchestrationV2ThreadCapabilities,
   turns: OrchestrationV2TurnCapabilities,

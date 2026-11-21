@@ -12,6 +12,8 @@ import {
   NonNegativeInt,
   PositiveInt,
   ProjectId,
+  ProviderTurnId,
+  RunAttemptId,
   RunId,
   RuntimeRequestId,
   ScheduledTaskId,
@@ -39,11 +41,18 @@ import {
   OrchestrationV2Actor,
   OrchestrationV2CreationSource,
   OrchestrationV2DelegatedFrom,
+  OrchestrationV2ConsumerTextCapabilities,
   OrchestrationV2RunStatus,
   OrchestrationV2TurnItemStatus,
 } from "./orchestrationV2.ts";
 import { ProviderOptionSelection, ProviderOptionSelectionValue } from "./model.ts";
 import { ProviderDriverKind, ProviderInstanceId } from "./providerInstance.ts";
+import { TurnTokenUsage } from "./providerRuntime.ts";
+import {
+  ConsumerImageCapabilities,
+  ConsumerImageExecution,
+  ConsumerImageGrant,
+} from "./consumerImage.ts";
 
 const OrchestratorMcpPrompt = TrimmedNonEmptyString.check(Schema.isMaxLength(120_000));
 const OrchestratorMcpTitle = TrimmedNonEmptyString.check(Schema.isMaxLength(512));
@@ -505,13 +514,48 @@ export const OrchestratorMcpThreadDetail = Schema.Struct({
 });
 export type OrchestratorMcpThreadDetail = typeof OrchestratorMcpThreadDetail.Type;
 
+export const OrchestratorMcpRunUsageReceipt = Schema.Struct({
+  coverage: Schema.Literals(["complete", "partial", "unavailable"]),
+  final: Schema.Boolean,
+  turns: Schema.Array(
+    Schema.Struct({
+      providerTurnId: ProviderTurnId,
+      attemptId: RunAttemptId,
+      providerInstanceId: ProviderInstanceId,
+      model: Schema.NullOr(Schema.String),
+      usage: Schema.NullOr(TurnTokenUsage),
+    }),
+  ),
+});
+export type OrchestratorMcpRunUsageReceipt = typeof OrchestratorMcpRunUsageReceipt.Type;
+export const OrchestratorMcpConsumerExecution = Schema.Struct({
+  protocolVersion: Schema.Literal(1),
+  status: Schema.Literals(["ready", "forwarding", "completed", "rejected", "indeterminate"]),
+  model: Schema.String,
+  maxRequestBytes: Schema.Number,
+  maxInputTokens: Schema.Number,
+  inputBoundStrategy: Schema.Literal("model-context-window"),
+  inputBoundVerified: Schema.Literal(true),
+  serviceTier: Schema.NullOr(Schema.String),
+  maxOutputTokens: Schema.Number,
+  maxUpstreamRequests: Schema.Literal(1),
+  upstreamRequests: Schema.Literals([0, 1]),
+  caching: Schema.Literal("disabled"),
+  tools: Schema.Literals(["none", "brega.generate_image"]),
+  usage: Schema.NullOr(TurnTokenUsage),
+  contextTruncated: Schema.Boolean,
+});
+
 export const OrchestratorMcpThreadRun = Schema.Struct({
+  consumerImageExecution: Schema.optional(ConsumerImageExecution),
   runId: RunId,
   ordinal: PositiveInt,
   status: OrchestrationV2RunStatus,
   providerInstanceId: ProviderInstanceId,
   model: Schema.String,
   executedModel: Schema.optional(OrchestratorMcpExecutedModel),
+  usageReceipt: Schema.optional(OrchestratorMcpRunUsageReceipt),
+  consumerExecution: Schema.optional(OrchestratorMcpConsumerExecution),
   requestedAt: IsoDateTime,
   startedAt: Schema.NullOr(IsoDateTime),
   completedAt: Schema.NullOr(IsoDateTime),
@@ -551,6 +595,7 @@ export const OrchestratorMcpThreadReadResult = Schema.Struct({
 export type OrchestratorMcpThreadReadResult = typeof OrchestratorMcpThreadReadResult.Type;
 
 export const OrchestratorMcpThreadSendInput = Schema.Struct({
+  consumerGrant: Schema.optional(ConsumerImageGrant),
   environmentId: OrchestratorMcpEnvironmentTarget,
   threadId: ThreadId,
   message: OrchestratorMcpPrompt,
@@ -645,6 +690,8 @@ export const OrchestratorMcpModelOption = Schema.Struct({
 export type OrchestratorMcpModelOption = typeof OrchestratorMcpModelOption.Type;
 
 export const OrchestratorMcpProviderCapability = Schema.Struct({
+  consumerImage: Schema.optional(ConsumerImageCapabilities),
+  consumerText: Schema.optional(OrchestrationV2ConsumerTextCapabilities),
   providerInstanceId: ProviderInstanceId,
   driverKind: ProviderDriverKind,
   displayName: Schema.NullOr(Schema.String),

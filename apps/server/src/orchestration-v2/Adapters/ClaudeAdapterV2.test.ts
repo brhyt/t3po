@@ -118,6 +118,7 @@ import { makeProviderFailure } from "@t3tools/provider-core/server/failure";
 import * as ClaudeAdapterV2 from "./ClaudeAdapterV2.ts";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import * as ProviderInstallationGate from "../../provider/ProviderInstallationGate.ts";
+import * as ConsumerImages from "../../persistence/ConsumerImages.ts";
 import { ClaudeOrchestratorReplayHarness } from "./ClaudeAdapterV2.testkit.ts";
 import { withInlineContext } from "../ContextHandoffDelivery.ts";
 import { provideDeterministicTestRuntime } from "../testkit/DeterministicRuntime.ts";
@@ -3571,6 +3572,7 @@ describe("ClaudeAdapterV2 background wake turns", () => {
     readonly offer?: (message: SDKUserMessage) => Effect.Effect<void>;
     readonly promptSuggestions?: boolean;
     readonly routeModelCatalog?: ClaudeAdapterV2.ClaudeAdapterV2Options["routeModelCatalog"];
+    readonly consumerImages?: ClaudeAdapterV2.ClaudeAdapterV2Options["consumerImages"];
   }) =>
     Effect.gen(function* () {
       const fileSystem = yield* FileSystem.FileSystem;
@@ -3637,6 +3639,7 @@ describe("ClaudeAdapterV2 background wake turns", () => {
         idAllocator,
         ...(options?.onSessionInit ? { onSessionInit: options.onSessionInit } : {}),
         ...(options?.routeModelCatalog ? { routeModelCatalog: options.routeModelCatalog } : {}),
+        ...(options?.consumerImages ? { consumerImages: options.consumerImages } : {}),
         continuationRequests: {
           offer: (request) =>
             Effect.sync(() => {
@@ -3841,6 +3844,119 @@ describe("ClaudeAdapterV2 background wake turns", () => {
       };
     });
   const makeWakeHarness = makeWakeHarnessWithOptions();
+
+  it.effect(
+    "completes a retained image at the turn cap without losing provider usage or hiding other failures",
+    () =>
+      Effect.gen(function* () {
+        for (const [subtype, retained, expectedStatus] of [
+          ["error_max_turns", true, "completed"],
+          ["error_max_turns", false, "failed"],
+          ["error_during_execution", true, "failed"],
+        ] as const) {
+          const images = yield* ConsumerImages.ConsumerImages.pipe(
+            Effect.provide(
+              Layer.mock(ConsumerImages.ConsumerImages)({
+                execution: (runId) =>
+                  Effect.succeed({
+                    protocolVersion: 1,
+                    policy: "brega-text-image-v1",
+                    reservationId: "reservation",
+                    imageRequestId: "reservation:image",
+                    profile: "openai-image-square-v1",
+                    status: "completed",
+                    upstreamRequests: 1,
+                    model: "gpt-image-2.5-flare-2026-09-08",
+                    providerRequestId: "req_test",
+                    usage: null,
+                    ...(retained
+                      ? {
+                          artifact: {
+                            protocolVersion: 1 as const,
+                            status: "completed" as const,
+                            runtimeId: "runtime",
+                            t3ProjectId: ProjectId.make("project"),
+                            threadId: ThreadId.make("thread-claude-wake"),
+                            runId,
+                            artifactId: "artifact",
+                            imageRequestId: "reservation:image",
+                            provider: "openai" as const,
+                            model: "gpt-image-2.5-flare-2026-09-08" as const,
+                            prompt: "An image",
+                            mimeType: "image/png" as const,
+                            byteLength: 100,
+                            sha256: "a".repeat(64),
+                            width: 1024 as const,
+                            height: 1024 as const,
+                          },
+                        }
+                      : {}),
+                  }),
+              }),
+            ),
+          );
+          const harness = yield* makeWakeHarnessWithOptions({ consumerImages: images });
+          yield* harness.runtime.startTurn(
+            makeClaudeTestTurnInput({
+              threadId: harness.threadId,
+              providerThread: harness.providerThread,
+              now: yield* DateTime.now,
+              attemptId: RunAttemptId.make(`image-${subtype}-${retained}`),
+              text: "Generate an image",
+              attachments: [],
+            }),
+          );
+          yield* harness.offerAndWait(
+            makeResultFrame({
+              uuid: `image-result-${subtype}-${retained}`,
+              result: "",
+              subtype,
+              isError: true,
+              errors: ["Maximum turns reached"],
+              usage: {
+                input_tokens: 33,
+                output_tokens: 12,
+                cache_creation_input_tokens: 0,
+                cache_read_input_tokens: 0,
+              },
+              modelUsage: {
+                "claude-sonnet-4-6": {
+                  inputTokens: 33,
+                  outputTokens: 12,
+                  cacheReadInputTokens: 0,
+                  cacheCreationInputTokens: 0,
+                  webSearchRequests: 0,
+                  costUSD: 0.001,
+                  contextWindow: 200000,
+                  maxOutputTokens: 2048,
+                },
+              },
+            }),
+          );
+          const terminal = yield* Queue.take(harness.terminalReceipts);
+          assert.equal(terminal.status, expectedStatus);
+          const usage = harness.events
+            .flatMap((event) =>
+              event.type === "provider_turn.updated" && event.providerTurn.turnTokenUsage
+                ? [event.providerTurn.turnTokenUsage]
+                : [],
+            )
+            .at(-1);
+          assert.equal(usage?.inputTokens, 33);
+          assert.equal(usage?.outputTokens, 12);
+          assert.equal(harness.continuationRequests.length, 0);
+        }
+      }).pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            IdAllocator.layer,
+            McpProviderSessions.layer,
+            NodeServices.layer,
+            NodeCrypto.layer,
+          ),
+        ),
+      ),
+  );
 
   describe("ClaudeAdapterV2 session title sync", () => {
     type TitleSyncHarness = Effect.Success<ReturnType<typeof makeWakeHarnessWithOptions>>;
