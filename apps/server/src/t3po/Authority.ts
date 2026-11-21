@@ -5,7 +5,7 @@ import * as SqlClient from "effect/sql/SqlClient";
 
 const authorityProject = Effect.fn("T3po.authorityProject")(function* (
   threadId: string,
-  includeLead = false,
+  includeDirectConversation = false,
 ) {
   const sql = yield* SqlClient.SqlClient;
   const projects = yield* sql<{ projectId: string }>`WITH RECURSIVE ancestors(thread_id) AS (
@@ -16,9 +16,9 @@ const authorityProject = Effect.fn("T3po.authorityProject")(function* (
     WHERE json_extract(t.payload_json, '$.lineage.parentThreadId') IS NOT NULL
   ) SELECT project_id AS projectId FROM t3po_tasks WHERE json_extract(data, '$.threadId') IN (SELECT thread_id FROM ancestors)
     UNION SELECT project_id AS projectId FROM t3po_leads WHERE json_extract(data, '$.threadId') IN (SELECT thread_id FROM ancestors)
-      AND (json_extract(data, '$.threadId') <> ${threadId} OR ${includeLead ? 1 : 0} = 1)
+      AND (json_extract(data, '$.threadId') <> ${threadId} OR ${includeDirectConversation ? 1 : 0} = 1)
     UNION SELECT project_id AS projectId FROM t3po_channels WHERE 't3po-channel:' || id IN (SELECT thread_id FROM ancestors)
-      AND ('t3po-channel:' || id <> ${threadId} OR ${includeLead ? 1 : 0} = 1)
+      AND ('t3po-channel:' || id <> ${threadId} OR ${includeDirectConversation ? 1 : 0} = 1)
     LIMIT 1`;
   const projectId = projects[0]?.projectId;
   return projectId;
@@ -103,16 +103,20 @@ export const admitRun = Effect.fn("T3po.admitRun")(function* (event: Orchestrati
     return;
   }
   if (event.type !== "run.created") return;
-  const projectId = yield* authorityProject(
-    event.threadId,
-    event.payload.delegatedCompletion !== undefined,
-  );
+  const workerProjectId = yield* authorityProject(event.threadId);
+  const projectId =
+    workerProjectId ??
+    (event.payload.delegatedCompletion !== undefined
+      ? yield* authorityProject(event.threadId, true)
+      : undefined);
   if (!projectId) return;
-  const thread = yield* sql<{
-    mode: string;
-  }>`SELECT json_extract(payload_json, '$.runtimeMode') AS mode FROM orchestration_v2_projection_threads WHERE thread_id = ${event.threadId}`;
-  if (thread[0]?.mode !== "approval-required")
-    return yield* new T3poError({ operation: "approval" });
+  if (workerProjectId) {
+    const thread = yield* sql<{
+      mode: string;
+    }>`SELECT json_extract(payload_json, '$.runtimeMode') AS mode FROM orchestration_v2_projection_threads WHERE thread_id = ${event.threadId}`;
+    if (thread[0]?.mode !== "approval-required")
+      return yield* new T3poError({ operation: "approval" });
+  }
   const budget = yield* sql`SELECT project_id FROM t3po_budgets b WHERE project_id = ${projectId}
     AND max_runs > (SELECT count(*) FROM t3po_admissions WHERE project_id = b.project_id)
     AND max_concurrent > (SELECT count(*) FROM t3po_admissions WHERE project_id = b.project_id AND active = 1)`;

@@ -1425,6 +1425,7 @@ function layerStartEffectWorker(
   control: Partial<ProviderTurnControlService.ProviderTurnControlServiceV2["Service"]> = {},
 ) {
   const executor = EffectWorker.layerExecutor.pipe(
+    Layer.provide(Layer.mock(EventSink.EventSinkV2)({})),
     Layer.provide(
       Layer.mergeAll(
         harness.layer,

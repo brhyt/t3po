@@ -61,6 +61,7 @@ export const T3poWorkstream = Schema.Struct({
 });
 export type T3poWorkstream = typeof T3poWorkstream.Type;
 export const T3poWorkRoute = Schema.Struct({
+  reportToOrigin: Schema.optional(Schema.Boolean),
   destinationProjectId: Schema.optional(ProjectId),
   requestId: TrimmedNonEmptyString.check(Schema.isMaxLength(200)),
   sourceMessageId: MessageId,
@@ -82,7 +83,14 @@ export const T3poWorkReceipt = Schema.Struct({
   reason: Schema.String,
 });
 export type T3poWorkReceipt = typeof T3poWorkReceipt.Type;
+const TaskIntentFields = {
+  origin: Schema.optional(Schema.Struct({ threadId: ThreadId, messageId: MessageId })),
+  desiredOutcome: Schema.optional(TrimmedNonEmptyString.check(Schema.isMaxLength(12000))),
+  completionPolicy: Schema.optional(Schema.Literal("human_review")),
+};
 export const T3poTask = Schema.Struct({
+  ...TaskIntentFields,
+  briefRevision: Schema.optional(NonNegativeInt),
   workstreamId: Schema.optional(TrimmedNonEmptyString),
   reviewRequired: Schema.optional(Schema.Boolean),
   archived: Schema.optional(Schema.Boolean),
@@ -106,6 +114,8 @@ export const T3poTaskStatus = Schema.Literals([
   "completed",
 ]);
 export const T3poResult = Schema.Struct({
+  briefRevision: Schema.optional(Schema.NullOr(NonNegativeInt)),
+  reportDeliveredAt: Schema.optional(Schema.NullOr(Schema.String)),
   runId: RunId,
   runOrdinal: NonNegativeInt,
   messageId: MessageId,
@@ -274,6 +284,7 @@ export const T3poMutation = Schema.Union([
   }),
   Schema.Struct({
     type: Schema.Literal("create_task"),
+    ...TaskIntentFields,
     workspace: Schema.optional(T3poWorkspace),
     projectId: ProjectId,
     id: TrimmedNonEmptyString,
@@ -283,6 +294,7 @@ export const T3poMutation = Schema.Union([
   }),
   Schema.Struct({
     type: Schema.Literal("edit_task"),
+    desiredOutcome: TaskIntentFields.desiredOutcome,
     projectId: ProjectId,
     id: TrimmedNonEmptyString,
     title: TrimmedNonEmptyString.check(Schema.isMaxLength(200)),

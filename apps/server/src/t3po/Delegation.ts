@@ -24,7 +24,7 @@ export const recordDelegation = Effect.fn("T3po.recordDelegation")(function* (
     const children =
       yield* sql`SELECT subagent_id FROM orchestration_v2_projection_subagents WHERE thread_id = ${event.threadId} AND status IN ('pending', 'running', 'waiting') LIMIT 1`;
     if (latest[0]?.status === "completed" && !children.length)
-      yield* sql`UPDATE t3po_tasks SET data = json_set(data, '$.completed', json('true'), '$.reviewedRunId', ${latest[0].id}) WHERE json_extract(data, '$.threadId') = ${event.threadId} AND json_extract(data, '$.reviewRequired') = 0`;
+      yield* sql`UPDATE t3po_tasks SET data = json_set(data, '$.completed', json('true'), '$.reviewedRunId', ${latest[0].id}) WHERE json_extract(data, '$.threadId') = ${event.threadId} AND json_extract(data, '$.reviewRequired') = 0 AND json_extract(data, '$.completionPolicy') IS NULL`;
   }
   if (event.type === "run.created") {
     const archived =

@@ -338,9 +338,67 @@ it.effect.each([false, true])(
         ],
       });
       expect(yield* launch("exhausted").pipe(Effect.isFailure)).toBe(true);
+      const callback = (id: string, threadId = leadId) =>
+        sink.write({
+          events: [
+            {
+              id: EventId.make(`callback:${id}`),
+              type: "run.created",
+              threadId,
+              occurredAt: now,
+              payload: {
+                ...run(id, threadId),
+                ordinal: id === "concurrent-callback" ? 3 : 2,
+                delegatedCompletion: { disposition: "open", nextGeneration: 1, delivery: null },
+              },
+            },
+          ],
+        });
+      expect(yield* callback("exhausted-callback").pipe(Effect.flip)).toMatchObject({
+        cause: { _tag: "T3poError", operation: "budget" },
+      });
+      yield* store.mutate({ type: "save_budget", projectId, maxRuns: 4, maxConcurrent: 1 });
+      // An existing worker's persisted mode must still be checked at callback admission.
+      yield* sql`UPDATE orchestration_v2_projection_threads SET payload_json = json_set(payload_json, '$.runtimeMode', 'full-access') WHERE thread_id = ${winnerId}`;
+      expect(yield* callback("worker-callback", winnerId).pipe(Effect.flip)).toMatchObject({
+        cause: { _tag: "T3poError", operation: "approval" },
+      });
+      yield* callback("lead-callback");
+      expect((yield* store.read).leads[0]?.budget).toEqual({
+        maxRuns: 4,
+        maxConcurrent: 1,
+        usedRuns: 3,
+        activeRuns: 1,
+      });
+      expect(yield* callback("concurrent-callback").pipe(Effect.flip)).toMatchObject({
+        cause: { _tag: "T3poError", operation: "budget" },
+      });
+      yield* sink.write({
+        events: [
+          {
+            id: EventId.make("callback-done"),
+            type: "run.updated",
+            threadId: leadId,
+            occurredAt: now,
+            payload: {
+              ...run("lead-callback", leadId),
+              ordinal: 2,
+              status: "completed",
+              completedAt: now,
+            },
+          },
+        ],
+      });
+      expect((yield* store.read).leads[0]?.budget?.activeRuns).toBe(0);
+      expect(
+        yield* sql`SELECT json_extract(payload_json, '$.runtimeMode') AS mode FROM orchestration_v2_projection_threads WHERE thread_id = ${leadId}`,
+      ).toEqual([{ mode: "full-access" }]);
+      expect(
+        yield* sql`SELECT run_id FROM orchestration_v2_projection_runs WHERE run_id IN ('exhausted-callback', 'worker-callback', 'concurrent-callback')`,
+      ).toEqual([]);
       const reconstructed = yield* Store.Store.pipe(Effect.provide(Layer.fresh(Store.layer)));
-      expect((yield* reconstructed.read).leads[0]?.budget?.usedRuns).toBe(2);
-      expect(yield* sql`SELECT run_id FROM t3po_admissions`).toHaveLength(2);
+      expect((yield* reconstructed.read).leads[0]?.budget?.usedRuns).toBe(3);
+      expect(yield* sql`SELECT run_id FROM t3po_admissions`).toHaveLength(3);
     }).pipe(Effect.provide(layer)),
 );
 

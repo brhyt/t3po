@@ -1,3 +1,4 @@
+import * as T3poChanges from "../../t3po/Changes.ts";
 import * as T3poStore from "../../t3po/Store.ts";
 import * as OtelEnvironment from "@t3tools/shared/otelEnvironment";
 import { DEFAULT_SIGNAL_EXPORT } from "@t3tools/shared/observability";
@@ -436,7 +437,12 @@ export function layerWithRegistry<Error>(
     ),
   );
   const layerProviderTurnStartServiceProvided = ProviderTurnStartService.layer.pipe(
-    Layer.provide(Layer.mock(T3poStore.Store)({ context: () => Effect.succeed("") })),
+    Layer.provide(
+      T3poStore.layer.pipe(
+        Layer.orDie,
+        Layer.provide(Layer.merge(layerDatabase, T3poChanges.layer)),
+      ),
+    ),
     Layer.provide(
       Layer.mergeAll(
         layerContextHandoffServiceProvided,
@@ -548,6 +554,7 @@ export function layerWithRegistry<Error>(
         )
       : Layer.empty;
   const layerEffectExecutorProvided = EffectWorker.layerExecutor.pipe(
+    Layer.provide(layerEventSinkProvided),
     Layer.provide(
       Layer.mergeAll(
         layerRunFinalizationServiceProvided,

@@ -910,7 +910,7 @@ export const layer: Layer.Layer<
       const projectContext = goalCommand
         ? ""
         : yield* t3poStore
-            .context(projection.thread.projectId, input.threadId, composerText)
+            .context(projection.thread.projectId, input.threadId, composerText, input.runId)
             .pipe(
               Effect.mapError((cause) => new ProviderTurnStartError({ runId: input.runId, cause })),
             );

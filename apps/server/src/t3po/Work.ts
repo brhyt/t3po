@@ -44,6 +44,8 @@ export interface RouteRow {
 
 export const reserve = Effect.fn("T3poWork.reserve")(
   function* (callerThreadId: ThreadId, input: T3poWorkRoute, modelSelection: ModelSelection) {
+    if (input.action === "follow_up" && input.reportToOrigin)
+      return yield* new T3poError({ operation: "invalid" });
     const sql = yield* SqlClient.SqlClient;
     const store = yield* Store.Store;
     const changes = yield* Changes.Changes;
@@ -71,7 +73,7 @@ export const reserve = Effect.fn("T3poWork.reserve")(
           ? yield* SpaceConnections.connection(sourceProjectId, input.destinationProjectId)
           : undefined;
         if (input.destinationProjectId) {
-          if (!grant || input.action !== "new_job")
+          if (!grant || input.action !== "new_job" || input.reportToOrigin)
             return yield* new T3poError({ operation: "space_boundary" });
           const lead =
             yield* sql`SELECT project_id FROM t3po_leads WHERE project_id = ${input.destinationProjectId}`;
@@ -116,6 +118,13 @@ export const reserve = Effect.fn("T3poWork.reserve")(
           jobId = `work:${id}`;
           yield* store.mutate({
             type: "create_task",
+            ...(input.reportToOrigin
+              ? {
+                  origin: { threadId: callerThreadId, messageId: input.sourceMessageId },
+                  desiredOutcome: input.goal.trim() || input.message,
+                  completionPolicy: "human_review" as const,
+                }
+              : {}),
             projectId,
             id: jobId,
             channelId: owner.channelId,
@@ -123,7 +132,7 @@ export const reserve = Effect.fn("T3poWork.reserve")(
             brief: input.message,
             workspace: { type: "worktree" },
           });
-          yield* sql`UPDATE t3po_tasks SET data = json_set(data, '$.workstreamId', ${stream.id}, '$.reviewRequired', json(${input.reviewRequired ? "true" : "false"})) WHERE id = ${jobId}`;
+          yield* sql`UPDATE t3po_tasks SET data = json_set(data, '$.workstreamId', ${stream.id}, '$.reviewRequired', json(${input.reportToOrigin || input.reviewRequired ? "true" : "false"})) WHERE id = ${jobId}`;
         }
         if (grant)
           yield* sql`INSERT INTO t3po_space_handoffs (job_id, source_project_id, source_space_id, target_project_id, target_space_id) VALUES (${jobId}, ${sourceProjectId}, ${grant.sourceSpaceId}, ${projectId}, ${grant.targetSpaceId})`;

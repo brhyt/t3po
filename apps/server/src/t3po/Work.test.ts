@@ -85,6 +85,17 @@ it.effect(
         message: "Include the cold-start numbers.",
       };
       expect((yield* reserve(caller, followup, model)).jobId).toBe(first.jobId);
+      expect(
+        (yield* reserve(
+          caller,
+          { ...followup, requestId: "report-followup", reportToOrigin: true },
+          model,
+        ).pipe(Effect.flip)).operation,
+      ).toBe("invalid");
+      const sql = yield* SqlClient.SqlClient;
+      expect(
+        yield* sql`SELECT id FROM t3po_work_routes WHERE json_extract(input, '$.requestId') = 'report-followup'`,
+      ).toHaveLength(0);
       const store = yield* Store.Store;
       expect((yield* store.list({ projectId, view: "all" })).tasks).toHaveLength(1);
       for (const target of [

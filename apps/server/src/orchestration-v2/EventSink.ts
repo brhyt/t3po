@@ -1,7 +1,11 @@
+import { finalAnswers } from "../t3po/Result.ts";
 import { admitRun } from "../t3po/Authority.ts";
 import { recordDelegation } from "../t3po/Delegation.ts";
 import {
   CommandId,
+  EventId,
+  MessageId,
+  T3poError,
   type OrchestrationV2Run,
   OrchestrationV2DomainEvent,
   type OrchestrationV2ProviderThread,
@@ -15,6 +19,7 @@ import {
   NodeId,
   type ProjectId,
   ThreadId,
+  TurnItemId,
 } from "@t3tools/contracts";
 import * as ProviderCommitBatch from "./ProviderCommitBatch.ts";
 import * as Context from "effect/Context";
@@ -40,6 +45,8 @@ import * as EventStore from "./EventStore.ts";
 import * as ProjectionStore from "./ProjectionStore.ts";
 import * as ProjectStore from "./ProjectStore.ts";
 import * as TurnItemPositionStore from "./TurnItemPositionStore.ts";
+
+const encodeTaskResult = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));
 
 export class EventSinkWriteError extends Schema.TaggedError<EventSinkWriteError>()(
   "EventSinkWriteError",
@@ -82,6 +89,7 @@ const CurrentProviderBatch = Context.Reference<ProviderBatchPublication | undefi
 );
 
 export interface EventSinkV2Shape {
+  readonly deliverTaskReport: (runId: RunId) => Effect.Effect<void, EventSinkV2Error>;
   /** Items that are not provider snapshots, such as a consumer's own control items, never batch. */
   readonly consumeProviderEvents: <A extends { readonly type: string }, E, R, E2, R2>(
     source: Stream.Stream<A, E, R>,
@@ -309,6 +317,15 @@ const layerBase: Layer.Layer<
       runOutcomes
         .record(outcomes)
         .pipe(
+          Effect.andThen(
+            events.some(
+              ({ event }) =>
+                event.type === "run.updated" &&
+                ["completed", "failed", "cancelled", "interrupted"].includes(event.payload.status),
+            )
+              ? effectOutbox.notifyAvailable()
+              : Effect.void,
+          ),
           Effect.andThen(eventStore.publishCommitted(events)),
           Effect.andThen(publishLiveEvents(events)),
         );
@@ -431,6 +448,58 @@ const layerBase: Layer.Layer<
             concurrency: 1,
           },
         );
+        for (const stored of storedEvents) {
+          const event = stored.event;
+          if (event.type === "run.created") {
+            yield* sql`INSERT INTO t3po_task_revisions (task_id, revision, data, created_at)
+              SELECT id, COALESCE(json_extract(data, '$.briefRevision'), 1), data, json_extract(data, '$.createdAt')
+              FROM t3po_tasks WHERE json_extract(data, '$.threadId') = ${event.threadId}
+              ON CONFLICT(task_id, revision) DO NOTHING`;
+            yield* sql`INSERT INTO t3po_task_executions (run_id, task_id, revision, report_thread_id)
+              SELECT ${event.payload.id}, id, COALESCE(json_extract(data, '$.briefRevision'), 1), json_extract(data, '$.origin.threadId')
+              FROM t3po_tasks WHERE json_extract(data, '$.threadId') = ${event.threadId}
+              ON CONFLICT(run_id) DO NOTHING`;
+          }
+          if (
+            event.type !== "run.updated" ||
+            !["completed", "failed", "cancelled", "interrupted"].includes(event.payload.status)
+          )
+            continue;
+          if (event.payload.checkpointId !== null)
+            yield* sql`UPDATE t3po_task_executions
+              SET result_json = json_set(result_json, '$.checkpointId', ${event.payload.checkpointId})
+              WHERE run_id = ${event.payload.id} AND result_json IS NOT NULL`;
+          const rows = yield* sql<{
+            taskId: string;
+            destination: string | null;
+          }>`SELECT task_id AS taskId, report_thread_id AS destination
+            FROM t3po_task_executions WHERE run_id = ${event.payload.id} AND result_json IS NULL`;
+          if (!rows[0]) continue;
+          const evidence = yield* sql<{ messageId: string; text: string }>`
+            SELECT message_id AS messageId, text FROM (${finalAnswers(sql, event.threadId, event.payload.id)})
+            WHERE run_id = ${event.payload.id} AND thread_id = ${event.threadId} AND rank = 1`;
+          const result = yield* encodeTaskResult({
+            status: event.payload.status,
+            runId: event.payload.id,
+            runOrdinal: event.payload.ordinal,
+            completedAt: event.payload.completedAt
+              ? DateTime.formatIso(event.payload.completedAt)
+              : DateTime.formatIso(event.occurredAt),
+            checkpointId: event.payload.checkpointId,
+            messageId: evidence[0]?.messageId ?? null,
+            text: evidence[0]?.text ?? "",
+          });
+          yield* sql`UPDATE t3po_task_executions SET result_json = ${result} WHERE run_id = ${event.payload.id} AND result_json IS NULL`;
+          if (rows[0].destination)
+            yield* effectOutbox.enqueue([
+              {
+                id: `t3po-report:${event.payload.id}`,
+                commandId: CommandId.make(`t3po-report:${event.payload.id}`),
+                threadId: ThreadId.make(rows[0].destination),
+                request: { type: "t3po.report", runId: event.payload.id },
+              },
+            ]);
+        }
         const sequence = storedEvents.at(-1)?.sequence;
         if (sequence !== undefined) {
           const now = DateTime.formatIso(yield* DateTime.now);
@@ -1139,7 +1208,104 @@ const layerBase: Layer.Layer<
       }),
     );
 
+    const deliverTaskReport = Effect.fn("EventSink.deliverTaskReport")(
+      function* (runId: RunId) {
+        yield* commitThenPublish(
+          Effect.gen(function* () {
+            const rows = yield* sql<{
+              taskId: string;
+              projectId: string;
+              source: string;
+              destination: string;
+              result: string;
+              status: string;
+              text: string;
+              messageId: string | null;
+              revision: number;
+              delivered: string | null;
+            }>`
+              SELECT e.task_id AS taskId, t.project_id AS projectId, json_extract(t.data, '$.threadId') AS source,
+                e.report_thread_id AS destination, e.result_json AS result, e.revision, e.delivered_at AS delivered,
+                json_extract(e.result_json, '$.status') AS status,
+                json_extract(e.result_json, '$.text') AS text,
+                json_extract(e.result_json, '$.messageId') AS messageId
+              FROM t3po_task_executions e JOIN t3po_tasks t ON t.id = e.task_id WHERE e.run_id = ${runId}`;
+            const row = rows[0];
+            if (!row || row.delivered || !row.destination || !row.result)
+              return { committed: [], outcomes: [] };
+            const allowed = yield* sql`SELECT thread_id FROM orchestration_v2_projection_threads
+              WHERE thread_id = ${row.destination} AND project_id = ${row.projectId} AND deleted_at IS NULL AND archived_at IS NULL`;
+            if (!allowed.length) return yield* new T3poError({ operation: "invalid" });
+            const now = yield* DateTime.now;
+            const id = `t3po-report:${runId}`;
+            const text = `Task report: ${row.taskId}, brief revision ${row.revision}
+Execution: ${row.source}
+Status: ${row.status}
+Result reference: ${row.messageId ?? runId}
+
+${row.text.slice(0, 12000)}
+
+Delivered for human review; this is not acceptance.`;
+            const committed = yield* eventStore.append({
+              events: yield* normalizeEvents([
+                {
+                  id: EventId.make(id),
+                  type: "message.updated",
+                  threadId: ThreadId.make(row.destination),
+                  occurredAt: now,
+                  payload: {
+                    id: MessageId.make(id),
+                    threadId: ThreadId.make(row.destination),
+                    runId: null,
+                    nodeId: null,
+                    role: "system",
+                    createdBy: "agent",
+                    creationSource: "server",
+                    senderThreadId: ThreadId.make(row.source),
+                    text,
+                    attachments: [],
+                    streaming: false,
+                    createdAt: now,
+                    updatedAt: now,
+                  },
+                },
+                {
+                  id: EventId.make(`${id}:visible`),
+                  type: "turn-item.updated",
+                  threadId: ThreadId.make(row.destination),
+                  occurredAt: now,
+                  payload: {
+                    id: TurnItemId.make(id),
+                    type: "system_notice",
+                    threadId: ThreadId.make(row.destination),
+                    runId: null,
+                    nodeId: null,
+                    providerThreadId: null,
+                    providerTurnId: null,
+                    nativeItemRef: null,
+                    parentItemId: null,
+                    ordinal: 0,
+                    status: "completed",
+                    title: "Task report",
+                    startedAt: now,
+                    completedAt: now,
+                    updatedAt: now,
+                    message: text,
+                  },
+                },
+              ]),
+            });
+            const outcomes = yield* applyStoredEvents(committed);
+            yield* sql`UPDATE t3po_task_executions SET delivered_at = ${DateTime.formatIso(now)} WHERE run_id = ${runId}`;
+            return { committed, outcomes };
+          }),
+          ({ committed, outcomes }) => publishStoredEvents(committed, outcomes),
+        );
+      },
+      Effect.mapError((cause) => new EventSinkWriteError({ eventCount: 1, cause })),
+    );
     return EventSinkV2.of({
+      deliverTaskReport,
       consumeProviderEvents: coordinator.consume,
       withProviderBatch,
       write: (input) =>

@@ -340,6 +340,7 @@ const layerThreadTitleRegenerationProvided = ThreadTitleRegenerationService.laye
   ),
 );
 const layerEffectExecutorProvided = EffectWorker.layerExecutor.pipe(
+  Layer.provide(layerEventSink),
   Layer.provide(
     Layer.mergeAll(
       layerRunFinalizationServiceProvided,
