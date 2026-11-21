@@ -10,10 +10,13 @@ import * as Layer from "effect/Layer";
 import * as Stream from "effect/Stream";
 import * as FetchHttpClient from "effect/http/FetchHttpClient";
 import * as ConsumerApiGrants from "../persistence/ConsumerApiGrants.ts";
-import migration from "../persistence/Migrations/110_ConsumerApiGrants.ts";
+import textMigration from "../persistence/Migrations/110_ConsumerApiGrants.ts";
+import imageMigration from "../persistence/Migrations/111_ConsumerImages.ts";
 import * as Gateway from "./ConsumerAnthropicGateway.ts";
+import { consumerImageToolDefinition } from "./ConsumerImageGeneration.ts";
 
 const model = "claude-haiku-4-5-20251001";
+const migration = textMigration.pipe(Effect.andThen(imageMigration));
 const grantInput = {
   runId: RunId.make("run-one"),
   threadId: ThreadId.make("thread-one"),
@@ -158,6 +161,38 @@ describe("consumer request grants", () => {
 });
 
 describe("bounded Anthropic gateway", () => {
+  it.effect(
+    "rejects oversized combined prompt and tool overhead before any provider dispatch",
+    () => {
+      let calls = 0;
+      return Effect.gen(function* () {
+        const gateway = yield* Gateway.ConsumerAnthropicGateway;
+        const grant = yield* gateway.issue({ ...grantInput, imageRequestId: "reservation:image" });
+        const response = yield* gateway.forward(
+          grant.token,
+          request({
+            system: "policy".repeat(200),
+            tools: [consumerImageToolDefinition],
+            messages: [{ role: "user", content: "x".repeat(6000) }],
+          }),
+        );
+        assert.equal(response.status, 400);
+        assert.equal(calls, 0);
+        const rejected = yield* gateway.rejectUnconsumed(grant.runId);
+        assert.equal(rejected?.status, "rejected");
+        assert.equal(rejected?.consumedAt, null);
+        assert.equal((yield* gateway.forward(grant.token, request())).status, 400);
+        assert.equal(calls, 0);
+      }).pipe(
+        Effect.provide(
+          testLayer(async () => {
+            calls++;
+            return new Response(sse());
+          }),
+        ),
+      );
+    },
+  );
   it.effect("strips cache controls and routing overrides; drops only old exchanges", () =>
     Effect.gen(function* () {
       const bounded = yield* Gateway.boundedConsumerRequest(

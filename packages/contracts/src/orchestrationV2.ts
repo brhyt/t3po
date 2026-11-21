@@ -1,4 +1,5 @@
 import { OrchestrationMessageContext } from "./composerContext.ts";
+import { ConsumerImageCapabilities } from "./consumerImage.ts";
 import { withRecordIdTable } from "./orchestrationV2IdTable.ts";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
@@ -424,6 +425,7 @@ export type OrchestrationV2ConsumerTextCapabilities =
   typeof OrchestrationV2ConsumerTextCapabilities.Type;
 
 export const OrchestrationV2ProviderCapabilities = Schema.Struct({
+  consumerImage: Schema.optional(ConsumerImageCapabilities),
   consumerText: Schema.optional(OrchestrationV2ConsumerTextCapabilities),
   sessions: OrchestrationV2SessionCapabilities,
   threads: OrchestrationV2ThreadCapabilities,

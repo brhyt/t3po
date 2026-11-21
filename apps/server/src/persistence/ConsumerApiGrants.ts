@@ -29,12 +29,13 @@ export const ConsumerGrant = Schema.Struct({
   usageJson: Schema.NullOr(Schema.String),
   serviceTier: Schema.NullOr(Schema.String),
   contextTruncated: Schema.Int,
+  imageRequestId: Schema.NullOr(Schema.String),
 });
 export type ConsumerGrant = typeof ConsumerGrant.Type;
 export type ConsumerGrantInput = Pick<
   ConsumerGrant,
   "runId" | "threadId" | "model" | "maxRequestBytes" | "maxOutputTokens"
->;
+> & { readonly imageRequestId?: string };
 
 export class ConsumerApiGrants extends Context.Service<
   ConsumerApiGrants,
@@ -64,7 +65,7 @@ const make = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   const random = yield* SecureRandom.SecureRandom;
   const columns = sql.literal(
-    `run_id AS "runId", thread_id AS "threadId", model, token, max_request_bytes AS "maxRequestBytes", max_output_tokens AS "maxOutputTokens", expires_at AS "expiresAt", status, consumed_at AS "consumedAt", usage_json AS "usageJson", service_tier AS "serviceTier", context_truncated AS "contextTruncated"`,
+    `run_id AS "runId", thread_id AS "threadId", model, token, max_request_bytes AS "maxRequestBytes", max_output_tokens AS "maxOutputTokens", expires_at AS "expiresAt", status, consumed_at AS "consumedAt", usage_json AS "usageJson", service_tier AS "serviceTier", context_truncated AS "contextTruncated", image_request_id AS "imageRequestId"`,
   );
   const decode = Schema.decodeUnknownEffect(Schema.Array(ConsumerGrant));
   const protect = <A, E, R>(
@@ -88,8 +89,8 @@ const make = Effect.gen(function* () {
     issue: Effect.fn("ConsumerApiGrants.issue")(function* (input) {
       const token = `${yield* random.uuidV4()}${yield* random.uuidV4()}`;
       const expiresAt = (yield* Clock.currentTimeMillis) + 10 * 60_000;
-      yield* protect(sql`INSERT INTO consumer_api_grants (run_id,thread_id,model,token,max_request_bytes,max_output_tokens,status,expires_at)
-        VALUES (${input.runId},${input.threadId},${input.model},${token},${input.maxRequestBytes},${input.maxOutputTokens},'ready',${expiresAt}) ON CONFLICT(run_id) DO NOTHING`);
+      yield* protect(sql`INSERT INTO consumer_api_grants (run_id,thread_id,model,token,max_request_bytes,max_output_tokens,status,expires_at,image_request_id)
+        VALUES (${input.runId},${input.threadId},${input.model},${token},${input.maxRequestBytes},${input.maxOutputTokens},'ready',${expiresAt},${input.imageRequestId ?? null}) ON CONFLICT(run_id) DO NOTHING`);
       const stored = yield* read(input.runId);
       if (
         !stored ||
@@ -97,6 +98,7 @@ const make = Effect.gen(function* () {
         stored.model !== input.model ||
         stored.maxRequestBytes !== input.maxRequestBytes ||
         stored.maxOutputTokens !== input.maxOutputTokens ||
+        stored.imageRequestId !== (input.imageRequestId ?? null) ||
         stored.status !== "ready" ||
         stored.expiresAt <= (yield* Clock.currentTimeMillis)
       ) {

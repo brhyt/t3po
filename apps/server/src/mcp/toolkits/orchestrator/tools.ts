@@ -40,6 +40,8 @@ import {
   ThreadMetadataMcpUpdateInput,
   ThreadMetadataMcpUpdateResult,
   TrimmedNonEmptyString,
+  ConsumerArtifactReadInput,
+  ConsumerArtifactReadResult,
 } from "@t3tools/contracts";
 import { McpSchema, Tool, Toolkit } from "effect/ai";
 import * as Schema from "effect/Schema";
@@ -379,7 +381,20 @@ const EnvironmentUnlinkTool = Tool.make("t3_environment_unlink", {
   .annotate(Tool.Idempotent, true)
   .annotate(McpSchema.EnabledWhen, McpInvocationContext.hiddenWhileLinksOff);
 
+const ConsumerArtifactReadTool = Tool.make("t3_consumer_artifact_read", {
+  description:
+    "Read an immutable generated-image artifact in bounded base64 chunks. Requires the server credential that authorized generation. Never accepts paths or URLs.",
+  parameters: ConsumerArtifactReadInput,
+  success: ConsumerArtifactReadResult,
+  failure: OrchestratorMcpFailure,
+  failureMode: "return",
+  dependencies,
+})
+  .annotate(Tool.Readonly, true)
+  .annotate(Tool.Idempotent, true);
+
 export const OrchestratorToolkit = Toolkit.make(
+  ConsumerArtifactReadTool,
   WorkRouteTool,
   OrchestratorCapabilitiesTool,
   DelegateTaskTool,

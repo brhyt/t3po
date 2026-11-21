@@ -10,10 +10,31 @@ import * as RemoteDelegation from "../../../peer/RemoteDelegation.ts";
 import { readCaller } from "../../threadAccess.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import * as McpToolAccess from "../../McpToolAccess.ts";
+import * as ConsumerImages from "../../../persistence/ConsumerImages.ts";
+import * as Option from "effect/Option";
 import * as OrchestratorMcpService from "../../OrchestratorMcpService.ts";
 import * as ThreadMetadataMcpService from "../../ThreadMetadataMcpService.ts";
 
 const handlers = {
+  t3_consumer_artifact_read: McpToolAccess.reads((input) =>
+    Effect.gen(function* () {
+      const scope = yield* McpInvocationContext.McpInvocationContext;
+      const images = yield* Effect.serviceOption(ConsumerImages.ConsumerImages);
+      if (Option.isNone(images))
+        return yield* new OrchestratorMcpFailure({
+          code: "invalid_request",
+          message: "Generated image artifacts are unavailable.",
+        });
+      return yield* images.value
+        .readArtifact(scope.requestNamespace, input)
+        .pipe(
+          Effect.mapError(
+            (error) =>
+              new OrchestratorMcpFailure({ code: "invalid_request", message: error.message }),
+          ),
+        );
+    }),
+  ),
   t3_work_route: McpToolAccess.actsAsCaller((input) =>
     Effect.gen(function* () {
       const { scope, caller: shell } = yield* readCaller();

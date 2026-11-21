@@ -28,6 +28,8 @@ import * as Duration from "effect/Duration";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as ConsumerAnthropicGateway from "./provider/ConsumerAnthropicGateway.ts";
+import * as ConsumerImageGeneration from "./provider/ConsumerImageGeneration.ts";
+import * as ConsumerImages from "./persistence/ConsumerImages.ts";
 import * as ConsumerAnthropicHttp from "./provider/consumerAnthropicHttp.ts";
 import * as Option from "effect/Option";
 import * as Layer from "effect/Layer";
@@ -770,9 +772,12 @@ const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
   // One gate for the server, below hydration so the Claude adapter sees it: layers memoize by
   // reference, so the runtime layer shares it.
   Layer.provideMerge(
-    Layer.merge(
+    Layer.mergeAll(
       ProviderInstallationGate.layer,
       ConsumerAnthropicGateway.layer.pipe(Layer.provide(SqlitePersistence.layerConfig)),
+      ConsumerImageGeneration.layer.pipe(
+        Layer.provideMerge(ConsumerImages.layer.pipe(Layer.provide(SqlitePersistence.layerConfig))),
+      ),
     ),
   ),
   // Provider hydration builds the Claude runner, which reports agents to the same scanner the

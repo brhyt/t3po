@@ -48,6 +48,11 @@ import {
 import { ProviderOptionSelection, ProviderOptionSelectionValue } from "./model.ts";
 import { ProviderDriverKind, ProviderInstanceId } from "./providerInstance.ts";
 import { TurnTokenUsage } from "./providerRuntime.ts";
+import {
+  ConsumerImageCapabilities,
+  ConsumerImageExecution,
+  ConsumerImageGrant,
+} from "./consumerImage.ts";
 
 const OrchestratorMcpPrompt = TrimmedNonEmptyString.check(Schema.isMaxLength(120_000));
 const OrchestratorMcpTitle = TrimmedNonEmptyString.check(Schema.isMaxLength(512));
@@ -536,12 +541,13 @@ export const OrchestratorMcpConsumerExecution = Schema.Struct({
   maxUpstreamRequests: Schema.Literal(1),
   upstreamRequests: Schema.Literals([0, 1]),
   caching: Schema.Literal("disabled"),
-  tools: Schema.Literal("none"),
+  tools: Schema.Literals(["none", "brega.generate_image"]),
   usage: Schema.NullOr(TurnTokenUsage),
   contextTruncated: Schema.Boolean,
 });
 
 export const OrchestratorMcpThreadRun = Schema.Struct({
+  consumerImageExecution: Schema.optional(ConsumerImageExecution),
   runId: RunId,
   ordinal: PositiveInt,
   status: OrchestrationV2RunStatus,
@@ -589,6 +595,7 @@ export const OrchestratorMcpThreadReadResult = Schema.Struct({
 export type OrchestratorMcpThreadReadResult = typeof OrchestratorMcpThreadReadResult.Type;
 
 export const OrchestratorMcpThreadSendInput = Schema.Struct({
+  consumerGrant: Schema.optional(ConsumerImageGrant),
   environmentId: OrchestratorMcpEnvironmentTarget,
   threadId: ThreadId,
   message: OrchestratorMcpPrompt,
@@ -683,6 +690,7 @@ export const OrchestratorMcpModelOption = Schema.Struct({
 export type OrchestratorMcpModelOption = typeof OrchestratorMcpModelOption.Type;
 
 export const OrchestratorMcpProviderCapability = Schema.Struct({
+  consumerImage: Schema.optional(ConsumerImageCapabilities),
   consumerText: Schema.optional(OrchestrationV2ConsumerTextCapabilities),
   providerInstanceId: ProviderInstanceId,
   driverKind: ProviderDriverKind,

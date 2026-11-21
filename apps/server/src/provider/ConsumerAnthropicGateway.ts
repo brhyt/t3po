@@ -12,6 +12,7 @@ import * as HttpClient from "effect/http/HttpClient";
 import * as HttpClientRequest from "effect/http/HttpClientRequest";
 import { HttpServerResponse } from "effect/http";
 import * as ConsumerApiGrants from "../persistence/ConsumerApiGrants.ts";
+import { consumerImageToolDefinition } from "./ConsumerImageGeneration.ts";
 
 export const CONSUMER_ANTHROPIC_PATH = "/api/consumer/anthropic/v1/messages";
 export const CONSUMER_REQUEST_BYTES = 7_168;
@@ -49,6 +50,40 @@ const eventSchema = Schema.Struct({
 });
 const encodeRequest = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));
 const decodeRequest = Schema.decodeEffect(Schema.fromJsonString(requestSchema));
+const imageRequestSchema = Schema.Struct({
+  ...requestSchema.fields,
+  messages: Schema.NonEmptyArray(
+    Schema.Struct({
+      role: Schema.Literals(["user", "assistant"]),
+      content: Schema.Union([
+        Schema.String,
+        Schema.Array(Schema.Struct({ type: Schema.String, text: Schema.optional(Schema.String) })),
+      ]),
+    }),
+  ),
+});
+const decodeImageRequest = Schema.decodeEffect(Schema.fromJsonString(imageRequestSchema));
+const decodeBoundedRequest = Effect.fn("ConsumerAnthropicGateway.decodeRequest")(function* (
+  raw: string,
+  image: boolean,
+) {
+  if (!image) return yield* decodeRequest(raw);
+  const request = yield* decodeImageRequest(raw);
+  return {
+    ...request,
+    messages: request.messages.map((message) => ({
+      ...message,
+      content:
+        typeof message.content === "string"
+          ? message.content
+          : message.content.map((block) => ({
+              type: "text" as const,
+              text:
+                block.type === "text" ? (block.text ?? "") : "[Earlier image generation activity]",
+            })),
+    })),
+  };
+});
 const decodeEvent = Schema.decodeEffect(Schema.fromJsonString(eventSchema));
 const failure = (message: string) =>
   HttpServerResponse.jsonUnsafe(
@@ -59,9 +94,12 @@ const failure = (message: string) =>
 /** Whitelisting removes caching, tool definitions, model overrides, beta options and provider routing. */
 export const boundedConsumerRequest = Effect.fn("ConsumerAnthropicGateway.boundRequest")(function* (
   raw: string,
-  grant: Pick<ConsumerApiGrants.ConsumerGrant, "model" | "maxRequestBytes" | "maxOutputTokens">,
+  grant: Pick<ConsumerApiGrants.ConsumerGrant, "model" | "maxRequestBytes" | "maxOutputTokens"> & {
+    imageRequestId?: string | null;
+  },
 ) {
-  const parsed = yield* decodeRequest(raw).pipe(
+  const image = grant.imageRequestId != null;
+  const parsed = yield* decodeBoundedRequest(raw, image).pipe(
     Effect.mapError(
       () =>
         new ConsumerApiGrants.ConsumerGrantError({ detail: "Consumer chat accepts text only." }),
@@ -71,7 +109,11 @@ export const boundedConsumerRequest = Effect.fn("ConsumerAnthropicGateway.boundR
     parsed.model !== grant.model ||
     parsed.max_tokens < 1 ||
     parsed.max_tokens > grant.maxOutputTokens ||
-    (parsed.tools?.length ?? 0) > 0 ||
+    (image
+      ? parsed.tools?.length !== 1 ||
+        (parsed.tools[0] as { name?: unknown } | undefined)?.name !==
+          consumerImageToolDefinition.name
+      : (parsed.tools?.length ?? 0) > 0) ||
     parsed.messages.length > 256
   ) {
     return yield* new ConsumerApiGrants.ConsumerGrantError({
@@ -87,6 +129,12 @@ export const boundedConsumerRequest = Effect.fn("ConsumerAnthropicGateway.boundR
     thinking: { type: "disabled" },
     ...(parsed.system === undefined ? {} : { system: parsed.system }),
     messages,
+    ...(image
+      ? {
+          tools: [consumerImageToolDefinition],
+          tool_choice: { type: "auto", disable_parallel_tool_use: true },
+        }
+      : {}),
   });
   let serialized = yield* encodeRequest(body());
   let truncated = false;

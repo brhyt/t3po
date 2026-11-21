@@ -69,6 +69,8 @@ import {
 import { getProviderOptionCurrentValue, withLegacyUltracodeEffort } from "@t3tools/shared/model";
 import { threadUsageReceipt } from "./threadUsageReceipt.ts";
 import * as ConsumerAnthropicGateway from "../provider/ConsumerAnthropicGateway.ts";
+import * as ConsumerImages from "../persistence/ConsumerImages.ts";
+import { prepareConsumerImageGrant } from "../provider/ConsumerImageGeneration.ts";
 import { TurnTokenUsage } from "@t3tools/contracts";
 import { backgroundWorkHoldsCompletion } from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
 import { runRanAfter } from "@t3tools/shared/orchestrationV2ThreadError";
@@ -1278,6 +1280,7 @@ const make = Effect.gen(function* () {
   const consumerGateway = yield* Effect.serviceOption(
     ConsumerAnthropicGateway.ConsumerAnthropicGateway,
   );
+  const consumerImages = yield* Effect.serviceOption(ConsumerImages.ConsumerImages);
 
   const requireProject = (projectId: ProjectId) =>
     projects.getById(projectId).pipe(
@@ -2608,7 +2611,10 @@ const make = Effect.gen(function* () {
           (providerAdapters.getMetadata === undefined
             ? Effect.undefined
             : providerAdapters.getMetadata(provider.instanceId).pipe(
-                Effect.map((metadata) => metadata.capabilities.consumerText),
+                Effect.map((metadata) => ({
+                  consumerText: metadata.capabilities.consumerText,
+                  consumerImage: metadata.capabilities.consumerImage,
+                })),
                 Effect.orElseSucceed(() => undefined),
               )
           ).pipe(Effect.map((profile) => [provider.instanceId, profile] as const)),
@@ -2657,7 +2663,7 @@ const make = Effect.gen(function* () {
             providerInstanceId: provider.instanceId,
             ...(consumerProfiles.get(provider.instanceId) === undefined
               ? {}
-              : { consumerText: consumerProfiles.get(provider.instanceId)! }),
+              : consumerProfiles.get(provider.instanceId)!),
             driverKind: provider.driver,
             displayName: provider.displayName ?? null,
             models: listed.map((model) => {
@@ -3461,12 +3467,24 @@ const make = Effect.gen(function* () {
                 maxUpstreamRequests: 1,
                 upstreamRequests: grant.consumedAt === null ? 0 : 1,
                 caching: "disabled",
-                tools: "none",
+                tools: grant.imageRequestId === null ? "none" : "brega.generate_image",
                 usage,
                 contextTruncated: grant.contextTruncated === 1,
               },
             });
           }
+        }
+      }
+      if (Option.isSome(consumerImages)) {
+        for (const run of recentRuns) {
+          const image = yield* consumerImages.value
+            .execution(
+              run.runId,
+              ["completed", "failed", "cancelled"].includes(run.status),
+              target.runs.find((entry) => entry.id === run.runId)?.userMessageId ?? undefined,
+            )
+            .pipe(Effect.mapError((error) => failure("orchestration_error", error.message)));
+          if (image) Object.assign(run, { consumerImageExecution: image });
         }
       }
       const { items, start } = timelineItemsWithinBudget(
@@ -3551,6 +3569,15 @@ const make = Effect.gen(function* () {
         requestKey: key,
         operation: "thread-send",
       });
+      yield* prepareConsumerImageGrant({
+        grant: input.consumerGrant,
+        requestNamespace: scope.requestNamespace,
+        messageId,
+        threadId: input.threadId,
+        projectId: target.thread.projectId,
+        model: target.thread.modelSelection.model,
+        message: input.message,
+      }).pipe(Effect.mapError((error) => failure("invalid_request", error.message)));
       const result = yield* threadManagement
         .sendToThread({
           projectId: target.thread.projectId,
