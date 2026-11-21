@@ -6,15 +6,19 @@ import {
   type SDKResultSuccess,
 } from "@anthropic-ai/claude-agent-sdk";
 import type { ConsumerImageSource } from "@t3tools/contracts";
-import { z } from "zod";
+import * as NodeModule from "node:module";
 import {
   CONSUMER_IMAGE_TOOL,
   consumerImageToolDefinition,
 } from "../../provider/ConsumerImageGeneration.ts";
 
+// Zod is a runtime external; createRequire resolves it beside the packaged executable.
+const requireZod = NodeModule.createRequire(import.meta.url);
+
 export function consumerImageQueryOverrides(
   generate: (prompt: string) => Promise<ConsumerImageSource>,
 ) {
+  const { z } = requireZod("zod") as typeof import("zod");
   return {
     allowedTools: [CONSUMER_IMAGE_TOOL],
     disallowedTools: [],
