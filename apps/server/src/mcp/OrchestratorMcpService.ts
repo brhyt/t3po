@@ -67,6 +67,9 @@ import {
   SECRET_REQUEST_UNSAVED_NOTE,
 } from "@t3tools/contracts";
 import { getProviderOptionCurrentValue, withLegacyUltracodeEffort } from "@t3tools/shared/model";
+import { threadUsageReceipt } from "./threadUsageReceipt.ts";
+import * as ConsumerAnthropicGateway from "../provider/ConsumerAnthropicGateway.ts";
+import { TurnTokenUsage } from "@t3tools/contracts";
 import { backgroundWorkHoldsCompletion } from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
 import { runRanAfter } from "@t3tools/shared/orchestrationV2ThreadError";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
@@ -140,6 +143,8 @@ import * as PeerForwarding from "../peer/PeerForwarding.ts";
 import * as RemoteDelegation from "../peer/RemoteDelegation.ts";
 
 // Return recoverable handles before common MCP client timeouts expire.
+const decodeConsumerUsage = Schema.decodeEffect(Schema.fromJsonString(TurnTokenUsage));
+
 const DEFAULT_WAIT_TIMEOUT_MS = 30_000;
 const MAX_WAIT_TIMEOUT_MS = 45_000;
 const DEFAULT_SECRET_REQUEST_TIMEOUT_MS = 10 * 60 * 1_000;
@@ -1045,7 +1050,7 @@ function runExecutedModel(
 }
 
 function threadRun(
-  projection: Pick<OrchestrationV2ThreadProjection, "providerTurns">,
+  projection: Pick<OrchestrationV2ThreadProjection, "providerTurns" | "attempts">,
   run: OrchestrationV2Run,
 ): OrchestratorMcpThreadRun {
   return {
@@ -1055,6 +1060,7 @@ function threadRun(
     providerInstanceId: run.modelSelection.instanceId,
     model: run.modelSelection.model,
     executedModel: runExecutedModel(projection, run),
+    usageReceipt: threadUsageReceipt(run, projection),
     requestedAt: DateTime.formatIso(run.requestedAt),
     startedAt: run.startedAt === null ? null : DateTime.formatIso(run.startedAt),
     completedAt: run.completedAt === null ? null : DateTime.formatIso(run.completedAt),
@@ -1269,6 +1275,9 @@ const make = Effect.gen(function* () {
   const gitDriver = yield* GitVcsDriver.GitVcsDriver;
   const serverSettings = yield* ServerSettings.ServerSettingsService;
   const remoteDelegation = yield* RemoteDelegation.RemoteDelegation;
+  const consumerGateway = yield* Effect.serviceOption(
+    ConsumerAnthropicGateway.ConsumerAnthropicGateway,
+  );
 
   const requireProject = (projectId: ProjectId) =>
     projects.getById(projectId).pipe(
@@ -1490,6 +1499,7 @@ const make = Effect.gen(function* () {
       const target = yield* threadManagement
         .getProjectThreadRecords(input, [
           "runs",
+          "attempts",
           "providerTurns",
           "runtimeRequests",
           "contextTransfers",
@@ -1499,7 +1509,7 @@ const make = Effect.gen(function* () {
     }
     // Long threads hold thousands of runs; the read shows only the recent and active ones.
     const [records, runCount] = yield* Effect.all([
-      threadManagement.getProjectThreadRecords(input, ["runs", "runtimeRequests"], {
+      threadManagement.getProjectThreadRecords(input, ["runs", "attempts", "runtimeRequests"], {
         latestRunLimit: runLimit,
         runStatuses: ThreadManagementService.ACTIVE_RUN_STATUSES,
         runtimeRequestStatuses: ["pending"],
@@ -1508,7 +1518,7 @@ const make = Effect.gen(function* () {
     ]).pipe(Effect.mapError(threadManagementFailure));
     const { providerTurns } = yield* threadManagement
       .getProjectThreadRecords(input, ["providerTurns"], {
-        providerTurnAttemptIds: records.runs.flatMap((run) => run.activeAttemptId ?? []),
+        providerTurnAttemptIds: records.attempts.map((attempt) => attempt.id),
       })
       .pipe(Effect.mapError(threadManagementFailure));
     const target = { ...records, providerTurns, contextTransfers: [] };
@@ -2593,6 +2603,17 @@ const make = Effect.gen(function* () {
       );
       const inherited = parent?.thread.modelSelection;
       const searchTerms = input.search?.toLowerCase().split(/\s+/).filter(Boolean) ?? [];
+      const consumerProfiles = new Map(
+        yield* Effect.forEach(providers, (provider) =>
+          (providerAdapters.getMetadata === undefined
+            ? Effect.undefined
+            : providerAdapters.getMetadata(provider.instanceId).pipe(
+                Effect.map((metadata) => metadata.capabilities.consumerText),
+                Effect.orElseSucceed(() => undefined),
+              )
+          ).pipe(Effect.map((profile) => [provider.instanceId, profile] as const)),
+        ),
+      );
       return {
         parentThreadId: parent?.thread.id ?? null,
         inheritedProviderInstanceId: inherited?.instanceId ?? null,
@@ -2634,6 +2655,9 @@ const make = Effect.gen(function* () {
           });
           return {
             providerInstanceId: provider.instanceId,
+            ...(consumerProfiles.get(provider.instanceId) === undefined
+              ? {}
+              : { consumerText: consumerProfiles.get(provider.instanceId)! }),
             driverKind: provider.driver,
             displayName: provider.displayName ?? null,
             models: listed.map((model) => {
@@ -3391,6 +3415,60 @@ const make = Effect.gen(function* () {
         .toSorted((left, right) => right.ordinal - left.ordinal)
         .slice(0, runLimit)
         .map((run) => threadRun(target, run));
+      if (Option.isSome(consumerGateway) && consumerGateway.value.configured) {
+        for (const run of recentRuns) {
+          let grant = yield* consumerGateway.value
+            .read(run.runId)
+            .pipe(Effect.mapError((error) => failure("orchestration_error", error.message)));
+          if (
+            grant?.status === "ready" &&
+            ["completed", "failed", "cancelled"].includes(run.status)
+          ) {
+            // Close the unused grant before proving zero usage, preventing a late SDK request from racing a refund.
+            grant = yield* consumerGateway.value
+              .rejectUnconsumed(run.runId)
+              .pipe(Effect.mapError((error) => failure("orchestration_error", error.message)));
+          }
+          if (grant) {
+            if (grant.status === "rejected" && grant.consumedAt === null) {
+              Object.assign(run, {
+                usageReceipt: { final: true, coverage: "complete", turns: [] },
+              });
+            }
+            const usage =
+              grant.usageJson === null
+                ? null
+                : yield* decodeConsumerUsage(grant.usageJson).pipe(
+                    Effect.orElseSucceed(() => null),
+                  );
+            const expiredForward =
+              grant.status === "forwarding" &&
+              grant.consumedAt !== null &&
+              (yield* Clock.currentTimeMillis) - grant.consumedAt >
+                ConsumerAnthropicGateway.CONSUMER_REQUEST_DURATION_MS;
+            Object.assign(run, {
+              consumerExecution: {
+                protocolVersion: 1,
+                status: expiredForward ? "indeterminate" : grant.status,
+                model: grant.model,
+                maxRequestBytes: grant.maxRequestBytes,
+                maxInputTokens:
+                  ConsumerAnthropicGateway.CONSUMER_MODEL_INPUT_TOKENS[grant.model] ?? 0,
+                inputBoundStrategy: "model-context-window",
+                inputBoundVerified: true,
+                serviceTier: grant.serviceTier,
+                maxOutputTokens: grant.maxOutputTokens,
+                maxUpstreamRequests: 1,
+                upstreamRequests: grant.consumedAt === null ? 0 : 1,
+                caching: "disabled",
+                tools: "none",
+                usage,
+                contextTruncated: grant.contextTruncated === 1,
+              },
+            });
+          }
+        }
+      }
       const { items, start } = timelineItemsWithinBudget(
         { thread, recentRuns, nextPosition: null, hasMore: false, earlierPosition: null },
         timeline.items.map((row) => ({
