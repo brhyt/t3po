@@ -1,4 +1,11 @@
 import * as DocumentText from "../../provider/DocumentText.ts";
+import * as ConsumerAnthropicGateway from "../../provider/ConsumerAnthropicGateway.ts";
+import {
+  consumerClaudeQueryOverrides,
+  readClaudeConsumerPolicy,
+  validateConsumerClaudeTurn,
+  type ClaudeConsumerPolicy,
+} from "./ClaudeConsumerPolicy.ts";
 import {
   compactDynamicToolOutput,
   mcpToolResultOutput,
@@ -647,7 +654,7 @@ type ClaudeAgentSdkThreadIdentity =
 
 export type ClaudeAgentSdkQueryOptions = Omit<
   ClaudeQueryOptions,
-  "maxTurns" | "model" | "permissionMode" | "resume" | "sessionId" | "tools"
+  "model" | "permissionMode" | "resume" | "sessionId" | "tools"
 > & {
   readonly model: string;
   readonly tools: NonNullable<ClaudeQueryOptions["tools"]>;
@@ -2178,6 +2185,7 @@ export function makeClaudeQueryOptions(input: {
   readonly promptSuggestions?: boolean;
   readonly sdkSettings?: string | ClaudeSdkSettings;
   readonly environment?: NodeJS.ProcessEnv;
+  readonly consumerPolicy?: ClaudeConsumerPolicy;
   readonly mcpServers?: ClaudeQueryOptions["mcpServers"];
   /** The thread's T3 MCP session holds the `device` capability. */
   readonly deviceToolsAvailable?: boolean;
@@ -2362,7 +2370,13 @@ export function makeClaudeQueryOptions(input: {
   ];
   const withDirectories =
     additionalDirectories.length === 0 ? options : { ...options, additionalDirectories };
-  return input.cwd === null ? withDirectories : { ...withDirectories, cwd: input.cwd };
+  const withCwd = input.cwd === null ? withDirectories : { ...withDirectories, cwd: input.cwd };
+  return input.consumerPolicy === undefined
+    ? withCwd
+    : {
+        ...withCwd,
+        ...consumerClaudeQueryOverrides(input.consumerPolicy, input.environment ?? {}),
+      };
 }
 
 /**
@@ -5552,6 +5566,9 @@ export interface ClaudeAdapterV2Options {
   readonly settings: ClaudeSettings;
   readonly modelCatalog?: Effect.Effect<ClaudeModelCatalog>;
   readonly environment: NodeJS.ProcessEnv;
+  readonly consumerPolicy?: ClaudeConsumerPolicy;
+  readonly consumerGateway?: ConsumerAnthropicGateway.ConsumerAnthropicGateway["Service"];
+  readonly consumerGatewayOrigin?: string;
   readonly attachmentsDir: string;
   readonly fileSystem: FileSystem.FileSystem;
   readonly path: Path.Path;
@@ -5825,7 +5842,36 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
     instanceId: adapterOptions.instanceId,
     driver: CLAUDE_PROVIDER,
     getCapabilities: Effect.fn("ClaudeAdapterV2.getCapabilities")(function () {
-      return Effect.succeed(ClaudeProviderCapabilitiesV2);
+      return Effect.succeed(
+        adapterOptions.consumerPolicy === undefined || !adapterOptions.consumerGateway?.configured
+          ? ClaudeProviderCapabilitiesV2
+          : {
+              ...ClaudeProviderCapabilitiesV2,
+              consumerText: {
+                protocolVersion: 1 as const,
+                provider: "anthropic" as const,
+                models: adapterOptions.consumerPolicy.models,
+                maxPromptBytes: 6000 as const,
+                maxRequestBytes: 7168 as const,
+                modelInputTokenLimits: ConsumerAnthropicGateway.CONSUMER_MODEL_INPUT_TOKENS,
+                inputBoundStrategy: "model-context-window" as const,
+                inputBoundVerified: true as const,
+                durableSingleUseGrant: true as const,
+                paidRetries: false as const,
+                maxOutputTokens: adapterOptions.consumerPolicy.maxOutputTokens,
+                maxUpstreamRequests: 1 as const,
+                maxDurationMs: 120000 as const,
+                caching: "disabled" as const,
+                tools: "none" as const,
+                mcp: false as const,
+                localConfiguration: false as const,
+                billingTier: "standard" as const,
+                region: "global" as const,
+                usageReceipts: "provider-reported" as const,
+                media: false as const,
+              },
+            },
+      );
     }),
     planSelectionTransition: Effect.fn("ClaudeAdapterV2.planSelectionTransition")(function () {
       return Effect.succeed(turnScopedSelectionTransition());
@@ -12809,6 +12855,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
           );
           let compiledSelection = compileClaudeModelSelection(turnInput.modelSelection, catalog);
           if (
+            adapterOptions.consumerPolicy === undefined &&
             !turnInput.resume &&
             existing !== null &&
             existing.nativeThreadId === nativeThreadId &&
@@ -12822,6 +12869,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
             yield* applySelectionLive(existing, compiledSelection);
           }
           if (
+            adapterOptions.consumerPolicy === undefined &&
             !turnInput.resume &&
             existing !== null &&
             existing.nativeThreadId === nativeThreadId &&
@@ -12902,6 +12950,9 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
           const shouldResume =
             resumeSessionAt !== undefined || openedWithResume || hasPersistedProviderTurn;
           const queryOptions = makeClaudeQueryOptions({
+            ...(adapterOptions.consumerPolicy === undefined
+              ? {}
+              : { consumerPolicy: adapterOptions.consumerPolicy }),
             modelSelection: turnInput.modelSelection,
             modelCatalog: catalog,
             nativeThreadId,
@@ -12947,6 +12998,37 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
             ...(appendSystemPromptFileText === undefined ? {} : { appendSystemPromptFileText }),
             ...(toolSearchOverride === undefined ? {} : { toolSearchOverride }),
           });
+          if (adapterOptions.consumerPolicy !== undefined) {
+            yield* validateConsumerClaudeTurn(adapterOptions.consumerPolicy, {
+              model: queryOptions.model,
+              cwd: turnInput.runtimePolicy.cwd,
+              text: turnInput.message.text,
+              attachmentCount: turnInput.message.attachments.length,
+              delegated: turnInput.appThread.lineage.relationshipToParent !== null,
+              resume: turnInput.resume === true,
+            });
+            if (
+              !adapterOptions.consumerGateway?.configured ||
+              !adapterOptions.consumerGatewayOrigin
+            ) {
+              return yield* new ProviderAdapter.ProviderAdapterProtocolError({
+                driver: CLAUDE_PROVIDER,
+                detail: "The consumer request gateway is unavailable.",
+              });
+            }
+            const grant = yield* adapterOptions.consumerGateway.issue({
+              runId: turnInput.runId,
+              threadId: turnInput.threadId,
+              model: queryOptions.model,
+              maxRequestBytes: ConsumerAnthropicGateway.CONSUMER_REQUEST_BYTES,
+              maxOutputTokens: adapterOptions.consumerPolicy.maxOutputTokens,
+            });
+            queryOptions.env = {
+              ...queryOptions.env,
+              ANTHROPIC_API_KEY: grant.token,
+              ANTHROPIC_BASE_URL: `${adapterOptions.consumerGatewayOrigin}/api/consumer/anthropic`,
+            };
+          }
           const resolvedTurnCwd = yield* fileSystem
             .realPath(turnInput.runtimePolicy.cwd ?? ".")
             .pipe(Effect.orElseSucceed(() => turnInput.runtimePolicy.cwd));
@@ -13135,6 +13217,17 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
         const startTurn = Effect.fn("ClaudeAdapterV2.startTurn")(
           function* (turnInput: ProviderAdapter.ProviderAdapterV2TurnInput) {
             modelCatalog = yield* loadModelCatalog;
+            if (adapterOptions.consumerPolicy !== undefined) {
+              yield* validateConsumerClaudeTurn(adapterOptions.consumerPolicy, {
+                model: compileClaudeModelSelection(turnInput.modelSelection, modelCatalog)
+                  .apiModelId,
+                cwd: turnInput.runtimePolicy.cwd,
+                text: turnInput.message.text,
+                attachmentCount: turnInput.message.attachments.length,
+                delegated: turnInput.appThread.lineage.relationshipToParent !== null,
+                resume: turnInput.resume === true,
+              });
+            }
             const startedAt = yield* DateTime.now;
             const nativeThreadId = yield* getNativeThreadId(turnInput.providerThread);
             const nativeTurnId = `turn:${turnInput.attemptId}`;
@@ -13208,7 +13301,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
             }
             const [skills, queryPolicy] = yield* Effect.all(
               [
-                promptUuid === null
+                promptUuid === null || adapterOptions.consumerPolicy !== undefined
                   ? Effect.undefined
                   : userInvocableSkills(turnInput.runtimePolicy.cwd),
                 queryPolicyForTurn(turnInput),
@@ -13741,6 +13834,13 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
 
         const steerTurn = Effect.fn("ClaudeAdapterV2.steerTurn")(
           function* (turnInput: ProviderAdapter.ProviderAdapterV2SteerInput) {
+            if (adapterOptions.consumerPolicy !== undefined) {
+              return yield* new ProviderAdapter.ProviderAdapterProtocolError({
+                driver: CLAUDE_PROVIDER,
+                detail:
+                  "Wait for the current consumer chat response before sending another message.",
+              });
+            }
             modelCatalog = yield* loadModelCatalog;
             // Measured from the request, not from when the moves are forked:
             // building the message and the moves can take clock time a timer
@@ -14687,6 +14787,10 @@ export const createClaudeAdapterV2 = Effect.fn("ClaudeAdapterV2Driver.create")(
       hostEnvironment,
     );
     const claudeEnvironment = yield* makeClaudeEnvironment(config, baseEnvironment);
+    const consumerPolicy = yield* readClaudeConsumerPolicy(hostEnvironment, claudeEnvironment);
+    const consumerGateway = yield* Effect.serviceOption(
+      ConsumerAnthropicGateway.ConsumerAnthropicGateway,
+    );
     const path = yield* Path.Path;
     const random = yield* SecureRandom.SecureRandom;
     const binaryPath = yield* resolveClaudeSdkExecutablePath(
@@ -14697,6 +14801,13 @@ export const createClaudeAdapterV2 = Effect.fn("ClaudeAdapterV2Driver.create")(
       instanceId,
       settings: { ...config, enabled, binaryPath },
       environment: claudeEnvironment,
+      ...(consumerPolicy === undefined ? {} : { consumerPolicy }),
+      ...(consumerPolicy === undefined || Option.isNone(consumerGateway)
+        ? {}
+        : {
+            consumerGateway: consumerGateway.value,
+            consumerGatewayOrigin: `http://127.0.0.1:${serverConfig.port}`,
+          }),
       attachmentsDir: serverConfig.attachmentsDir,
       fileSystem,
       path,
