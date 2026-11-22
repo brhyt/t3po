@@ -83,11 +83,13 @@ it.layer(NodeServices.layer)("ClaudeHome", (it) => {
         expect(yield* mergeClaudeProcessEnvironment({ homePath }, undefined, host)).toEqual({
           CLAUDE_CODE_ENTRYPOINT: "t3-code",
           KEEP: "1",
+          CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
         });
         expect(yield* mergeClaudeProcessEnvironment({ homePath }, instance, host)).toEqual({
           CLAUDE_CODE_ENTRYPOINT: "instance",
           CLAUDE_EFFORT: "low",
           KEEP: "1",
+          CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
         });
 
         yield* fileSystem.writeFileString(

@@ -1,4 +1,10 @@
-import { ArrowLeftIcon, ArrowRightIcon, ChartNoAxesColumnIcon, SettingsIcon } from "lucide-react";
+import {
+  ArrowLeftIcon,
+  ArrowRightIcon,
+  ChartNoAxesColumnIcon,
+  SettingsIcon,
+  ShieldCheckIcon,
+} from "lucide-react";
 import type { ReactNode } from "react";
 import { T, useGT } from "gt-react";
 import { memo } from "react";
@@ -307,6 +313,14 @@ const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
           />
         </>
       )}
+      <SidebarUtilityItem
+        icon={<ShieldCheckIcon />}
+        label={gt("Privacy dashboard")}
+        onClick={() => {
+          closeMobileSidebar();
+          void navigate({ to: "/privacy" });
+        }}
+      />
       <SidebarThreadUndoNotice />
       <SidebarUpdatePill />
     </SidebarMenu>

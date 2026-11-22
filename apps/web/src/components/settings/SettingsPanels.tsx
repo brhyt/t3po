@@ -2422,6 +2422,9 @@ export function MaintenanceSettingsPanel() {
       <StorageCleanupSections />
 
       <SettingsSection id="diagnostics-section" title={gt("Diagnostics")}>
+        <Button render={<Link to="/privacy" />} size="sm" variant="outline">
+          <T>Privacy dashboard</T>
+        </Button>
         <SettingsRow
           {...setting("diagnostics")}
           description={

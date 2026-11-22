@@ -52,3 +52,11 @@ node_modules/
 
 /packages/ssh/.ssh-launcher-test-*/
 .neon
+
+# Local agent permissions can contain literal credentials.
+.claude/settings.local.json
+
+# Local inspection CA and observer state.
+.t3-privacy/
+tools/privacy-observer/.venv/
+**/__pycache__/

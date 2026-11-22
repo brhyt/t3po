@@ -1,3 +1,4 @@
+import { vi } from "vite-plus/test";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as FileSystem from "effect/FileSystem";
 import * as ServerConfig from "../config.ts";
@@ -108,3 +109,38 @@ it.effect("loads a private userdata configuration when environment credentials a
     ),
   ),
 );
+
+it.effect.each([
+  { T3PO_MEMORY_EXCHANGE_ENABLED: "false" },
+  { T3PO_MEMORY_DISABLED_PROJECTS: "other,project" },
+])("stops both delivery and recall without discarding queued events: %j", (settings) => {
+  const fetch = vi.fn(async () => Response.json({ acceptedIds: [], context: "", available: true }));
+  return Effect.gen(function* () {
+    const bridge = yield* MemoryBridge.MemoryBridge;
+    expect(
+      yield* bridge.exchange({
+        projectId: "project",
+        query: "private query",
+        events: [
+          { id: "pending", kind: "project_brief", text: "private brief", occurredAt: "now" },
+        ],
+      }),
+    ).toEqual({ acceptedIds: [], context: "", available: false });
+    expect(fetch).not.toHaveBeenCalled();
+  }).pipe(
+    Effect.provide(
+      MemoryBridge.layer.pipe(
+        Layer.provide(
+          ConfigProvider.layer(
+            ConfigProvider.fromUnknown({
+              T3PO_MEMORY_URL: "http://memory.test",
+              T3PO_MEMORY_TOKEN: "fixture",
+              ...settings,
+            }),
+          ),
+        ),
+      ),
+    ),
+    Effect.provideService(FetchHttpClient.Fetch, fetch),
+  );
+});

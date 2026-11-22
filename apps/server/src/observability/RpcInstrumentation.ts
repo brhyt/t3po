@@ -39,6 +39,8 @@ const RPC_AGGREGATES = {
   [WS_METHODS.t3poArtifactList]: "t3po",
   [WS_METHODS.t3poArtifactRead]: "t3po",
   [WS_METHODS.t3poAttention]: "t3po",
+  [WS_METHODS.privacySnapshot]: "privacy",
+  [WS_METHODS.privacyChange]: "privacy",
   [WS_METHODS.t3poMemoryList]: "t3po",
   [WS_METHODS.t3poMemoryCorrect]: "t3po",
   [WS_METHODS.t3poResults]: "t3po",

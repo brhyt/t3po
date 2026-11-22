@@ -58,7 +58,16 @@ vi.mock(import("../../state/entities"), async (original) => ({
 }));
 vi.mock(import("../../state/environments"), async (original) => ({
   ...(await original()),
-  useEnvironments: (() => ({ environments: [{ environmentId: "roc", label: "roc" }] })) as never,
+  useEnvironments: (() => ({
+    environments: [
+      {
+        environmentId: "roc",
+        label: "roc",
+        serverConfig: null,
+        connection: { phase: "disconnected" },
+      },
+    ],
+  })) as never,
 }));
 
 it("renames a Space inline on Enter once and cancels an unsaved rename with Escape", async () => {
@@ -82,6 +91,11 @@ it("renames a Space inline on Enter once and cancels an unsaved rename with Esca
       <ProjectSidebar />
     </SidebarProvider>,
   );
+  await expect.element(screen.getByRole("button", { name: "Settings", exact: true })).toBeVisible();
+  await expect.element(screen.getByRole("button", { name: "Usage", exact: true })).toBeVisible();
+  await expect
+    .element(screen.getByRole("button", { name: "Privacy dashboard", exact: true }))
+    .toBeVisible();
   const space = screen.getByRole("button", { name: "Personal", exact: true });
   await userEvent.click(space);
   await userEvent.keyboard("{F2}");

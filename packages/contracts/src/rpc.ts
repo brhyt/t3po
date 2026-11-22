@@ -1,3 +1,4 @@
+import { PrivacySnapshot, PrivacyRule, PrivacyObserverError } from "./privacy.ts";
 import {
   T3poMemoryQuery,
   T3poMemoryCorrection,
@@ -476,6 +477,8 @@ export const WS_METHODS = {
   t3poArtifactList: "t3po.artifactList",
   t3poArtifactRead: "t3po.artifactRead",
   t3poAttention: "t3po.attention",
+  privacySnapshot: "privacy.snapshot",
+  privacyChange: "privacy.change",
   t3poMemoryList: "t3po.memoryList",
   t3poMemoryCorrect: "t3po.memoryCorrect",
   t3poResults: "t3po.results",
@@ -1610,6 +1613,16 @@ const WsT3poSubscribeRpc = Rpc.make(WS_METHODS.t3poSubscribe, {
   stream: true,
   error: Schema.Union([T3poError, EnvironmentAuthorizationError]),
 });
+const WsPrivacySnapshotRpc = Rpc.make(WS_METHODS.privacySnapshot, {
+  payload: Schema.Struct({}),
+  success: PrivacySnapshot,
+  error: Schema.Union([PrivacyObserverError, EnvironmentAuthorizationError]),
+});
+const WsPrivacyChangeRpc = Rpc.make(WS_METHODS.privacyChange, {
+  payload: PrivacyRule,
+  success: Schema.Void,
+  error: Schema.Union([PrivacyObserverError, EnvironmentAuthorizationError]),
+});
 const WsT3poMemoryListRpc = Rpc.make(WS_METHODS.t3poMemoryList, {
   payload: T3poMemoryQuery,
   success: T3poMemoryPage,
@@ -2493,6 +2506,8 @@ export const WsRpcGroup = RpcGroup.make(
   WsT3poArtifactListRpc,
   WsT3poArtifactReadRpc,
   WsT3poAttentionRpc,
+  WsPrivacySnapshotRpc,
+  WsPrivacyChangeRpc,
   WsT3poMemoryListRpc,
   WsT3poMemoryCorrectRpc,
   WsT3poResultsRpc,

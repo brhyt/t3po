@@ -1,3 +1,4 @@
+import { SidebarChromeFooter } from "../sidebar/SidebarChrome";
 import { useEnvironmentScope } from "../../state/session";
 import { AuthOrchestrationOperateScope } from "@t3tools/contracts";
 import { projectEnvironment } from "../../state/projects";
@@ -148,12 +149,7 @@ export function ProjectSidebar() {
           />
         ))}
       </div>
-      <div className="border-t border-sidebar-border p-(--sidebar-content-inset)">
-        <Button variant="ghost" render={<Link to="/settings" />}>
-          <SettingsIcon className="size-4" />
-          <T>Settings</T>
-        </Button>
-      </div>
+      <SidebarChromeFooter />
     </div>
   );
 }

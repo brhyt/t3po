@@ -45,6 +45,15 @@ export class MemoryBridge extends Context.Service<
   }
 >()("t3/t3po/MemoryBridge") {}
 const make = Effect.gen(function* () {
+  const exchangeEnabled = yield* Config.Boolean("T3PO_MEMORY_EXCHANGE_ENABLED").pipe(
+    Config.withDefault(true),
+  );
+  const disabledProjects = new Set(
+    (yield* Config.String("T3PO_MEMORY_DISABLED_PROJECTS").pipe(Config.withDefault("")))
+      .split(",")
+      .map((id) => id.trim())
+      .filter(Boolean),
+  );
   let url = yield* Config.String("T3PO_MEMORY_URL").pipe(Config.withDefault(""));
   let token = yield* Config.Redacted("T3PO_MEMORY_TOKEN").pipe(
     Config.withDefault(Redacted.make("")),
@@ -70,7 +79,8 @@ const make = Effect.gen(function* () {
     query: string;
     events: readonly MemoryEvent[];
   }) {
-    if (!configured) return unavailable;
+    if (!configured || !exchangeEnabled || disabledProjects.has(input.projectId))
+      return unavailable;
     return yield* Effect.gen(function* () {
       const request = yield* HttpClientRequest.post(
         `${url.replace(/\/$/, "")}/memory/t3po/context`,

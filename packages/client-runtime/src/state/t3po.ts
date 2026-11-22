@@ -29,6 +29,14 @@ export function createT3poAtoms<R, E>(
   });
   return {
     snapshot,
+    privacySnapshot: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "privacy:snapshot",
+      tag: WS_METHODS.privacySnapshot,
+    }),
+    privacyChange: createEnvironmentRpcCommand(runtime, {
+      label: "privacy:change",
+      tag: WS_METHODS.privacyChange,
+    }),
     artifactSave: createEnvironmentRpcCommand(runtime, {
       label: "t3po:artifactSave",
       tag: WS_METHODS.t3poArtifactSave,

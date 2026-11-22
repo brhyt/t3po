@@ -71,6 +71,7 @@ export function relayTelemetryEnabled(): boolean | null {
 }
 
 export function resolveRelayTracingConfig() {
+  if (import.meta.env.VITE_T3CODE_TELEMETRY_ENABLED !== "true") return null;
   // The relay exporter is created during module initialization, so this must be synchronous.
   if (relayTelemetryEnabled() === false) {
     return null;

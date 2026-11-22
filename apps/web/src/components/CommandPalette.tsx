@@ -1745,6 +1745,17 @@ function OpenCommandPaletteDialog(props: {
     },
   });
 
+  actionItems.push({
+    kind: "action",
+    value: "action:privacy",
+    searchTerms: ["privacy", "data", "egress", "sensitive", "network", "blocks"],
+    title: gt("Privacy dashboard"),
+    icon: <ChartNoAxesColumnIcon className={ITEM_ICON_CLASS} />,
+    run: async () => {
+      await navigate({ to: "/privacy" });
+    },
+  });
+
   for (const direction of [1, -1] as const) {
     const title =
       direction === 1 ? gt("Focus Next Workspace Area") : gt("Focus Previous Workspace Area");

@@ -1,3 +1,4 @@
+import * as PrivacyObserver from "./privacy/PrivacyObserver.ts";
 import * as T3poMemoryInspector from "./t3po/MemoryInspector.ts";
 import * as T3poMemoryAccess from "./t3po/MemoryAccess.ts";
 import * as T3poStore from "./t3po/Store.ts";
@@ -1484,6 +1485,9 @@ export const layerWsRpc = (
         ).pipe(Effect.ignore);
       };
       const threadLaunch = yield* ThreadLaunchService.ThreadLaunchService;
+      const privacyObserver = yield* PrivacyObserver.PrivacyObserver.pipe(
+        Effect.provide(PrivacyObserver.layer),
+      );
       const existingT3poStore = yield* Effect.serviceOption(T3poStore.Store);
       const t3poStore = Option.isSome(existingT3poStore)
         ? existingT3poStore.value
@@ -3074,6 +3078,8 @@ export const layerWsRpc = (
             .read(input)
             .pipe(Effect.provideService(T3poArtifacts.ArtifactAccess, artifactUserAccess)),
         [WS_METHODS.t3poAttention]: (input) => attention.list(input),
+        [WS_METHODS.privacySnapshot]: () => privacyObserver.snapshot(),
+        [WS_METHODS.privacyChange]: (input) => privacyObserver.change(input),
         [WS_METHODS.t3poMemoryList]: (input) => memoryInspector.list(input),
         [WS_METHODS.t3poMemoryCorrect]: (input) => memoryInspector.correct(input),
         [WS_METHODS.t3poResults]: (input) => t3po.results(input),

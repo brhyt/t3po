@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
-import { hasCloudPublicConfig } from "./publicConfig.ts";
+import { hasCloudPublicConfig, resolveRelayTracingConfig } from "./publicConfig.ts";
 
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -75,4 +75,14 @@ describe("hasCloudPublicConfig", () => {
       expect(hasCloudPublicConfig()).toBe(true);
     });
   });
+});
+
+it("does not export browser traces without explicit build consent", () => {
+  vi.stubEnv("VITE_RELAY_OTLP_TRACES_URL", "https://traces.example.test");
+  vi.stubEnv("VITE_RELAY_OTLP_TRACES_DATASET", "test");
+  vi.stubEnv("VITE_RELAY_OTLP_TRACES_TOKEN", "fixture");
+  vi.stubEnv("VITE_T3CODE_TELEMETRY_ENABLED", "false");
+  expect(resolveRelayTracingConfig()).toBeNull();
+  vi.stubEnv("VITE_T3CODE_TELEMETRY_ENABLED", "true");
+  expect(resolveRelayTracingConfig()).not.toBeNull();
 });
