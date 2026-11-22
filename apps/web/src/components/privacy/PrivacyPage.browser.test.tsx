@@ -105,36 +105,46 @@ function setup() {
   };
 }
 
-it("filters sensitive traffic, sends scoped block and unblock actions, and clears the view on machine change", async () => {
+it("isolates views and search state when switching machines", async () => {
   setup();
-  state.data = { ...state.data!, blocked: ["blocked.example"] };
   await using _screen = await render(<PrivacyPage />, { router: "/privacy" });
-  await expect.element(page.getByRole("heading", { name: "Where your data goes" })).toBeVisible();
+  await expect.element(page.getByRole("heading", { name: "Evidence at a glance" })).toBeVisible();
+  await expect.element(page.getByRole("table")).not.toBeInTheDocument();
+  await userEvent.click(page.getByRole("button", { name: "Data flows", exact: true }));
+  await userEvent.click(page.getByText("Inspect masked metadata").last());
   await expect.element(page.getByText("Only the first 1 MiB was scanned.")).toBeVisible();
-  await expect.element(page.getByText(/Value masked/)).toBeVisible();
   await userEvent.click(page.getByRole("checkbox", { name: "Possible sensitive data" }));
   await expect.element(page.getByRole("cell", { name: /auth.example/ })).not.toBeInTheDocument();
-  await userEvent.click(page.getByRole("button", { name: "Unblock", exact: true }));
-  await userEvent.fill(page.getByRole("textbox", { name: "Exact hostname" }), "new.example");
-  await userEvent.click(page.getByRole("button", { name: "Block", exact: true }).first());
+  await userEvent.click(page.getByRole("button", { name: "Block", exact: true }));
   expect(state.calls).toEqual([
-    { environmentId: "local", input: { action: "unblock", host: "blocked.example" } },
-    { environmentId: "local", input: { action: "block", host: "new.example" } },
+    { environmentId: "local", input: { action: "block", host: "inference.example" } },
   ]);
+  await userEvent.fill(
+    page.getByRole("textbox", { name: "Search source, destination or fields" }),
+    "missing.example",
+  );
   await userEvent.selectOptions(page.getByRole("combobox", { name: "Machine" }), "remote");
   await expect.element(page.getByRole("heading", { name: "Connect the observer" })).toBeVisible();
   await expect
-    .element(page.getByRole("cell", { name: /inference.example/ }))
-    .not.toBeInTheDocument();
+    .element(page.getByRole("button", { name: "Overview", exact: true }))
+    .toHaveAttribute("aria-pressed", "true");
+  await userEvent.selectOptions(page.getByRole("combobox", { name: "Machine" }), "local");
+  await userEvent.click(page.getByRole("button", { name: "Data flows", exact: true }));
+  await expect
+    .element(page.getByRole("textbox", { name: "Search source, destination or fields" }))
+    .toHaveValue("");
+  await expect.element(page.getByRole("cell", { name: /auth.example/ })).toBeVisible();
 });
 
 it("keeps observations readable without granting rule changes", async () => {
   setup();
   state.write = false;
   await using _screen = await render(<PrivacyPage />, { router: "/privacy" });
+  await userEvent.click(page.getByRole("button", { name: "Data flows", exact: true }));
   await expect.element(page.getByRole("cell", { name: /inference.example/ })).toBeVisible();
   await expect.element(page.getByRole("button", { name: "Clear observations" })).toBeDisabled();
-  await expect.element(page.getByRole("textbox", { name: "Exact hostname" })).toBeDisabled();
+  await userEvent.click(page.getByRole("button", { name: "Experiments", exact: true }));
+  await expect.element(page.getByRole("button", { name: "Start timed block" })).toBeDisabled();
   expect(state.calls).toEqual([]);
 });
 
@@ -146,4 +156,44 @@ it("hides observations when diagnostics access is absent", async () => {
     .element(page.getByRole("status"))
     .toHaveTextContent("Diagnostics permission is required to view this machine's traffic.");
   await expect.element(page.getByRole("table")).not.toBeInTheDocument();
+});
+
+it("starts a scoped timed block and restores access without inferring task success", async () => {
+  setup();
+  state.data = {
+    ...state.data!,
+    policyStorage: { status: "ready", persistenceError: false },
+    experiments: [
+      {
+        id: "fixture",
+        host: "inference.example",
+        startedAt: 1,
+        expiresAt: 301,
+        recoveryAt: null,
+        finishedAt: null,
+        phase: "blocked",
+        baselineStartedAt: 1,
+        baselineEndedAt: 1,
+        evidenceIncomplete: false,
+        outcome: "unknown",
+        evidence: "bounded-proxy-observations",
+        baseline: { observed: 1, blocked: 0, responses: 1, errors: 0 },
+        blocked: { observed: 1, blocked: 1, responses: 0, errors: 0 },
+        recovery: { observed: 0, blocked: 0, responses: 0, errors: 0 },
+      },
+    ],
+  };
+  await using _screen = await render(<PrivacyPage />, { router: "/privacy" });
+  await userEvent.click(page.getByRole("button", { name: "Experiments", exact: true }));
+  await userEvent.fill(page.getByRole("textbox", { name: "Exact hostname" }), "new.example");
+  await userEvent.click(page.getByRole("button", { name: "Start timed block" }));
+  await userEvent.click(page.getByRole("button", { name: "Restore access and collect recovery" }));
+  await expect.element(page.getByText(/Task outcome unknown/)).toBeVisible();
+  expect(state.calls).toEqual([
+    {
+      environmentId: "local",
+      input: { action: "start-experiment", host: "new.example", durationSeconds: 300 },
+    },
+    { environmentId: "local", input: { action: "stop-experiment", experimentId: "fixture" } },
+  ]);
 });

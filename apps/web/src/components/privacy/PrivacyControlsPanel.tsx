@@ -1,3 +1,4 @@
+import { useProjects } from "../../state/entities";
 import { useAtomValue } from "@effect/atom-react";
 import {
   AuthDiagnosticsReadScope,
@@ -17,6 +18,7 @@ import { serverEnvironment } from "../../state/server";
 import { relayTelemetryEnabled, resolveRelayTracingConfig } from "../../cloud/publicConfig";
 
 export function PrivacyControlsPanel({ environmentId }: { environmentId: EnvironmentId }) {
+  const projects = useProjects().filter((project) => project.environmentId === environmentId);
   const canReadActivity = useEnvironmentScope(environmentId, AuthRelayReadScope);
   const activity = useEnvironmentQuery(
     canReadActivity ? privacy.activity({ environmentId, input: {} }) : null,
@@ -60,14 +62,19 @@ export function PrivacyControlsPanel({ environmentId }: { environmentId: Environ
     }).finally(() => setPending(false));
     if (result._tag === "Success") query.refresh();
   }
-  if (!canRead) return null;
+  if (!canRead)
+    return (
+      <p role="status">
+        <T>Diagnostics permission is required to view controls.</T>
+      </p>
+    );
   const browserTracing =
     relayTelemetryEnabled() === null ? "unknown" : resolveRelayTracingConfig() ? "on" : "off";
   return (
     <section className="mx-auto mb-6 max-w-6xl space-y-4 rounded-lg border p-4">
       <div className="flex items-center justify-between gap-3">
         <h2 className="text-lg font-semibold">
-          <T>Privacy controls and coverage</T>
+          <T>Controls</T>
         </h2>
         <Button variant="outline" size="sm" onClick={query.refresh} disabled={query.isPending}>
           <T>Refresh settings</T>
@@ -89,6 +96,9 @@ export function PrivacyControlsPanel({ environmentId }: { environmentId: Environ
         <>
           <div className="grid gap-3 md:grid-cols-2">
             <div className="space-y-2 rounded border p-3 text-sm">
+              <h3 className="font-medium">
+                <T>Telemetry startup configuration</T>
+              </h3>
               <p>
                 <T>Server analytics startup setting</T>: <State value={data.serverTelemetry} />
               </p>
@@ -102,7 +112,12 @@ export function PrivacyControlsPanel({ environmentId }: { environmentId: Environ
                   startup settings, update the host environment and restart the server.
                 </T>
               </p>
-              <code className="block break-all text-xs">T3CODE_TELEMETRY_ENABLED=false</code>
+              <details>
+                <summary>
+                  <T>Advanced startup setting</T>
+                </summary>
+                <code className="block break-all text-xs">T3CODE_TELEMETRY_ENABLED=false</code>
+              </details>
             </div>
             <div className="space-y-2 rounded border p-3 text-sm">
               <p>
@@ -288,6 +303,28 @@ export function PrivacyControlsPanel({ environmentId }: { environmentId: Environ
               <T>Manage provider credentials and advanced settings</T>
             </Link>
           </div>
+          <section className="space-y-2 rounded border p-3 text-sm">
+            <h3 className="font-medium">
+              <T>Project memory</T>
+            </h3>
+            <p>
+              <T>
+                Review memory delivery and processing in each project. Changes apply to that
+                project’s memory workflow.
+              </T>
+            </p>
+            {projects.map((project) => (
+              <div key={project.id}>
+                <Link
+                  to="/"
+                  search={{ project: project.id, machine: environmentId }}
+                  className="underline"
+                >
+                  {project.title}
+                </Link>
+              </div>
+            ))}
+          </section>
         </>
       ) : (
         <p className="text-sm">
