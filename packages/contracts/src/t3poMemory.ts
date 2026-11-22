@@ -26,7 +26,7 @@ export const T3poMemoryEntry = Schema.Struct({
   supersededBy: Schema.NullOr(Schema.String),
   targetId: Schema.NullOr(Schema.String),
   receiptAcceptedAt: Schema.NullOr(Schema.String),
-  stage: Schema.Literals(["pending_receipt", "receipt_accepted", "local_only"]),
+  stage: Schema.Literals(["pending_receipt", "receipt_accepted", "local_only", "held_locally"]),
   honchoDelivery: Schema.Literal("unknown"),
   honchoProcessing: Schema.Literal("unknown"),
 });

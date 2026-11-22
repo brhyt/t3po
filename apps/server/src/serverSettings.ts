@@ -268,7 +268,11 @@ export class ServerSettingsService extends Context.Service<
     ) => Effect.Effect<ServerSettings, ServerSettingsError>;
 
     readonly updateProviderInstance: (
-      mutation: ProviderInstanceMutation,
+      mutation:
+        | ProviderInstanceMutation
+        | ((
+            settings: ServerSettings,
+          ) => Effect.Effect<ProviderInstanceMutation, ServerSettingsError>),
       patch?: ServerSettingsPatch,
     ) => Effect.Effect<ServerSettings, ServerSettingsError>;
 
@@ -332,9 +336,15 @@ const makeTest = Effect.fn("serverSettings.makeTest")(function* (
     updateProviderInstance: (mutation, patch = {}) =>
       updateTestSettings((currentSettings) =>
         Effect.gen(function* () {
-          yield* ensureProviderInstanceMutationAllowed(currentSettings, mutation, "test settings");
+          const resolvedMutation =
+            typeof mutation === "function" ? yield* mutation(currentSettings) : mutation;
+          yield* ensureProviderInstanceMutationAllowed(
+            currentSettings,
+            resolvedMutation,
+            "test settings",
+          );
           const patched = applyServerSettingsPatch(currentSettings, patch);
-          return applyProviderInstanceMutation(patched, mutation);
+          return applyProviderInstanceMutation(patched, resolvedMutation);
         }),
       ),
     withSettingsSnapshot: (use) =>
@@ -1385,9 +1395,11 @@ const make = Effect.gen(function* () {
       updateAndPersistSettings(patch, (current) =>
         Effect.gen(function* () {
           yield* ensureSecretProviderWritesAllowed(patch, settingsPath);
-          yield* ensureProviderInstanceMutationAllowed(current, mutation, settingsPath);
+          const resolvedMutation =
+            typeof mutation === "function" ? yield* mutation(current) : mutation;
+          yield* ensureProviderInstanceMutationAllowed(current, resolvedMutation, settingsPath);
           const patched = applyServerSettingsPatch(current, patch);
-          return applyProviderInstanceMutation(patched, mutation);
+          return applyProviderInstanceMutation(patched, resolvedMutation);
         }),
       ),
     withSettingsSnapshot,

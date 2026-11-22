@@ -126,13 +126,26 @@ const make = Effect.gen(function* () {
   const changes = yield* Changes.Changes;
   const sends = yield* Semaphore.make(1);
   const wake = yield* Queue.make<void>({ capacity: 1, strategy: "dropping" });
+  // Persist holds before any worker can send records captured while exchange was disabled.
+  const queuedProjects = yield* sql<{
+    projectId: string;
+  }>`SELECT DISTINCT project_id AS projectId FROM t3po_memory_events_v2 WHERE synced_at IS NULL`;
+  for (const row of queuedProjects) {
+    if (!memory.exchangeAllowed(row.projectId))
+      yield* sql`UPDATE t3po_memory_events_v2 SET delivery_held = 1 WHERE project_id = ${row.projectId} AND synced_at IS NULL`;
+  }
   const exchangeMemory = Effect.fn("T3poStore.exchangeMemory")(function* (
     projectId: ProjectId,
     query: string,
     background = false,
   ) {
+    const policies = yield* sql<{
+      enabled: number;
+    }>`SELECT enabled FROM t3po_memory_delivery_policy WHERE project_id = ${projectId}`;
+    if (policies[0]?.enabled === 0 || !memory.exchangeAllowed(projectId))
+      return { acceptedIds: [], context: "", available: false };
     const pending =
-      yield* sql<MemoryBridge.MemoryEvent>`SELECT event_id AS id, kind, text, occurred_at AS occurredAt FROM t3po_memory_events WHERE project_id = ${projectId} AND synced_at IS NULL AND superseded_by IS NULL AND kind != 'local_correction' ORDER BY sequence LIMIT 20`;
+      yield* sql<MemoryBridge.MemoryEvent>`SELECT event_id AS id, kind, text, occurred_at AS occurredAt FROM t3po_memory_events_v2 WHERE project_id = ${projectId} AND synced_at IS NULL AND superseded_by IS NULL AND kind != 'local_correction' AND delivery_held = 0 ORDER BY sequence LIMIT 20`;
     const status = yield* sql<{
       failures: number;
       nextAttempt: number;
@@ -158,7 +171,7 @@ const make = Effect.gen(function* () {
     yield* sql.withTransaction(
       Effect.gen(function* () {
         if (accepted.length)
-          yield* sql`UPDATE t3po_memory_events SET synced_at = ${stamp} WHERE project_id = ${projectId} AND synced_at IS NULL AND event_id IN ${sql.in(accepted)}`;
+          yield* sql`UPDATE t3po_memory_events_v2 SET synced_at = ${stamp} WHERE project_id = ${projectId} AND synced_at IS NULL AND event_id IN ${sql.in(accepted)}`;
         yield* sql`INSERT INTO t3po_memory_status (project_id, last_sync_at, available, failures, next_attempt) VALUES (${projectId}, ${stamp}, ${result.available ? 1 : 0}, ${failures}, ${nextAttempt}) ON CONFLICT(project_id) DO UPDATE SET last_sync_at = excluded.last_sync_at, available = CASE WHEN ${background ? 1 : 0} THEN t3po_memory_status.available ELSE excluded.available END, failures = excluded.failures, next_attempt = excluded.next_attempt`;
       }),
     );
@@ -170,7 +183,7 @@ const make = Effect.gen(function* () {
     const rows = yield* sql<{
       projectId: string;
       nextAttempt: number;
-    }>`SELECT e.project_id AS projectId, COALESCE(s.next_attempt, 0) AS nextAttempt FROM t3po_memory_events e LEFT JOIN t3po_memory_status s ON s.project_id = e.project_id WHERE e.synced_at IS NULL AND e.superseded_by IS NULL AND e.kind != 'local_correction' GROUP BY e.project_id ORDER BY nextAttempt, e.project_id LIMIT 1`;
+    }>`SELECT e.project_id AS projectId, COALESCE(s.next_attempt, 0) AS nextAttempt FROM t3po_memory_events_v2 e LEFT JOIN t3po_memory_status s ON s.project_id = e.project_id WHERE e.synced_at IS NULL AND e.superseded_by IS NULL AND e.kind != 'local_correction' AND e.delivery_held = 0 AND NOT EXISTS (SELECT 1 FROM t3po_memory_delivery_policy p WHERE p.project_id = e.project_id AND p.enabled = 0) GROUP BY e.project_id ORDER BY nextAttempt, e.project_id LIMIT 1`;
     const row = rows[0];
     if (!row) {
       yield* Queue.take(wake);
@@ -197,7 +210,7 @@ const make = Effect.gen(function* () {
     text: string,
   ) {
     const now = DateTime.formatIso(yield* DateTime.now);
-    yield* sql`INSERT INTO t3po_memory_events (event_id, project_id, kind, text, occurred_at) VALUES (lower(hex(randomblob(16))), ${projectId}, ${kind}, ${text.slice(0, 12000)}, ${now})`;
+    yield* sql`INSERT INTO t3po_memory_events_v2 (event_id, project_id, kind, text, occurred_at, delivery_held) VALUES (lower(hex(randomblob(16))), ${projectId}, ${kind}, ${text.slice(0, 12000)}, ${now}, CASE WHEN ${memory.exchangeAllowed(projectId) ? 1 : 0} = 0 OR EXISTS (SELECT 1 FROM t3po_memory_delivery_policy WHERE project_id = ${projectId} AND enabled = 0) THEN 1 ELSE 0 END)`;
   });
   const getTask = Effect.fn("T3poStore.getTask")(
     function* (id: string, projectId: ProjectId) {
@@ -310,9 +323,12 @@ const make = Effect.gen(function* () {
       const memoryRows = yield* sql<{
         projectId: string;
         pending: number;
+        held: number;
+        deliveryEnabled: number;
+        deliveryRevision: number;
         available: number | null;
         lastCheckedAt: string | null;
-      }>`SELECT l.project_id AS projectId, s.available, s.last_sync_at AS lastCheckedAt, (SELECT count(*) FROM t3po_memory_events e WHERE e.project_id = l.project_id AND e.synced_at IS NULL AND e.superseded_by IS NULL AND e.kind != 'local_correction') AS pending FROM t3po_leads l LEFT JOIN t3po_memory_status s ON s.project_id = l.project_id WHERE ${input.projectId ? sql`l.project_id = ${input.projectId}` : sql`1 = 1`}`;
+      }>`SELECT l.project_id AS projectId, s.available, s.last_sync_at AS lastCheckedAt, COALESCE(p.enabled, 1) AS deliveryEnabled, COALESCE(p.revision, 0) AS deliveryRevision, (SELECT count(*) FROM t3po_memory_events_v2 e WHERE e.project_id = l.project_id AND e.synced_at IS NULL AND e.superseded_by IS NULL AND e.kind != 'local_correction' AND e.delivery_held = 1) AS held, (SELECT count(*) FROM t3po_memory_events_v2 e WHERE e.project_id = l.project_id AND e.synced_at IS NULL AND e.superseded_by IS NULL AND e.kind != 'local_correction') AS pending FROM t3po_leads l LEFT JOIN t3po_memory_status s ON s.project_id = l.project_id LEFT JOIN t3po_memory_delivery_policy p ON p.project_id = l.project_id WHERE ${input.projectId ? sql`l.project_id = ${input.projectId}` : sql`1 = 1`}`;
       const processing = yield* memory.statuses;
       return {
         externalBindings: (yield* sql<{
@@ -348,7 +364,17 @@ const make = Effect.gen(function* () {
           projectId: ProjectId.make(row.projectId),
           processing: processing[row.projectId],
           configured: memory.configured,
-          available: memory.configured && row.available === 1,
+          available:
+            memory.configured &&
+            memory.exchangeAllowed(row.projectId) &&
+            row.deliveryEnabled === 1 &&
+            row.available === 1,
+          delivery: {
+            enabled: row.deliveryEnabled === 1,
+            environmentAllowed: memory.exchangeAllowed(row.projectId),
+            held: row.held,
+            revision: row.deliveryRevision,
+          },
         })),
         leads: yield* Effect.forEach(leads, (row) =>
           Effect.gen(function* () {
@@ -809,7 +835,7 @@ const make = Effect.gen(function* () {
       let recall = "";
       let memoryAvailable = false;
       if ((threadId === lead.threadId || channel) && memory.configured) {
-        const recalled = yield* exchangeMemory(projectId, (query || lead.brief).slice(0, 2000));
+        const recalled = yield* exchangeMemory(projectId, query.slice(0, 2000));
         if (!recalled) return "";
         recall = recalled.context;
         memoryAvailable = recalled.available;
@@ -817,7 +843,7 @@ const make = Effect.gen(function* () {
       const recentRecords = yield* sql<{
         kind: string;
         text: string;
-      }>`SELECT kind, substr(text, 1, 2000) AS text FROM t3po_memory_events WHERE project_id = ${projectId} AND superseded_by IS NULL ORDER BY sequence DESC LIMIT 5`;
+      }>`SELECT kind, substr(text, 1, 2000) AS text FROM t3po_memory_events_v2 WHERE project_id = ${projectId} AND superseded_by IS NULL ORDER BY sequence DESC LIMIT 5`;
       return yield* encodeUnknownJson({
         spaceRules:
           yield* sql`SELECT s.name, s.rules FROM t3po_spaces s JOIN t3po_project_spaces p ON p.space_id = s.id WHERE p.project_id = ${projectId}`,
@@ -895,7 +921,50 @@ const make = Effect.gen(function* () {
     ),
     memoryDeliveryLock: Effect.succeed(sends),
     runMemoryWorker,
-    controlMemory: memory.control,
+    controlMemory: Effect.fn("T3poStore.controlMemory")(
+      function* (input: T3poMemoryControl) {
+        if (["refresh", "pause", "resume", "retry"].includes(input.action))
+          return yield* memory.control(input);
+        yield* sql.withTransaction(
+          Effect.gen(function* () {
+            const leads =
+              yield* sql`SELECT project_id FROM t3po_leads WHERE project_id = ${input.projectId}`;
+            if (!leads.length) return yield* new T3poError({ operation: "invalid" });
+            const policies = yield* sql<{
+              enabled: number;
+              revision: number;
+            }>`SELECT enabled, revision FROM t3po_memory_delivery_policy WHERE project_id = ${input.projectId}`;
+            const policy = policies[0] ?? { enabled: 1, revision: 0 };
+            if (input.expectedDeliveryRevision !== policy.revision)
+              return yield* new T3poError({ operation: "invalid" });
+            if (input.action !== "stop_delivery" && !memory.exchangeAllowed(input.projectId))
+              return yield* new T3poError({ operation: "invalid" });
+            if (input.action === "release_backlog" && policy.enabled === 0)
+              return yield* new T3poError({ operation: "invalid" });
+            if (input.action === "release_backlog") {
+              const held = yield* sql<{
+                count: number;
+              }>`SELECT count(*) AS count FROM t3po_memory_events_v2 WHERE project_id = ${input.projectId} AND synced_at IS NULL AND delivery_held = 1 AND superseded_by IS NULL AND kind != 'local_correction'`;
+              if (input.expectedHeldRecords !== held[0]?.count)
+                return yield* new T3poError({ operation: "invalid" });
+            }
+            const enabled = input.action === "stop_delivery" ? 0 : 1;
+            yield* sql`INSERT INTO t3po_memory_delivery_policy (project_id, enabled, revision) VALUES (${input.projectId}, ${enabled}, ${policy.revision + 1}) ON CONFLICT(project_id) DO UPDATE SET enabled = excluded.enabled, revision = excluded.revision`;
+            if (input.action === "stop_delivery")
+              yield* sql`UPDATE t3po_memory_events_v2 SET delivery_held = 1 WHERE project_id = ${input.projectId} AND synced_at IS NULL`;
+            if (input.action === "release_backlog")
+              yield* sql`UPDATE t3po_memory_events_v2 SET delivery_held = 0 WHERE project_id = ${input.projectId} AND synced_at IS NULL`;
+            yield* sql`UPDATE t3po_memory_status SET next_attempt = 0, failures = 0 WHERE project_id = ${input.projectId}`;
+          }),
+        );
+        yield* PubSub.publish(changes, { projectId: input.projectId, metadata: true });
+        yield* Queue.offer(wake, undefined);
+      },
+      sends.withPermit,
+      Effect.mapError((cause) =>
+        isT3poError(cause) ? cause : new T3poError({ operation: "save", cause }),
+      ),
+    ),
     read,
     list,
     results,

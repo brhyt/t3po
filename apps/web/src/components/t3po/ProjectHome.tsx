@@ -296,6 +296,76 @@ export function ProjectBoard({
                 ) : null}
                 {lead && memory?.configured ? (
                   <div className="mt-2 space-y-2">
+                    {memory.delivery ? (
+                      <div className="space-y-2">
+                        <p className="text-xs text-muted-foreground" role="status">
+                          {!memory.delivery.environmentAllowed
+                            ? gt("Memory exchange disabled by server configuration")
+                            : memory.delivery.enabled
+                              ? gt("Memory delivery enabled for new records")
+                              : gt("Memory delivery and recall stopped")}
+                          {" · "}
+                          {gt("{count} records held locally", { count: memory.delivery.held })}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          <T>
+                            Local capture continues. Resuming keeps held records local. Releasing
+                            held records sends them to the memory service; it does not delete
+                            earlier copies.
+                          </T>
+                        </p>
+                        <div className="flex flex-wrap gap-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={
+                              !canMutate ||
+                              busy ||
+                              (!memory.delivery.enabled && !memory.delivery.environmentAllowed)
+                            }
+                            onClick={() =>
+                              void save({
+                                type: "memory_control",
+                                projectId,
+                                action: memory.delivery?.enabled
+                                  ? "stop_delivery"
+                                  : "resume_delivery",
+                                expectedDeliveryRevision: memory.delivery?.revision,
+                              })
+                            }
+                          >
+                            {memory.delivery.enabled ? (
+                              <T>Stop memory delivery</T>
+                            ) : (
+                              <T>Resume new records only</T>
+                            )}
+                          </Button>
+                          {memory.delivery.held > 0 ? (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              disabled={
+                                !canMutate ||
+                                busy ||
+                                !memory.delivery.environmentAllowed ||
+                                !memory.delivery.enabled
+                              }
+                              onClick={() =>
+                                void save({
+                                  type: "memory_control",
+                                  projectId,
+                                  action: "release_backlog",
+                                  expectedHeldRecords: memory.delivery?.held,
+                                  expectedDeliveryRevision: memory.delivery?.revision,
+                                })
+                              }
+                            >
+                              <T>Release held records for delivery</T>
+                            </Button>
+                          ) : null}
+                        </div>
+                      </div>
+                    ) : null}
                     {memory.processing ? (
                       <p className="text-xs text-muted-foreground" role="status">
                         {memory.processing.paused
@@ -342,7 +412,11 @@ export function ProjectBoard({
                               })
                             }
                           >
-                            {memory.processing.paused ? <T>Resume memory</T> : <T>Pause memory</T>}
+                            {memory.processing.paused ? (
+                              <T>Resume inference</T>
+                            ) : (
+                              <T>Pause inference</T>
+                            )}
                           </Button>
                           <Button
                             variant="outline"

@@ -174,13 +174,31 @@ export const T3poMemoryProcessing = Schema.Struct({
 export const T3poMemoryControl = Schema.Struct({
   type: Schema.Literal("memory_control"),
   projectId: ProjectId,
-  action: Schema.Literals(["refresh", "pause", "resume", "retry"]),
+  action: Schema.Literals([
+    "refresh",
+    "pause",
+    "resume",
+    "retry",
+    "stop_delivery",
+    "resume_delivery",
+    "release_backlog",
+  ]),
+  expectedDeliveryRevision: Schema.optional(NonNegativeInt),
+  expectedHeldRecords: Schema.optional(NonNegativeInt),
 });
 export type T3poMemoryControl = typeof T3poMemoryControl.Type;
 export const T3poMemoryStatus = Schema.Struct({
   projectId: ProjectId,
   configured: Schema.Boolean,
   processing: Schema.optional(T3poMemoryProcessing),
+  delivery: Schema.optional(
+    Schema.Struct({
+      enabled: Schema.Boolean,
+      environmentAllowed: Schema.Boolean,
+      held: NonNegativeInt,
+      revision: NonNegativeInt,
+    }),
+  ),
   available: Schema.Boolean,
   pending: NonNegativeInt,
   lastCheckedAt: Schema.NullOr(Schema.String),

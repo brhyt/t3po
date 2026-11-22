@@ -3,6 +3,8 @@ import {
   RunId,
   AuthEnvironmentMaintainScope,
   AuthDiagnosticsReadScope,
+  AuthRelayWriteScope,
+  AuthRelayReadScope,
   AuthFilesystemReadScope,
   AuthProvidersManageScope,
   AuthSettingsWriteScope,
@@ -38,7 +40,13 @@ import * as RpcAuthorization from "./RpcAuthorization.ts";
 describe("RPC authorization scopes", () => {
   it("lets readers observe T3PO work but reserves mutation and launch for operators", () => {
     expect(requiredScopeForRpcMethod(WS_METHODS.privacySnapshot)).toBe(AuthDiagnosticsReadScope);
+    expect(requiredScopeForRpcMethod(WS_METHODS.privacyControls)).toBe(AuthDiagnosticsReadScope);
+    expect(requiredScopeForRpcMethod(WS_METHODS.privacyProviderChange)).toBe(
+      AuthProvidersManageScope,
+    );
     expect(requiredScopeForRpcMethod(WS_METHODS.privacyChange)).toBe(AuthSettingsWriteScope);
+    expect(requiredScopeForRpcMethod(WS_METHODS.privacyActivity)).toBe(AuthRelayReadScope);
+    expect(requiredScopeForRpcMethod(WS_METHODS.privacyActivityChange)).toBe(AuthRelayWriteScope);
     expect(requiredScopeForRpcMethod(WS_METHODS.t3poAttention)).toBe(AuthOrchestrationReadScope);
     expect(requiredScopeForRpcMethod(WS_METHODS.t3poArtifactSave)).toBe(
       AuthOrchestrationOperateScope,

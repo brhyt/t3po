@@ -1,3 +1,5 @@
+import { PrivacyFindings } from "./PrivacyFindings";
+import { PrivacyControlsPanel } from "./PrivacyControlsPanel";
 import { useAtomValue } from "@effect/atom-react";
 import {
   AuthDiagnosticsReadScope,
@@ -51,7 +53,10 @@ export function PrivacyPage() {
       </header>
       <div className="min-h-0 flex-1 overflow-auto p-5">
         {environmentId ? (
-          <ObserverPanel key={environmentId} environmentId={environmentId} />
+          <div key={environmentId}>
+            <PrivacyControlsPanel environmentId={environmentId} />
+            <ObserverPanel environmentId={environmentId} />
+          </div>
         ) : (
           <p>
             <T>Connect a machine to view its privacy dashboard.</T>
@@ -158,6 +163,7 @@ function ObserverPanel({ environmentId }: { environmentId: EnvironmentId }) {
         </div>
       ) : (
         <>
+          <PrivacyFindings journal={data} canChange={canChange} pending={pending} apply={apply} />
           <p className="text-sm text-muted-foreground">{data.label}</p>
           <div className="grid grid-cols-3 gap-3">
             <Stat value={data.observed} label={gt("Requests observed")} />

@@ -35,6 +35,7 @@ export class MemoryBridge extends Context.Service<
   MemoryBridge,
   {
     readonly configured: boolean;
+    readonly exchangeAllowed: (projectId: string) => boolean;
     readonly statuses: Effect.Effect<Readonly<Record<string, typeof T3poMemoryProcessing.Type>>>;
     readonly control: (input: T3poMemoryControl) => Effect.Effect<void, T3poError>;
     readonly exchange: (input: {
@@ -74,13 +75,14 @@ const make = Effect.gen(function* () {
   const statusRef = yield* Ref.make<Readonly<Record<string, typeof T3poMemoryProcessing.Type>>>({});
   const client = yield* HttpClient.HttpClient;
   const configured = url !== "" && Redacted.value(token) !== "";
+  const exchangeAllowed = (projectId: string) =>
+    exchangeEnabled && !disabledProjects.has(projectId);
   const exchange = Effect.fn("T3poMemory.exchange")(function* (input: {
     projectId: string;
     query: string;
     events: readonly MemoryEvent[];
   }) {
-    if (!configured || !exchangeEnabled || disabledProjects.has(input.projectId))
-      return unavailable;
+    if (!configured || !exchangeAllowed(input.projectId)) return unavailable;
     return yield* Effect.gen(function* () {
       const request = yield* HttpClientRequest.post(
         `${url.replace(/\/$/, "")}/memory/t3po/context`,
@@ -102,7 +104,8 @@ const make = Effect.gen(function* () {
   });
   const control = Effect.fn("T3poMemory.control")(
     function* (input: T3poMemoryControl) {
-      if (!configured) return yield* new T3poError({ operation: "save" });
+      if (!configured || !["refresh", "pause", "resume", "retry"].includes(input.action))
+        return yield* new T3poError({ operation: "save" });
       const request = yield* HttpClientRequest.post(
         `${url.replace(/\/$/, "")}/memory/t3po/control`,
       ).pipe(
@@ -121,6 +124,12 @@ const make = Effect.gen(function* () {
     Effect.timeout("10 seconds"),
     Effect.mapError(() => new T3poError({ operation: "save" })),
   );
-  return MemoryBridge.of({ configured, exchange, control, statuses: Ref.get(statusRef) });
+  return MemoryBridge.of({
+    configured,
+    exchangeAllowed,
+    exchange,
+    control,
+    statuses: Ref.get(statusRef),
+  });
 });
 export const layer = Layer.effect(MemoryBridge, make).pipe(Layer.provide(FetchHttpClient.layer));

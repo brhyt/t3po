@@ -53,10 +53,10 @@ const make = Effect.gen(function* () {
     );
     yield* access.authorize(input.projectId, false);
     const rows = yield* sql<
-      Omit<T3poMemoryEntry, "stage" | "honchoDelivery" | "honchoProcessing">
+      Omit<T3poMemoryEntry, "stage" | "honchoDelivery" | "honchoProcessing"> & { held: number }
     >`SELECT event_id AS id, sequence, kind, source, occurred_at AS occurredAt,
-      substr(text, 1, 12000) AS text, revision, superseded_by AS supersededBy, target_id AS targetId, synced_at AS receiptAcceptedAt
-      FROM t3po_memory_events WHERE project_id = ${input.projectId}
+      substr(text, 1, 12000) AS text, revision, superseded_by AS supersededBy, target_id AS targetId, synced_at AS receiptAcceptedAt, delivery_held AS held
+      FROM t3po_memory_events_v2 WHERE project_id = ${input.projectId}
       ${input.before === undefined ? sql`` : sql`AND sequence < ${input.before}`}
       ORDER BY sequence DESC LIMIT 21`;
     return {
@@ -67,7 +67,9 @@ const make = Effect.gen(function* () {
             ? "local_only"
             : row.receiptAcceptedAt
               ? "receipt_accepted"
-              : "pending_receipt",
+              : row.held === 1
+                ? "held_locally"
+                : "pending_receipt",
         honchoDelivery: "unknown",
         honchoProcessing: "unknown",
       })),
@@ -89,7 +91,7 @@ const make = Effect.gen(function* () {
             text: string;
             source: string;
             correctionRevision: number | null;
-          }>`SELECT project_id AS projectId, target_id AS targetId, text, source, correction_revision AS correctionRevision FROM t3po_memory_events WHERE event_id = ${input.operationId}`;
+          }>`SELECT project_id AS projectId, target_id AS targetId, text, source, correction_revision AS correctionRevision FROM t3po_memory_events_v2 WHERE event_id = ${input.operationId}`;
           if (prior[0]) {
             const row = prior[0];
             if (
@@ -105,13 +107,13 @@ const make = Effect.gen(function* () {
           const target = yield* sql<{
             revision: number;
             supersededBy: string | null;
-          }>`SELECT revision, superseded_by AS supersededBy FROM t3po_memory_events WHERE project_id = ${input.projectId} AND event_id = ${input.targetId}`;
+          }>`SELECT revision, superseded_by AS supersededBy FROM t3po_memory_events_v2 WHERE project_id = ${input.projectId} AND event_id = ${input.targetId}`;
           if (!target[0]) return yield* new T3poMemoryError({ reason: "invalid" });
           if (target[0].revision !== input.expectedRevision || target[0].supersededBy !== null)
             return yield* new T3poMemoryError({ reason: "stale" });
           const now = DateTime.formatIso(yield* DateTime.now);
-          yield* sql`INSERT INTO t3po_memory_events (event_id, project_id, kind, text, occurred_at, target_id, source, correction_revision) VALUES (${input.operationId}, ${input.projectId}, 'local_correction', ${input.text}, ${now}, ${input.targetId}, ${source}, ${input.expectedRevision})`;
-          yield* sql`UPDATE t3po_memory_events SET superseded_by = ${input.operationId}, revision = revision + 1 WHERE project_id = ${input.projectId} AND event_id = ${input.targetId}`;
+          yield* sql`INSERT INTO t3po_memory_events_v2 (event_id, project_id, kind, text, occurred_at, target_id, source, correction_revision) VALUES (${input.operationId}, ${input.projectId}, 'local_correction', ${input.text}, ${now}, ${input.targetId}, ${source}, ${input.expectedRevision})`;
+          yield* sql`UPDATE t3po_memory_events_v2 SET superseded_by = ${input.operationId}, revision = revision + 1 WHERE project_id = ${input.projectId} AND event_id = ${input.targetId}`;
           return input.operationId;
         }),
       );

@@ -35,6 +35,19 @@ vi.mock(import("../../state/t3po"), async () => {
   const permissions = Atom.family((allowed: boolean) => Atom.make(allowed));
   return {
     t3po: {
+      controls: () =>
+        snapshots(
+          JSON.stringify({
+            serverTelemetry: "off",
+            serverRelayTracing: "off",
+            customDiagnostics: [],
+            hostAllowlist: null,
+            providers: [],
+          }),
+        ),
+      activity: () => snapshots("null"),
+      activityChange: { permissionAtom: () => permissions(state.write) },
+      providerChange: { permissionAtom: () => permissions(state.write) },
       privacySnapshot: ({ environmentId }: { environmentId: string }) =>
         snapshots(JSON.stringify(environmentId === "local" ? state.data : null)),
       privacyChange: { permissionAtom: () => permissions(state.write) },

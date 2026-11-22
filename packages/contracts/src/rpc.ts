@@ -1,4 +1,10 @@
-import { PrivacySnapshot, PrivacyRule, PrivacyObserverError } from "./privacy.ts";
+import {
+  PrivacySnapshot,
+  PrivacyRule,
+  PrivacyObserverError,
+  PrivacyControlsSnapshot,
+  PrivacyProviderChange,
+} from "./privacy.ts";
 import {
   T3poMemoryQuery,
   T3poMemoryCorrection,
@@ -477,6 +483,10 @@ export const WS_METHODS = {
   t3poArtifactList: "t3po.artifactList",
   t3poArtifactRead: "t3po.artifactRead",
   t3poAttention: "t3po.attention",
+  privacyActivity: "privacy.activity",
+  privacyActivityChange: "privacy.activityChange",
+  privacyControls: "privacy.controls",
+  privacyProviderChange: "privacy.providerChange",
   privacySnapshot: "privacy.snapshot",
   privacyChange: "privacy.change",
   t3poMemoryList: "t3po.memoryList",
@@ -1613,6 +1623,26 @@ const WsT3poSubscribeRpc = Rpc.make(WS_METHODS.t3poSubscribe, {
   stream: true,
   error: Schema.Union([T3poError, EnvironmentAuthorizationError]),
 });
+const WsPrivacyActivityRpc = Rpc.make(WS_METHODS.privacyActivity, {
+  payload: Schema.Struct({}),
+  success: Schema.NullOr(Schema.Boolean),
+  error: Schema.Union([PrivacyObserverError, EnvironmentAuthorizationError]),
+});
+const WsPrivacyActivityChangeRpc = Rpc.make(WS_METHODS.privacyActivityChange, {
+  payload: Schema.Struct({ enabled: Schema.Boolean }),
+  success: Schema.Void,
+  error: Schema.Union([PrivacyObserverError, EnvironmentAuthorizationError]),
+});
+const WsPrivacyControlsRpc = Rpc.make(WS_METHODS.privacyControls, {
+  payload: Schema.Struct({}),
+  success: PrivacyControlsSnapshot,
+  error: Schema.Union([PrivacyObserverError, EnvironmentAuthorizationError]),
+});
+const WsPrivacyProviderChangeRpc = Rpc.make(WS_METHODS.privacyProviderChange, {
+  payload: PrivacyProviderChange,
+  success: Schema.Void,
+  error: Schema.Union([PrivacyObserverError, EnvironmentAuthorizationError]),
+});
 const WsPrivacySnapshotRpc = Rpc.make(WS_METHODS.privacySnapshot, {
   payload: Schema.Struct({}),
   success: PrivacySnapshot,
@@ -2506,6 +2536,10 @@ export const WsRpcGroup = RpcGroup.make(
   WsT3poArtifactListRpc,
   WsT3poArtifactReadRpc,
   WsT3poAttentionRpc,
+  WsPrivacyActivityRpc,
+  WsPrivacyActivityChangeRpc,
+  WsPrivacyControlsRpc,
+  WsPrivacyProviderChangeRpc,
   WsPrivacySnapshotRpc,
   WsPrivacyChangeRpc,
   WsT3poMemoryListRpc,

@@ -108,6 +108,8 @@ function MemoryRow({
       <p className="text-xs text-muted-foreground" hidden={entry.supersededBy !== null}>
         {entry.stage === "local_only" ? (
           <T>Local correction only</T>
+        ) : entry.stage === "held_locally" ? (
+          <T>Held locally; delivery requires approval</T>
         ) : entry.stage === "receipt_accepted" ? (
           <T>Convex receipt accepted; Honcho delivery and processing unverified</T>
         ) : (

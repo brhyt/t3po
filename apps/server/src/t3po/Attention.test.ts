@@ -105,7 +105,7 @@ effectIt.effect("bounds project scans and resumes strictly after the previous ta
     }
     yield* sql`INSERT INTO t3po_budgets(project_id, max_runs, max_concurrent) VALUES (${task.projectId}, 1, 1)`;
     yield* sql`INSERT INTO t3po_admissions(run_id, project_id, active) VALUES ('used-run', ${task.projectId}, 0)`;
-    yield* sql`INSERT INTO t3po_memory_events(event_id, project_id, kind, text, occurred_at) VALUES ('pending', ${task.projectId}, 'project_brief', 'brief', 'now')`;
+    yield* sql`INSERT INTO t3po_memory_events_v2(event_id, project_id, kind, text, occurred_at) VALUES ('pending', ${task.projectId}, 'project_brief', 'brief', 'now')`;
     yield* sql`INSERT INTO t3po_memory_status(project_id, failures) VALUES (${task.projectId}, 1)`;
     const queue = yield* Attention.Attention;
     const first = yield* queue.list({ projectId: task.projectId });
@@ -142,7 +142,7 @@ effectIt.effect("bounds project scans and resumes strictly after the previous ta
     expect((yield* queue.list({ projectId: task.projectId })).projectItems).toEqual([]);
     yield* sql`UPDATE t3po_budgets SET max_concurrent = 0 WHERE project_id = ${task.projectId}`;
     yield* sql`UPDATE t3po_memory_status SET failures = 2 WHERE project_id = ${task.projectId}`;
-    yield* sql`UPDATE t3po_memory_events SET synced_at = 'accepted' WHERE event_id = 'pending'`;
+    yield* sql`UPDATE t3po_memory_events_v2 SET synced_at = 'accepted' WHERE event_id = 'pending'`;
     expect((yield* queue.list({ projectId: task.projectId })).projectItems).toEqual([
       {
         key: `project-budget:${task.projectId}`,
@@ -154,9 +154,9 @@ effectIt.effect("bounds project scans and resumes strictly after the previous ta
       },
     ]);
     yield* sql`DELETE FROM t3po_budgets WHERE project_id = ${task.projectId}`;
-    yield* sql`UPDATE t3po_memory_events SET synced_at = NULL, superseded_by = 'correction' WHERE event_id = 'pending'`;
+    yield* sql`UPDATE t3po_memory_events_v2 SET synced_at = NULL, superseded_by = 'correction' WHERE event_id = 'pending'`;
     expect((yield* queue.list({ projectId: task.projectId })).projectItems).toEqual([]);
-    yield* sql`UPDATE t3po_memory_events SET superseded_by = NULL, kind = 'local_correction' WHERE event_id = 'pending'`;
+    yield* sql`UPDATE t3po_memory_events_v2 SET superseded_by = NULL, kind = 'local_correction' WHERE event_id = 'pending'`;
     expect((yield* queue.list({ projectId: task.projectId })).projectItems).toEqual([]);
   }).pipe(
     Effect.provide(

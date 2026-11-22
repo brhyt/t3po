@@ -29,6 +29,22 @@ export function createT3poAtoms<R, E>(
   });
   return {
     snapshot,
+    activity: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "privacy:activity",
+      tag: WS_METHODS.privacyActivity,
+    }),
+    activityChange: createEnvironmentRpcCommand(runtime, {
+      label: "privacy:activityChange",
+      tag: WS_METHODS.privacyActivityChange,
+    }),
+    controls: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "privacy:controls",
+      tag: WS_METHODS.privacyControls,
+    }),
+    providerChange: createEnvironmentRpcCommand(runtime, {
+      label: "privacy:providerChange",
+      tag: WS_METHODS.privacyProviderChange,
+    }),
     privacySnapshot: createEnvironmentRpcQueryAtomFamily(runtime, {
       label: "privacy:snapshot",
       tag: WS_METHODS.privacySnapshot,

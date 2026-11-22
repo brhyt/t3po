@@ -40,6 +40,8 @@ type WsRpcMethod = RpcGroup.Rpcs<typeof WsRpcGroup>["_tag"];
 
 export const RPC_REQUIRED_SCOPES = {
   ...CLIENT_GUARDED_RPC_SCOPES,
+  [WS_METHODS.privacyActivity]: AuthRelayReadScope,
+  [WS_METHODS.privacyControls]: AuthDiagnosticsReadScope,
   [WS_METHODS.privacySnapshot]: AuthDiagnosticsReadScope,
   [ORCHESTRATION_V2_WS_METHODS.dispatchCommand]: AuthOrchestrationOperateScope,
   [ORCHESTRATION_V2_WS_METHODS.getWorkflowScript]: AuthOrchestrationReadScope,

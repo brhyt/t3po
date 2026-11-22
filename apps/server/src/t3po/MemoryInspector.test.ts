@@ -23,7 +23,7 @@ const services = Inspector.layer.pipe(
 const setup = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   for (let n = 0; n < 23; n++)
-    yield* sql`INSERT INTO t3po_memory_events (event_id, project_id, kind, text, occurred_at, synced_at) VALUES (${`e${n}`}, ${projectId}, 'accepted_result', ${`text${n}`}, '2026-11-18T00:00:00Z', ${n === 22 ? "2026-11-18T01:00:00Z" : null})`;
+    yield* sql`INSERT INTO t3po_memory_events_v2 (event_id, project_id, kind, text, occurred_at, synced_at) VALUES (${`e${n}`}, ${projectId}, 'accepted_result', ${`text${n}`}, '2026-11-18T00:00:00Z', ${n === 22 ? "2026-11-18T01:00:00Z" : null})`;
 });
 it.effect(
   "pages offline without mistaking receipts for processing and rejects unauthorized projects",
@@ -38,6 +38,9 @@ it.effect(
         honchoDelivery: "unknown",
         honchoProcessing: "unknown",
       });
+      const sql = yield* SqlClient.SqlClient;
+      yield* sql`UPDATE t3po_memory_events_v2 SET delivery_held = 1 WHERE event_id = 'e21'`;
+      expect((yield* service.list({ projectId })).entries[1]?.stage).toBe("held_locally");
       const next = yield* service.list({ projectId, before: page.nextCursor! });
       expect(next.entries.map((e) => e.id)).toEqual(["e2", "e1", "e0"]);
       expect(next.nextCursor).toBeNull();
@@ -98,7 +101,7 @@ it.effect(
       const sql = yield* SqlClient.SqlClient;
       const count = yield* sql<{
         n: number;
-      }>`SELECT count(*) AS n FROM t3po_memory_events WHERE kind = 'local_correction'`;
+      }>`SELECT count(*) AS n FROM t3po_memory_events_v2 WHERE kind = 'local_correction'`;
       expect(count[0]?.n).toBe(1);
       yield* service.correct({
         ...input,
@@ -108,7 +111,7 @@ it.effect(
       });
       const active = yield* sql<{
         text: string;
-      }>`SELECT text FROM t3po_memory_events WHERE project_id = ${projectId} AND superseded_by IS NULL ORDER BY sequence DESC LIMIT 1`;
+      }>`SELECT text FROM t3po_memory_events_v2 WHERE project_id = ${projectId} AND superseded_by IS NULL ORDER BY sequence DESC LIMIT 1`;
       expect(active[0]?.text).toBe("Final fact");
     }).pipe(Effect.provide(services.pipe(Layer.provideMerge(Sqlite.layerMemory)))),
 );
@@ -127,10 +130,10 @@ it.effect(
         expectedRevision: 0,
         text: "new",
       };
-      yield* sql`CREATE TRIGGER reject_supersession BEFORE UPDATE ON t3po_memory_events BEGIN SELECT RAISE(ABORT, 'test failure'); END`;
+      yield* sql`CREATE TRIGGER reject_supersession BEFORE UPDATE ON t3po_memory_events_v2 BEGIN SELECT RAISE(ABORT, 'test failure'); END`;
       expect(yield* service.correct(input).pipe(Effect.flip)).toMatchObject({ reason: "storage" });
       expect(
-        yield* sql`SELECT event_id FROM t3po_memory_events WHERE event_id = 'atomic'`,
+        yield* sql`SELECT event_id FROM t3po_memory_events_v2 WHERE event_id = 'atomic'`,
       ).toHaveLength(0);
       yield* sql`DROP TRIGGER reject_supersession`;
       const results = yield* Effect.all(
@@ -142,7 +145,7 @@ it.effect(
       );
       expect(results.filter((result) => result._tag === "Success")).toHaveLength(1);
       expect(
-        yield* sql`SELECT event_id FROM t3po_memory_events WHERE kind = 'local_correction'`,
+        yield* sql`SELECT event_id FROM t3po_memory_events_v2 WHERE kind = 'local_correction'`,
       ).toHaveLength(1);
     }).pipe(Effect.provide(services.pipe(Layer.provideMerge(Sqlite.layerMemory)))),
 );

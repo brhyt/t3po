@@ -105,7 +105,7 @@ const make = Effect.gen(function* () {
         }
         const deliveries = yield* sql<{
           pendingCount: number;
-        }>`SELECT (SELECT count(*) FROM t3po_memory_events e
+        }>`SELECT (SELECT count(*) FROM t3po_memory_events_v2 e
           WHERE e.project_id = ${input.projectId} AND e.synced_at IS NULL
           AND e.superseded_by IS NULL AND e.kind != 'local_correction') AS pendingCount
           FROM t3po_memory_status WHERE project_id = ${input.projectId} AND failures > 0`;

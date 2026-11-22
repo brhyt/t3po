@@ -170,6 +170,7 @@ export default defineConfig({
       : {}),
   },
   staged: {
+    "*.{json,toml}": () => "node scripts/check-agent-secrets.mjs",
     // In order, so lint reads the formatted file. CI lint failures cost a full round trip.
     "*": ["vp fmt --no-error-on-unmatched-pattern", "vp lint --no-error-on-unmatched-pattern"],
     // knip checks the whole repo, so it takes no file list. Any code or manifest change can leave

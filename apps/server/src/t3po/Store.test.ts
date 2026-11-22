@@ -473,7 +473,7 @@ it.effect(
       expect(
         (yield* sql<{
           kind: string;
-        }>`SELECT kind FROM t3po_memory_events WHERE project_id = ${projectId} ORDER BY sequence DESC LIMIT 1`)[0]
+        }>`SELECT kind FROM t3po_memory_events_v2 WHERE project_id = ${projectId} ORDER BY sequence DESC LIMIT 1`)[0]
           ?.kind,
       ).toBe("review_reopened");
     }).pipe(
@@ -754,3 +754,179 @@ it.effect("channel conversations retain identity after rename and share scoped l
     );
   }).pipe(Effect.provide(Store.layer.pipe(Layer.provideMerge(Sqlite.layerMemory)))),
 );
+
+it.effect(
+  "holds stopped memory across restart and requires a current explicit backlog release",
+  () => {
+    const requests: { projectId: string; query: string; events: { text: string }[] }[] = [];
+    const fetcher: typeof globalThis.fetch = async (_url, options) => {
+      const input = JSON.parse(new TextDecoder().decode(options?.body as Uint8Array));
+      requests.push(input);
+      return Response.json({
+        acceptedIds: input.events.map((event: { id: string }) => event.id),
+        context: "",
+        available: true,
+      });
+    };
+    return Effect.gen(function* () {
+      const store = yield* Store.Store;
+      const brief = {
+        type: "save_lead" as const,
+        projectId,
+        name: "Lead",
+        brief: "Before stopping",
+      };
+      yield* store.mutate(brief);
+      yield* store.controlMemory({
+        type: "memory_control",
+        projectId,
+        action: "stop_delivery",
+        expectedDeliveryRevision: 0,
+      });
+      yield* store.mutate({ ...brief, brief: "Captured while stopped" });
+      yield* store.context(projectId, ThreadId.make("t3po-lead:project-a"), "Do not send");
+      expect(requests).toHaveLength(0);
+      const restarted = yield* Store.Store.pipe(Effect.provide(Layer.fresh(Store.layer)));
+      expect((yield* restarted.read).memory[0]?.delivery).toEqual({
+        enabled: false,
+        environmentAllowed: true,
+        held: 2,
+        revision: 1,
+      });
+      yield* restarted.controlMemory({
+        type: "memory_control",
+        projectId,
+        action: "resume_delivery",
+        expectedDeliveryRevision: 1,
+      });
+      yield* restarted.mutate({ ...brief, brief: "New permitted record" });
+      yield* restarted.context(projectId, ThreadId.make("t3po-lead:project-a"));
+      expect(requests[0]?.events.map((event) => event.text)).toEqual(["New permitted record"]);
+      expect(requests[0]?.query).toBe("");
+      expect((yield* restarted.read).memory[0]?.delivery?.held).toBe(2);
+      expect(
+        (yield* restarted
+          .controlMemory({
+            type: "memory_control",
+            projectId,
+            action: "release_backlog",
+            expectedHeldRecords: 2,
+            expectedDeliveryRevision: 1,
+          })
+          .pipe(Effect.flip)).operation,
+      ).toBe("invalid");
+      expect((yield* restarted.read).memory[0]?.delivery?.held).toBe(2);
+      yield* restarted.controlMemory({
+        type: "memory_control",
+        projectId,
+        action: "release_backlog",
+        expectedHeldRecords: 2,
+        expectedDeliveryRevision: 2,
+      });
+      yield* restarted.context(projectId, ThreadId.make("t3po-lead:project-a"));
+      expect(requests[1]?.events.map((event) => event.text)).toEqual([
+        "Before stopping",
+        "Captured while stopped",
+      ]);
+      const sql = yield* SqlClient.SqlClient;
+      expect(
+        yield* sql`SELECT event_id FROM t3po_memory_events_v2 WHERE project_id = ${projectId}`,
+      ).toHaveLength(3);
+      expect((yield* restarted.read).memory[0]?.pending).toBe(0);
+    }).pipe(
+      Effect.provide(
+        Store.layer.pipe(
+          Layer.provideMerge(database),
+          Layer.provideMerge(
+            ConfigProvider.layer(
+              ConfigProvider.fromUnknown({
+                T3PO_MEMORY_URL: "http://memory.test",
+                T3PO_MEMORY_TOKEN: "test-token",
+              }),
+            ),
+          ),
+        ),
+      ),
+      Effect.provideService(FetchHttpClient.Fetch, fetcher),
+    );
+  },
+);
+
+it.effect("retains a disabled-environment backlog when the server is re-enabled", () => {
+  const requests: { events: { text: string }[] }[] = [];
+  const configuredStore = (enabled: boolean) =>
+    Store.Store.pipe(
+      Effect.provide(
+        Layer.fresh(Store.layer).pipe(
+          Layer.provide(
+            ConfigProvider.layer(
+              ConfigProvider.fromUnknown({
+                T3PO_MEMORY_URL: "http://memory.test",
+                T3PO_MEMORY_TOKEN: "test-token",
+                T3PO_MEMORY_EXCHANGE_ENABLED: String(enabled),
+              }),
+            ),
+          ),
+        ),
+      ),
+    );
+  return Effect.gen(function* () {
+    const first = yield* configuredStore(true);
+    const brief = {
+      type: "save_lead" as const,
+      projectId,
+      name: "Lead",
+      brief: "Pending before configuration change",
+    };
+    yield* first.mutate(brief);
+    const disabled = yield* configuredStore(false);
+    yield* disabled.mutate({ ...brief, brief: "Captured with exchange disabled" });
+    expect((yield* disabled.read).memory[0]?.delivery?.held).toBe(2);
+    expect(
+      (yield* disabled
+        .controlMemory({
+          type: "memory_control",
+          projectId,
+          action: "release_backlog",
+          expectedHeldRecords: 2,
+          expectedDeliveryRevision: 0,
+        })
+        .pipe(Effect.flip)).operation,
+    ).toBe("invalid");
+    const enabled = yield* configuredStore(true);
+    yield* enabled.context(projectId, ThreadId.make("t3po-lead:project-a"));
+    expect(requests[0]?.events).toEqual([]);
+    expect((yield* enabled.read).memory[0]?.delivery?.held).toBe(2);
+    yield* enabled.controlMemory({
+      type: "memory_control",
+      projectId,
+      action: "release_backlog",
+      expectedHeldRecords: 2,
+      expectedDeliveryRevision: 0,
+    });
+    yield* enabled.context(projectId, ThreadId.make("t3po-lead:project-a"));
+    expect(requests[1]?.events).toHaveLength(2);
+    const disconnected = yield* Store.Store.pipe(
+      Effect.provide(
+        Layer.fresh(Store.layer).pipe(
+          Layer.provide(ConfigProvider.layer(ConfigProvider.fromUnknown({}))),
+        ),
+      ),
+    );
+    expect((yield* disconnected.read).memory[0]).toMatchObject({
+      configured: false,
+      available: false,
+    });
+  }).pipe(
+    Effect.provide(database),
+    Effect.provideService(FetchHttpClient.Fetch, async (_url, options) => {
+      const input = JSON.parse(new TextDecoder().decode(options?.body as Uint8Array));
+      requests.push(input);
+      return Response.json({
+        acceptedIds: input.events.map((event: { id: string }) => event.id),
+        context: "",
+        available: true,
+      });
+    }),
+  );
+});
