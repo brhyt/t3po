@@ -62,6 +62,8 @@
         "scripts/update-test-shard-weights.ts",
         "scripts/verify-background-live.ts",
         "src/provider/testFixtures/*.mjs",
+        // Invoked by deploy/restricted/adapter_proof.py.
+        "src/orchestration-v2/Adapters/CodexAdapterV2.restricted-proof.ts",
         // graphqlgen reads its config.
         "graphql.config.ts",
       ],
