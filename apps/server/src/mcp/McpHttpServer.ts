@@ -1,3 +1,5 @@
+import * as ExternalActionHandlers from "./toolkits/externalActions/handlers.ts";
+import { ExternalActionsToolkit } from "./toolkits/externalActions/tools.ts";
 import * as SpacePolicy from "../t3po/SpacePolicy.ts";
 import * as T3poWork from "../t3po/Work.ts";
 import * as Cause from "effect/Cause";
@@ -1351,6 +1353,11 @@ export const layerAttachmentToolkit = toolkitRegistration(
   AttachmentHandlers.layer,
 );
 
+export const layerExternalActionsToolkit = toolkitRegistration(
+  ExternalActionsToolkit,
+  ExternalActionHandlers.layer,
+);
+
 export const layerPullRequestsToolkit = toolkitRegistration(
   PullRequestsToolkit,
   PullRequestsHandlers.layer,
@@ -1413,6 +1420,7 @@ export const layerTools = Layer.mergeAll(
   layerThemeToolkit,
   layerPreviewControlsRegistration,
   layerWorktreeToolkitRegistration,
+  layerExternalActionsToolkit,
   layerPullRequestsToolkit,
   layerIssuesToolkit,
   layerDeviceToolkit,

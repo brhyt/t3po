@@ -1,3 +1,5 @@
+import Migration0112 from "./Migrations/112_T3poExternalActions.ts";
+import Migration0111 from "./Migrations/111_T3poJobGrants.ts";
 import Migration0110 from "./Migrations/110_T3poTaskRevisions.ts";
 import Migration0106 from "./Migrations/106_T3poWorkstreams.ts";
 import Migration0109 from "./Migrations/109_T3poSpaceRules.ts";
@@ -233,6 +235,8 @@ const migrationEntries = [
   [108, "T3poSpaceConnections", Migration0108],
   [109, "T3poSpaceRules", Migration0109],
   [110, "T3poTaskRevisions", Migration0110],
+  [111, "T3poJobGrants", Migration0111],
+  [112, "T3poExternalActions", Migration0112],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);

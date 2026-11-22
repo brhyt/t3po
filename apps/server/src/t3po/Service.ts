@@ -92,6 +92,7 @@ const make = Effect.gen(function* () {
         { concurrency: 8 },
       );
       return {
+        externalBindings: records.externalBindings,
         spaceConnections: records.spaceConnections,
         sharedResources: records.sharedResources,
         spaces: records.spaces,
@@ -246,6 +247,9 @@ const make = Effect.gen(function* () {
         ...(task
           ? {
               initialMessage: {
+                ...("messageId" in selection && selection.messageId
+                  ? { messageId: selection.messageId }
+                  : {}),
                 text: ("brief" in selection ? selection.brief : undefined) ?? task.brief,
                 attachments: [],
               },

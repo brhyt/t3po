@@ -1,3 +1,5 @@
+import { prepareProposalThread } from "./ProposalExecutionIdentity.ts";
+import { McpSessionRegistry } from "../mcp/McpSessionRegistry.ts";
 import { workRoutingInstructions } from "../t3po/WorkInstructions.ts";
 import * as T3poStore from "../t3po/Store.ts";
 import { modelSelectionsEqual } from "@t3tools/shared/model";
@@ -219,6 +221,7 @@ export const layer: Layer.Layer<
   ProviderTurnStartServiceV2,
   never,
   | T3poStore.Store
+  | McpSessionRegistry
   | EventSink.EventSinkV2
   | ContextHandoffService.ContextHandoffServiceV2
   | IdAllocator.IdAllocatorV2
@@ -239,6 +242,7 @@ export const layer: Layer.Layer<
   Effect.gen(function* () {
     const eventSink = yield* EventSink.EventSinkV2;
     const t3poStore = yield* T3poStore.Store;
+    const proposalRegistry = yield* McpSessionRegistry;
     const turnAnalytics = yield* ProviderUsageAnalytics.ProviderTurnAnalytics;
     const contextHandoffService = yield* ContextHandoffService.ContextHandoffServiceV2;
     const idAllocator = yield* IdAllocator.IdAllocatorV2;
@@ -494,6 +498,7 @@ export const layer: Layer.Layer<
         return;
       }
       captureStartingRun(run);
+      yield* t3poStore.checkStart(input.threadId, input.runId);
       const rootNode = projection.nodes.find((candidate) => candidate.id === run.rootNodeId);
       const attempt = projection.attempts.find((candidate) => candidate.id === run.activeAttemptId);
       const providerThread = projection.providerThreads.find(
@@ -880,7 +885,43 @@ export const layer: Layer.Layer<
         });
         return;
       }
-      const session = sessionResult.success;
+      const rawSession = sessionResult.success;
+      const guard = <A, E, R>(operation: Effect.Effect<A, E, R>) =>
+        t3poStore
+          .checkStart(input.threadId, input.runId, {
+            cwd: rawSession.providerSession.cwd,
+            worktreePath: projection.thread.worktreePath,
+            branch: projection.thread.branch,
+          })
+          .pipe(
+            Effect.mapError(
+              (cause) =>
+                new ProviderAdapter.ProviderAdapterTurnStartError({
+                  driver: rawSession.driver,
+                  threadId: projection.thread.id,
+                  providerThreadId: providerThread.id,
+                  runId: run.id,
+                  cause,
+                }),
+            ),
+            Effect.andThen(operation),
+          );
+      const session: typeof rawSession = {
+        ...rawSession,
+        startTurn: (input) => guard(Effect.suspend(() => rawSession.startTurn(input))),
+        ...(rawSession.resumeTurn === undefined
+          ? {}
+          : {
+              resumeTurn: (input: ProviderAdapter.ProviderAdapterV2ResumeTurnInput) =>
+                guard(Effect.suspend(() => rawSession.resumeTurn!(input))),
+            }),
+        ...(rawSession.compactThread === undefined
+          ? {}
+          : {
+              compactThread: (input: Parameters<typeof rawSession.startTurn>[0]) =>
+                guard(Effect.suspend(() => rawSession.compactThread!(input))),
+            }),
+      };
       if (!(yield* isCurrentAttemptInStatus("starting"))) return;
       const loadFromProvider = Effect.fn("ProviderTurnStartService.loadFromProvider")(function* (
         load: Effect.Effect<OrchestrationV2ProviderThread, ProviderAdapter.ProviderAdapterV2Error>,
@@ -1230,6 +1271,53 @@ export const layer: Layer.Layer<
       let portableForkFallback: OrchestrationV2ContextHandoff | undefined;
       let recoveryTurnItem: OrchestrationV2TurnItem | undefined;
       const loadedProviderThread = yield* Effect.gen(function* () {
+        if (
+          session.driver === "codex" &&
+          (yield* t3poStore.proposalEnabled(projection.thread.id))
+        ) {
+          const loaded = yield* loadFromProvider(
+            prepareProposalThread({
+              runtime: session,
+              thread: {
+                threadId: projection.thread.id,
+                title: projection.thread.title,
+                modelSelection: run.modelSelection,
+                runtimePolicy: resolvedRuntimePolicy,
+                providerSessionId,
+                existingProviderThread: {
+                  ...providerThread,
+                  nativeThreadRef: null,
+                  forkedFrom: null,
+                },
+              },
+              runId,
+              attemptId: attempt.id,
+            }).pipe(
+              Effect.provideService(McpSessionRegistry, proposalRegistry),
+              Effect.provideService(ProjectionStore.ProjectionStoreV2, projectionStore),
+            ),
+          );
+          if (loaded === undefined) return undefined;
+          if (projection.runs.some((previous) => previous.ordinal < run.ordinal)) {
+            const recovered = yield* recoveryHandoff;
+            const handoff = { ...recovered.handoff, transferId: null };
+            effectiveHandoffs = withRecoveryHandoff(handoff);
+            yield* eventSink.write({
+              events: [
+                {
+                  id: yield* idAllocator.allocate.event({ threadId: projection.thread.id }),
+                  type: "context-handoff.updated",
+                  threadId: projection.thread.id,
+                  runId,
+                  providerInstanceId: run.providerInstanceId,
+                  occurredAt: recovered.createdAt,
+                  payload: handoff,
+                },
+              ],
+            });
+          }
+          return loaded;
+        }
         if (nativeForkTransfer !== undefined) {
           const sourceProjection = yield* projectionStore.getThreadRecords(
             nativeForkTransfer.sourceThreadId,
@@ -1866,6 +1954,7 @@ export const layer: Layer.Layer<
             persist: persistHandoff,
           });
           if (!(yield* isCurrentAttemptInStatus("running"))) return;
+          yield* t3poStore.checkStart(input.threadId, input.runId);
           const start = compact ? session.compactThread! : session.startTurn;
           // Like history, the side chat context waits for a turn that sends a prompt.
           const sideChatContext =

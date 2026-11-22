@@ -3450,6 +3450,14 @@ it.effect.each(["main", "sole", "explicit", "ambiguous"] as const)(
                 ? { type: "worktree", baseRef: expectedBase, startFromOrigin: false }
                 : { type: "worktree" },
           });
+          yield* service.mutate({
+            type: "save_job_grant",
+            projectId,
+            id: "local-task",
+            expectedVersion: 0,
+            briefRevision: 1,
+            expiresAt: "2099-01-01T00:00:00.000Z",
+          });
           const launch = service.launch({
             projectId,
             taskId: "local-task",
@@ -3910,9 +3918,9 @@ it.effect("reports task preparation failure before provider context is construct
   }).pipe(Effect.provide(T3poService.layer.pipe(Layer.provideMerge(support))));
 });
 
-it.effect(
-  "reports a task through launch, provider replay, finalization and the durable outbox",
-  () =>
+it.effect.each([false, true])(
+  "reports a task through launch, provider replay, finalization and the durable outbox (grant=%s)",
+  (granted) =>
     Effect.gen(function* () {
       const workspace = yield* (yield* FileSystem.FileSystem).makeTempDirectoryScoped();
       const raw = yield* ReplayTranscript.readProviderReplayTranscript(
@@ -3989,6 +3997,17 @@ it.effect(
           brief: "Respond with the following text: fixture simple ok",
           origin: { threadId: origin.threadId, messageId: MessageId.make("replay-origin") },
         });
+        if (granted)
+          yield* service.mutate({
+            type: "save_job_grant",
+            projectId,
+            id: "replay-report",
+            expectedVersion: 0,
+            briefRevision: 1,
+            expiresAt: "2099-01-01T00:00:00.000Z",
+            maxRuns: 1,
+            maxConcurrent: 1,
+          });
         const launched = yield* service.launch({
           projectId,
           taskId: "replay-report",
@@ -4060,4 +4079,60 @@ it.effect(
         expect(JSON.parse(executions[0]!.result_json).text).toBe("fixture simple ok");
       }).pipe(Effect.provide(T3poService.layer.pipe(Layer.provideMerge(support))));
     }).pipe(Effect.provide(NodeServices.layer)),
+);
+
+it.effect(
+  "retries a rejected grant launch after editing and regranting, retaining accepted replay",
+  () => {
+    const harness = makeHarness({});
+    const support = Layer.mergeAll(
+      harness.layer,
+      T3poChanges.layer,
+      T3poApplicationEvents.layer.pipe(Layer.provide(harness.layer)),
+    );
+    return Effect.gen(function* () {
+      const service = yield* T3poService.Service;
+      yield* service.mutate({ type: "save_lead", projectId, name: "Lead", brief: "Work" });
+      yield* service.mutate({ type: "save_budget", projectId, maxRuns: 5, maxConcurrent: 1 });
+      yield* service.mutate({
+        type: "create_task",
+        projectId,
+        id: "retry-grant",
+        channelId: null,
+        title: "Test",
+        brief: "Old",
+        workspace: { type: "root" },
+      });
+      const grant = {
+        type: "save_job_grant" as const,
+        projectId,
+        id: "retry-grant",
+        expectedVersion: 0,
+        briefRevision: 1,
+        expiresAt: "2099-01-01T00:00:00.000Z",
+        maxRuns: 0,
+      };
+      yield* service.mutate(grant);
+      const launch = {
+        projectId,
+        taskId: "retry-grant",
+        modelSelection,
+        runtimeMode: "approval-required" as const,
+      };
+      expect(yield* service.launch(launch).pipe(Effect.isFailure)).toBe(true);
+      yield* service.mutate({
+        type: "edit_task",
+        projectId,
+        id: "retry-grant",
+        channelId: null,
+        title: "Test",
+        brief: "New",
+      });
+      yield* service.mutate({ ...grant, expectedVersion: 1, briefRevision: 2, maxRuns: 1 });
+      const accepted = yield* service.launch(launch);
+      yield* preparationSettled(accepted.threadId);
+      expect(yield* service.launch(launch)).toEqual(accepted);
+      expect((yield* service.snapshot({ projectId })).leads[0]?.budget?.usedRuns).toBe(1);
+    }).pipe(Effect.provide(T3poService.layer.pipe(Layer.provideMerge(support))));
+  },
 );

@@ -2724,6 +2724,88 @@ layer("GitHubPullRequestApi.layer", (it) => {
     }),
   );
 
+  it.effect(
+    "checks exact draft targets without reusing a cached node and refuses changed targets",
+    () =>
+      Effect.gen(function* () {
+        const provider = yield* GitHubPullRequestProvider.make;
+        route([NODE_ID_QUERY, nodeIdAnswer("PR_cached")]);
+        yield* provider.runAction({ ...pullRequestInput, action: "draft" });
+        mockedExecute.mockClear();
+        route([NODE_ID_QUERY, nodeIdAnswer("PR_current")]);
+        const mismatch = yield* Effect.result(
+          provider.runAction({
+            ...pullRequestInput,
+            action: "draft",
+            expectedDraftNodeId: "PR_cached",
+          }),
+        );
+        expect(mismatch._tag).toBe("Failure");
+        expect(variablesOf("convertPullRequestToDraft(")).toEqual([]);
+        yield* provider.runAction({
+          ...pullRequestInput,
+          action: "draft",
+          expectedDraftNodeId: "PR_current",
+        });
+        expect(variablesOf(NODE_ID_QUERY)).toHaveLength(2);
+        expect(variablesOf("convertPullRequestToDraft(")).toEqual([
+          { pullRequestId: "PR_current" },
+        ]);
+      }),
+  );
+
+  it.effect(
+    "checks the authorization claim after fresh target resolution and before mutation",
+    () =>
+      Effect.gen(function* () {
+        const provider = yield* GitHubPullRequestProvider.make;
+        route([NODE_ID_QUERY, nodeIdAnswer("PR_current")]);
+        let checked = 0;
+        const beforeMutation = Effect.sync(() => {
+          expect(variablesOf(NODE_ID_QUERY)).toHaveLength(1);
+          expect(variablesOf("convertPullRequestToDraft(")).toEqual([]);
+          checked++;
+          return false;
+        });
+        expect(
+          (yield* Effect.result(
+            provider.runAction({
+              ...pullRequestInput,
+              action: "draft",
+              expectedDraftNodeId: "PR_current",
+              beforeMutation,
+            }),
+          ))._tag,
+        ).toBe("Failure");
+        expect(checked).toBe(1);
+        expect(variablesOf("convertPullRequestToDraft(")).toEqual([]);
+      }),
+  );
+
+  it.effect("refuses exact draft targets on another action, a stack, or a missing PR", () =>
+    Effect.gen(function* () {
+      const provider = yield* GitHubPullRequestProvider.make;
+      route([NODE_ID_QUERY, { data: { repository: { pullRequest: null } } }]);
+      for (const input of [
+        { action: "close" as const },
+        { action: "draft" as const, stackNumber: 7 },
+        { action: "draft" as const },
+      ]) {
+        expect(
+          (yield* Effect.result(
+            provider.runAction({
+              ...pullRequestInput,
+              ...input,
+              expectedDraftNodeId: "PR_current",
+            }),
+          ))._tag,
+        ).toBe("Failure");
+      }
+      expect(variablesOf("convertPullRequestToDraft(")).toEqual([]);
+      expect(variablesOf("closePullRequest(")).toEqual([]);
+    }),
+  );
+
   it.effect("refuses to merge when the proposed message cannot be read", () =>
     Effect.gen(function* () {
       route(

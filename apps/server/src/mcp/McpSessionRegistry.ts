@@ -20,6 +20,11 @@ export interface McpCredentialRequest {
   readonly browserToolsAvailable?: boolean;
   readonly capabilities?: ReadonlySet<McpInvocationContext.McpCapability>;
   readonly subagent?: boolean;
+  /** Server-only opt-in; never constructed from MCP arguments or headers. */
+  readonly proposalExecution?: {
+    readonly scope: McpInvocationContext.McpProposalExecution;
+    readonly isActive: Effect.Effect<boolean>;
+  };
 }
 
 export interface McpIssuedCredential {
@@ -53,6 +58,7 @@ interface CredentialRecord {
   readonly lastAlive: AliveMark;
   /** Set when a request finds the token idle; only `touch` clears it, whatever the clocks do. */
   readonly expired: boolean;
+  readonly isActive?: Effect.Effect<boolean>;
 }
 
 interface RegistryState {
@@ -133,25 +139,47 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
           providerSessionId,
           providerInstanceId: ProviderInstanceId.make(request.providerInstanceId),
           subagent: request.subagent === true,
+          ...(request.proposalExecution
+            ? { proposalExecution: { ...request.proposalExecution.scope } }
+            : {}),
         },
         client: undefined,
-        capabilities: new Set<McpInvocationContext.McpCapability>([
-          "orchestration",
-          "worktree",
-          "pull-requests",
-          "issues",
-          ...(request.capabilities ?? (browserToolsAvailable ? (["preview"] as const) : [])),
-        ]),
+        capabilities: new Set<McpInvocationContext.McpCapability>(
+          request.proposalExecution
+            ? []
+            : [
+                "orchestration",
+                "worktree",
+                "pull-requests",
+                "issues",
+                ...(request.capabilities ?? (browserToolsAvailable ? (["preview"] as const) : [])),
+              ],
+        ),
         issuedAt: issuedAlive.wallMs,
       };
       yield* SynchronizedRef.update(state, ({ records }) => {
         const next = new Map(records);
-        next.set(tokenHash, { tokenHash, scope, lastAlive: issuedAlive, expired: false });
+        if (request.proposalExecution) {
+          for (const [hash, record] of next) {
+            if (record.scope.thread.threadId === request.threadId && record.isActive)
+              next.delete(hash);
+          }
+        }
+        next.set(tokenHash, {
+          tokenHash,
+          scope,
+          lastAlive: issuedAlive,
+          expired: false,
+          ...(request.proposalExecution ? { isActive: request.proposalExecution.isActive } : {}),
+        });
         return { records: next };
       });
       return {
         config: {
           environmentId,
+          ...(scope.thread.proposalExecution
+            ? { proposalExecution: scope.thread.proposalExecution }
+            : {}),
           threadId: scope.thread.threadId,
           providerSessionId,
           providerInstanceId: scope.thread.providerInstanceId,
@@ -169,18 +197,24 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
       if (rawToken.length === 0) return undefined;
       const tokenHash = yield* hashToken(rawToken);
       const alive = yield* currentAliveMark;
-      return yield* SynchronizedRef.modify(state, ({ records }) => {
-        const record = records.get(tokenHash);
-        if (!record || record.expired) return [undefined, { records }] as const;
-        if (idleMs(record.lastAlive, alive) > livenessWindowMs) {
+      return yield* SynchronizedRef.modifyEffect(state, ({ records }) =>
+        Effect.gen(function* () {
+          const record = records.get(tokenHash);
+          if (!record || record.expired) return [undefined, { records }] as const;
+          if (
+            idleMs(record.lastAlive, alive) > livenessWindowMs ||
+            (record.isActive && !(yield* record.isActive))
+          ) {
+            const next = new Map(records);
+            next.set(tokenHash, { ...record, expired: true });
+            return [undefined, { records: next }] as const;
+          }
           const next = new Map(records);
-          next.set(tokenHash, { ...record, expired: true });
-          return [undefined, { records: next }] as const;
-        }
-        const next = new Map(records);
-        next.set(tokenHash, { ...record, lastAlive: alive });
-        return [record.scope, { records: next }] as const;
-      });
+          // Execution credentials have an absolute lifetime; calls and session heartbeats cannot renew them.
+          next.set(tokenHash, record.isActive ? record : { ...record, lastAlive: alive });
+          return [record.scope, { records: next }] as const;
+        }),
+      );
     },
   );
 
@@ -190,7 +224,7 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
       yield* SynchronizedRef.update(state, ({ records }) => {
         const next = new Map(records);
         for (const [tokenHash, record] of records) {
-          if (record.scope.thread.threadId === threadId) {
+          if (record.scope.thread.threadId === threadId && !record.isActive) {
             next.set(tokenHash, { ...record, lastAlive: alive, expired: false });
           }
         }

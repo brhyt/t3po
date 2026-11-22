@@ -1,3 +1,4 @@
+import * as ExternalActionExecutor from "../../t3po/ExternalActionExecutor.ts";
 import * as T3poChanges from "../../t3po/Changes.ts";
 import * as T3poStore from "../../t3po/Store.ts";
 import * as OtelEnvironment from "@t3tools/shared/otelEnvironment";
@@ -281,6 +282,11 @@ export function layerWithRegistry<Error>(
       SqlClient.SqlClient,
       MigrationError | PlatformError.PlatformError | SqlError
     >;
+    readonly externalActionExecutorLayer?: Layer.Layer<
+      ExternalActionExecutor.ExternalActionExecutor,
+      never,
+      EventSink.EventSinkV2 | SqlClient.SqlClient
+    >;
     readonly runEffectWorker?: boolean;
     readonly runContinuationWorker?: boolean;
     readonly recoverOnStartup?: boolean;
@@ -445,6 +451,8 @@ export function layerWithRegistry<Error>(
     ),
     Layer.provide(
       Layer.mergeAll(
+        McpSessionRegistryTestkit.layer,
+        layerDatabase,
         layerContextHandoffServiceProvided,
         layerEventSinkProvided,
         IdAllocator.layer,
@@ -554,6 +562,12 @@ export function layerWithRegistry<Error>(
         )
       : Layer.empty;
   const layerEffectExecutorProvided = EffectWorker.layerExecutor.pipe(
+    Layer.provide(
+      (
+        options.externalActionExecutorLayer ??
+        Layer.mock(ExternalActionExecutor.ExternalActionExecutor)({})
+      ).pipe(Layer.provide(layerEventSinkProvided), Layer.provide(layerDatabase)),
+    ),
     Layer.provide(layerEventSinkProvided),
     Layer.provide(
       Layer.mergeAll(

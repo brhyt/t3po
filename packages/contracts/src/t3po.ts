@@ -88,7 +88,20 @@ const TaskIntentFields = {
   desiredOutcome: Schema.optional(TrimmedNonEmptyString.check(Schema.isMaxLength(12000))),
   completionPolicy: Schema.optional(Schema.Literal("human_review")),
 };
+const T3poJobGrant = Schema.Struct({
+  version: NonNegativeInt,
+  briefRevision: NonNegativeInt,
+  spaceId: Schema.NullOr(Schema.String),
+  workspace: T3poWorkspace,
+  route: Schema.Literal("local"),
+  workspaceRoot: Schema.NullOr(Schema.String),
+  expiresAt: Schema.String,
+  revoked: Schema.Boolean,
+  maxRuns: NonNegativeInt,
+  maxConcurrent: NonNegativeInt,
+});
 export const T3poTask = Schema.Struct({
+  grant: Schema.optional(T3poJobGrant),
   ...TaskIntentFields,
   briefRevision: Schema.optional(NonNegativeInt),
   workstreamId: Schema.optional(TrimmedNonEmptyString),
@@ -199,7 +212,16 @@ export const T3poConversation = Schema.Struct({
   threadId: ThreadId,
   channelId: TrimmedNonEmptyString,
 });
+export const T3poExternalBinding = Schema.Struct({
+  projectId: ProjectId,
+  version: NonNegativeInt,
+  accountId: TrimmedNonEmptyString,
+  host: Schema.Literal("github.com"),
+  repository: TrimmedNonEmptyString,
+  enabled: Schema.Boolean,
+});
 export const T3poSnapshot = Schema.Struct({
+  externalBindings: Schema.optional(Schema.Array(T3poExternalBinding)),
   spaceConnections: Schema.optional(Schema.Array(T3poSpaceConnection)),
   sharedResources: Schema.optional(Schema.Array(T3poSharedResource)),
   spaces: Schema.optional(Schema.Array(T3poSpace)),
@@ -213,7 +235,32 @@ export const T3poSnapshot = Schema.Struct({
   tasks: Schema.Array(T3poTaskView),
 });
 export const T3poMutation = Schema.Union([
+  Schema.Struct({
+    type: Schema.Literal("save_external_binding"),
+    projectId: ProjectId,
+    expectedVersion: NonNegativeInt,
+    accountId: TrimmedNonEmptyString,
+    host: Schema.Literal("github.com"),
+    repository: TrimmedNonEmptyString,
+    enabled: Schema.Boolean,
+  }),
   T3poMemoryControl,
+  Schema.Struct({
+    type: Schema.Literal("save_job_grant"),
+    projectId: ProjectId,
+    id: TrimmedNonEmptyString,
+    briefRevision: NonNegativeInt,
+    expectedVersion: NonNegativeInt,
+    expiresAt: Schema.String,
+    maxRuns: Schema.optional(NonNegativeInt),
+    maxConcurrent: Schema.optional(NonNegativeInt),
+  }),
+  Schema.Struct({
+    type: Schema.Literal("revoke_job_grant"),
+    projectId: ProjectId,
+    id: TrimmedNonEmptyString,
+    expectedVersion: NonNegativeInt,
+  }),
   Schema.Struct({
     type: Schema.Literal("save_space_rules"),
     projectId: ProjectId,
@@ -344,10 +391,24 @@ export class T3poError extends Schema.TaggedError<T3poError>()("T3poError", {
     "workspace",
     "budget",
     "approval",
+    "grant_invalid",
+    "grant_stale",
+    "grant_revoked",
+    "grant_expired",
+    "grant_exhausted",
   ]),
   cause: Schema.optional(Schema.Defect()),
 }) {
   override get message() {
+    if (this.operation === "grant_invalid")
+      return "The job grant or its execution binding is unavailable or invalid.";
+    if (this.operation === "grant_stale")
+      return "The job grant changed. Review the current brief and grant before starting again.";
+    if (this.operation === "grant_revoked") return "This job grant has been revoked.";
+    if (this.operation === "grant_expired")
+      return "This job grant has expired. Review and renew it before starting again.";
+    if (this.operation === "grant_exhausted")
+      return "This job grant has reached its run or concurrency limit.";
     if (this.operation === "space_busy")
       return "Wait for active runs and background agents on this computer to finish before changing a project’s Space.";
     if (this.operation === "space_nonempty")

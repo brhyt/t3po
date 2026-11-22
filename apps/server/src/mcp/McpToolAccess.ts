@@ -427,7 +427,9 @@ const routed = Effect.fn("McpToolAccess.routed")(function* <Tools extends Record
     if (
       remote === undefined &&
       Context.getOrUndefined(tool.annotations, McpSchema.EnabledWhen) !==
-        McpInvocationContext.hiddenFromOutsideClients
+        McpInvocationContext.hiddenFromOutsideClients &&
+      Context.getOrUndefined(tool.annotations, McpSchema.EnabledWhen) !==
+        McpInvocationContext.hiddenWithoutProposal
     )
       return yield* Effect.die(
         `${name} acts as its calling thread, so outside clients must not be offered it.`,

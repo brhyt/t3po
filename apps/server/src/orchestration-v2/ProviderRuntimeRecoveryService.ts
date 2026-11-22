@@ -327,13 +327,17 @@ export const make = Effect.gen(function* () {
         pendingRequests
           .filter(
             (request) =>
-              request.responseCapability.type === "message" || recoveredRequestIds.has(request.id),
+              request.responseCapability.type === "message" ||
+              request.responseCapability.type === "server_action" ||
+              recoveredRequestIds.has(request.id),
           )
           .map((request) => request.nodeId),
       );
       const requests = pendingRequests.filter(
         (request) =>
-          request.responseCapability.type !== "message" && !recoveredRequestIds.has(request.id),
+          request.responseCapability.type !== "message" &&
+          request.responseCapability.type !== "server_action" &&
+          !recoveredRequestIds.has(request.id),
       );
       // Delegated task rows, items and nodes stay open: the child settles them.
       const delegatedTaskNodeIds = new Set<string>([

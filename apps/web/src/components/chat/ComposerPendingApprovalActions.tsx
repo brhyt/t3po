@@ -17,6 +17,7 @@ interface ComposerPendingApprovalActionsProps {
   isResponding: boolean;
   canRespond: boolean;
   disabled?: boolean;
+  oneTimeOnly?: boolean;
   options?: ReadonlyArray<ProviderApprovalOption> | undefined;
   onRespondToApproval: (
     requestId: RuntimeRequestId,
@@ -46,6 +47,7 @@ export const ComposerPendingApprovalActions = memo(function ComposerPendingAppro
   isResponding,
   canRespond,
   disabled = false,
+  oneTimeOnly = false,
   options = DEFAULT_APPROVAL_OPTIONS,
   onRespondToApproval,
 }: ComposerPendingApprovalActionsProps) {
@@ -53,10 +55,18 @@ export const ComposerPendingApprovalActions = memo(function ComposerPendingAppro
   const m = useMessages();
   // Provider options carry server-authored labels; only the built-in defaults are translated.
   const optionLabel = (label: string) => (options === DEFAULT_APPROVAL_OPTIONS ? m(label) : label);
-  const primaryOptions = options.filter(
+  const allowedOptions = oneTimeOnly
+    ? options.filter(
+        (option) =>
+          option.decision === "accept" ||
+          option.decision === "decline" ||
+          option.decision === "cancel",
+      )
+    : options;
+  const primaryOptions = allowedOptions.filter(
     (option) => option.decision === "decline" || option.decision === "accept",
   );
-  const moreOptions = options.filter(
+  const moreOptions = allowedOptions.filter(
     (option) => option.decision !== "decline" && option.decision !== "accept",
   );
 

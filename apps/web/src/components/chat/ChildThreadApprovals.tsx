@@ -35,7 +35,7 @@ function ChildApproval({ entry }: { entry: ChildThreadApproval }) {
         {approval.detail || approval.requestKind}
       </pre>
       {approval.appName ? <p className="mt-2 text-muted-foreground">{approval.appName}</p> : null}
-      {approval.responseCapability !== "live" ? (
+      {approval.responseCapability === "not_resumable" ? (
         <p className="mt-2 text-warning">
           <T>Provider process is gone. Interrupt or restart the child thread to respond.</T>
         </p>
@@ -51,9 +51,10 @@ function ChildApproval({ entry }: { entry: ChildThreadApproval }) {
           presentation="inline"
           requestId={approval.requestId}
           isResponding={responding}
-          canRespond={approval.responseCapability === "live"}
+          canRespond={approval.responseCapability !== "not_resumable"}
           disabled={!canRespond}
           options={approval.options}
+          oneTimeOnly={approval.responseCapability === "server_action"}
           onRespondToApproval={async (requestId, decision) => {
             if (!canRespond || responding) return;
             setResponding(true);

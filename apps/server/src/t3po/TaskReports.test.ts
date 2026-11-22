@@ -1,3 +1,4 @@
+import * as ExternalActionExecutor from "./ExternalActionExecutor.ts";
 import { reserve } from "./Work.ts";
 import * as Changes from "./Changes.ts";
 import * as Worker from "../orchestration-v2/EffectWorker.ts";
@@ -45,6 +46,7 @@ const persistence = Layer.mergeAll(
   Layer.provideMerge(Sqlite.layerMemory),
 );
 const layer = Worker.layerExecutor.pipe(
+  Layer.provide(Layer.mock(ExternalActionExecutor.ExternalActionExecutor)({})),
   Layer.provide(
     Layer.mergeAll(
       Layer.mock(ProviderSessionManager.ProviderSessionManagerV2)({}),

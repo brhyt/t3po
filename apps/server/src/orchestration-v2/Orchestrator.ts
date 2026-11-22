@@ -10906,6 +10906,21 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         });
       }
       if (
+        runtimeRequest.responseCapability.type === "server_action" &&
+        ((command.decision !== "accept" &&
+          command.decision !== "decline" &&
+          command.decision !== "cancel") ||
+          command.answers !== undefined ||
+          command.feedback !== undefined ||
+          command.attachmentsByQuestionId !== undefined)
+      ) {
+        return yield* new OrchestratorDispatchError({
+          commandId: command.commandId,
+          commandType: command.type,
+          cause: "Server actions require a one-time accept, decline, or cancel decision.",
+        });
+      }
+      if (
         command.feedback !== undefined &&
         (runtimeRequest.responseCapability.type !== "live" ||
           !runtimeRequest.responseCapability.supportsFeedback ||
@@ -11205,6 +11220,21 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         };
         yield* dispatchMessage(answer, events, effects);
         return yield* recordSubagentFollowup(answer, events).pipe(mapDispatchError(answer));
+      }
+      if (runtimeRequest.responseCapability.type === "server_action") {
+        if (command.decision === "accept") {
+          const operationId = runtimeRequest.responseCapability.operationId;
+          yield* Ref.update(effects, (existing) => [
+            ...existing,
+            {
+              id: `t3po-external-action:${operationId}`,
+              commandId: command.commandId,
+              threadId: command.threadId,
+              request: { type: "t3po.external-action", operationId },
+            } satisfies PendingOrchestrationEffectV2,
+          ]);
+        }
+        return;
       }
       if (providerSessionId === null) return;
       if (runtimeRequest.kind === "user_input" && resolvedNodeStatus === "completed") {
@@ -12597,6 +12627,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     for (const request of input.projection.runtimeRequests) {
       if (
         request.status !== "pending" ||
+        request.responseCapability.type === "server_action" ||
         !input.projection.nodes.some((node) => node.id === request.nodeId && node.runId === run.id)
       )
         continue;

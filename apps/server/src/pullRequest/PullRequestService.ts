@@ -235,6 +235,12 @@ export class PullRequestService extends Context.Service<
     readonly withSharedProjectReads: <A, E, R>(
       effect: Effect.Effect<A, E, R>,
     ) => Effect.Effect<A, E, R>;
+    readonly draftTarget: (
+      input: PullRequestRef,
+    ) => Effect.Effect<
+      { readonly nodeId: string; readonly summary: PullRequestSummary },
+      PullRequestError
+    >;
     readonly detail: (input: PullRequestRef) => Effect.Effect<PullRequestDetail, PullRequestError>;
     readonly preview: (
       input: PullRequestRef,
@@ -269,7 +275,10 @@ export class PullRequestService extends Context.Service<
       input: PullRequestRef,
     ) => Effect.Effect<PullRequestChangeBreakdown, PullRequestError>;
     readonly runAction: (
-      input: PullRequestActionInput,
+      input: PullRequestActionInput & {
+        readonly expectedDraftNodeId?: string;
+        readonly beforeMutation?: Effect.Effect<boolean>;
+      },
     ) => Effect.Effect<PullRequestSummary | undefined, PullRequestError>;
     readonly update: (input: PullRequestUpdateInput) => Effect.Effect<void, PullRequestError>;
     readonly comment: (input: PullRequestCommentInput) => Effect.Effect<void, PullRequestError>;
@@ -575,6 +584,9 @@ function withRateLimitBackoff(
     ...(api.getChangeRequestChecks === undefined
       ? {}
       : { getChangeRequestChecks: wrap("getChangeRequestChecks", api.getChangeRequestChecks) }),
+    ...(api.getDraftTarget === undefined
+      ? {}
+      : { getDraftTarget: wrap("getDraftTarget", api.getDraftTarget) }),
     ...(api.getChangeRequestSummary === undefined
       ? {}
       : {
@@ -1823,6 +1835,50 @@ export const make = Effect.gen(function* () {
       : { autoMergeMethod: changeRequest.autoMergeMethod }),
   });
 
+  const draftTarget: PullRequestService["Service"]["draftTarget"] = Effect.fn(
+    "PullRequestService.draftTarget",
+  )(function* (input) {
+    const { supported } = yield* listWorkspaceProjects({ projectId: input.projectId });
+    const own = supported[0];
+    if (
+      !input.expectedAccountId ||
+      input.host !== "github.com" ||
+      !own ||
+      own.project.id !== input.projectId ||
+      own.host !== input.host ||
+      own.repository.toLowerCase() !== input.repository.toLowerCase()
+    ) {
+      return yield* new PullRequestOperationError({
+        operation: "draftTarget",
+        detail:
+          "The draft target requires the project's own GitHub repository and a verified account.",
+      });
+    }
+    return yield* withRoutingCredential(
+      input,
+      Effect.gen(function* () {
+        const project = yield* requireProject(input);
+        if (project.api.kind !== "github" || !project.api.getDraftTarget)
+          return yield* new PullRequestOperationError({
+            operation: "draftTarget",
+            detail: "This provider cannot resolve an exact draft target.",
+          });
+        const result = yield* project.api
+          .getDraftTarget({
+            cwd: project.project.workspaceRoot,
+            host: project.host,
+            repository: project.repository,
+            number: input.number,
+          })
+          .pipe(Effect.mapError(toPullRequestError("draftTarget")), observeRead);
+        return {
+          nodeId: result.value.nodeId,
+          summary: toSummary(project, result.value.summary, result.observedAt),
+        };
+      }),
+    );
+  });
+
   const summaryUncached: PullRequestService["Service"]["summary"] = (input) =>
     requireProject(input).pipe(
       Effect.flatMap((project) => {
@@ -2145,10 +2201,28 @@ export const make = Effect.gen(function* () {
     readonly summary: PullRequestSummary | undefined;
   };
   const runAction = (
-    input: PullRequestActionInput,
+    input: PullRequestActionInput & {
+      readonly expectedDraftNodeId?: string;
+      readonly beforeMutation?: Effect.Effect<boolean>;
+    },
   ): Effect.Effect<ActionOutcome, PullRequestError> =>
     requireProject(input).pipe(
       Effect.flatMap((project): Effect.Effect<ActionOutcome, PullRequestError> => {
+        if (
+          input.expectedDraftNodeId !== undefined &&
+          (project.api.kind !== "github" ||
+            input.action !== "draft" ||
+            input.stackNumber !== undefined ||
+            !input.expectedDraftNodeId.trim() ||
+            input.expectedAccountId === undefined)
+        ) {
+          return Effect.fail(
+            new PullRequestOperationError({
+              operation: "runAction",
+              detail: "An exact draft target requires GitHub and a verified account.",
+            }),
+          );
+        }
         if (input.action === "delete-branch" && project.api.capabilities.deleteBranch !== true) {
           return Effect.fail(
             new PullRequestOperationError({
@@ -2260,6 +2334,12 @@ export const make = Effect.gen(function* () {
                     host: project.host,
                     number: input.number,
                     action: input.action,
+                    ...(input.expectedDraftNodeId === undefined
+                      ? {}
+                      : { expectedDraftNodeId: input.expectedDraftNodeId }),
+                    ...(input.beforeMutation === undefined
+                      ? {}
+                      : { beforeMutation: input.beforeMutation }),
                     ...(removeAgentCreditsOnMerge ? { removeAgentCreditsOnMerge: true } : {}),
                     ...(input.stackNumber === undefined ? {} : { stackNumber: input.stackNumber }),
                     ...(input.expectedStackHeads === undefined
@@ -3784,11 +3864,28 @@ export const make = Effect.gen(function* () {
   const runActionAndInvalidate: PullRequestService["Service"]["runAction"] = Effect.fn(
     "PullRequestService.runActionAndInvalidate",
   )(function* (input) {
+    if (input.expectedDraftNodeId !== undefined) {
+      const { supported } = yield* listWorkspaceProjects({ projectId: input.projectId });
+      const own = supported[0];
+      if (
+        own === undefined ||
+        own.project.id !== input.projectId ||
+        own.repository.toLowerCase() !== input.repository.trim().toLowerCase() ||
+        own.host.toLowerCase() !== input.host?.trim().toLowerCase()
+      ) {
+        return yield* new PullRequestOperationError({
+          operation: "runAction",
+          detail: "The exact draft target must belong to the selected local project.",
+        });
+      }
+    }
     const ref = yield* canonicalRef(input);
     yield* readCache.invalidate(refScope(ref));
-    const { repository, summary } = yield* runAction(input).pipe(
-      Effect.ensuring(readCache.invalidate(refScope(ref))),
-    );
+    const { repository, summary } = yield* (
+      input.expectedDraftNodeId === undefined
+        ? runAction(input)
+        : withRoutingCredential(input, runAction(input))
+    ).pipe(Effect.ensuring(readCache.invalidate(refScope(ref))));
     bumpRefEpoch({ ...ref, repository });
     listingsEpoch = ++epochCounter;
     yield* SubscriptionRef.set(pullRequestRefreshes, listingsEpoch);
@@ -3982,6 +4079,7 @@ export const make = Effect.gen(function* () {
     changeBreakdown: credentialCached((input) =>
       Cache.get(changeBreakdownCache, refCacheKey(input)),
     ),
+    draftTarget,
     runAction: runActionAndInvalidate,
     update: invalidatedByMutation(update),
     comment: invalidatedByMutation(comment),

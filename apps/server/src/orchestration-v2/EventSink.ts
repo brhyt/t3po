@@ -1,4 +1,5 @@
 import { finalAnswers } from "../t3po/Result.ts";
+import { applyDecision } from "../t3po/ExternalActionStore.ts";
 import { admitRun } from "../t3po/Authority.ts";
 import { recordDelegation } from "../t3po/Delegation.ts";
 import {
@@ -438,7 +439,8 @@ const layerBase: Layer.Layer<
               .apply(stored.event)
               .pipe(
                 Effect.andThen(
-                  recordDelegation(stored.event).pipe(
+                  applyDecision(stored.event).pipe(
+                    Effect.andThen(recordDelegation(stored.event)),
                     Effect.andThen(admitRun(stored.event)),
                     Effect.provideService(SqlClient.SqlClient, sql),
                   ),

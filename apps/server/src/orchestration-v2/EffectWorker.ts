@@ -1,3 +1,4 @@
+import * as ExternalActionExecutor from "../t3po/ExternalActionExecutor.ts";
 import * as EventSink from "./EventSink.ts";
 import { CommandId, type RunId } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
@@ -104,6 +105,7 @@ export const layerExecutor: Layer.Layer<
   | ProjectionStore.ProjectionStoreV2
   | ServerSettings.ServerSettingsService
   | EventSink.EventSinkV2
+  | ExternalActionExecutor.ExternalActionExecutor
 > = Layer.effect(
   OrchestrationEffectExecutorV2,
   Effect.gen(function* () {
@@ -120,6 +122,7 @@ export const layerExecutor: Layer.Layer<
     const projectionStore = yield* ProjectionStore.ProjectionStoreV2;
     const settings = yield* ServerSettings.ServerSettingsService;
     const eventSink = yield* EventSink.EventSinkV2;
+    const externalActions = yield* ExternalActionExecutor.ExternalActionExecutor;
     const startRun = (
       effect: EffectOutbox.OrchestrationEffectV2,
       runId: RunId,
@@ -161,6 +164,17 @@ export const layerExecutor: Layer.Layer<
       execute: Effect.fn("OrchestrationEffectExecutorV2.execute")(function (effect, options) {
         const willRetry = options?.willRetry ?? false;
         switch (effect.request.type) {
+          case "t3po.external-action":
+            return externalActions.execute(effect.request.operationId).pipe(
+              Effect.mapError(
+                (cause) =>
+                  new OrchestrationEffectExecutionError({
+                    effectId: effect.id,
+                    effectType: effect.request.type,
+                    cause,
+                  }),
+              ),
+            );
           case "t3po.report":
             return eventSink.deliverTaskReport(effect.request.runId).pipe(
               Effect.mapError(

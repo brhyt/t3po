@@ -1,3 +1,5 @@
+import * as ExternalActionStore from "./ExternalActionStore.ts";
+import * as Authority from "./Authority.ts";
 import { finalAnswers } from "./Result.ts";
 import * as Changes from "./Changes.ts";
 import * as PubSub from "effect/PubSub";
@@ -6,6 +8,7 @@ import * as Semaphore from "effect/Semaphore";
 import * as MemoryBridge from "./MemoryBridge.ts";
 import {
   T3poSpace,
+  T3poExternalBinding,
   T3poSharedResource,
   T3poSpaceConnection,
   T3poProjectSpace,
@@ -18,6 +21,7 @@ import {
   type T3poResultsPage,
   type RunId,
   ThreadId,
+  MessageId,
   T3poLead,
   T3poWorkstream,
   type T3poWorkReceipt,
@@ -47,6 +51,8 @@ const encodeT3poChannelJson = Schema.encodeEffect(Schema.fromJsonString(T3poChan
 const encodeT3poTaskJson = Schema.encodeEffect(Schema.fromJsonString(T3poTask));
 const LaunchReservation = Schema.Struct({
   ...T3poLaunchInput.fields,
+  briefRevision: Schema.optional(Schema.Number),
+  messageId: Schema.optional(MessageId),
   title: Schema.optional(Schema.String),
   brief: Schema.optional(Schema.String),
   workspaceStrategy: Schema.optional(OrchestrationV2ThreadLaunchWorkspaceStrategy),
@@ -58,6 +64,7 @@ type TaskRecord = T3poTask & {
   readonly dispatch?: T3poWorkReceipt;
 };
 type Page = {
+  externalBindings: readonly (typeof T3poExternalBinding.Type)[];
   spaceConnections: readonly (typeof T3poSpaceConnection.Type)[];
   sharedResources: readonly (typeof T3poSharedResource.Type)[];
   spaces: readonly T3poSpace[];
@@ -76,6 +83,7 @@ const decodeResults = Schema.decodeEffect(Schema.Array(T3poResult));
 export class Store extends Context.Service<
   Store,
   {
+    readonly proposalEnabled: (threadId: ThreadId) => Effect.Effect<boolean, T3poError>;
     readonly memoryDeliveryLock: Effect.Effect<Semaphore.Semaphore>;
     readonly runMemoryWorker: Effect.Effect<never>;
     readonly context: (
@@ -90,6 +98,15 @@ export class Store extends Context.Service<
       input: T3poResultsQuery,
       pageSize?: 1 | 10,
     ) => Effect.Effect<T3poResultsPage, T3poError>;
+    readonly checkStart: (
+      threadId: string,
+      runId: string,
+      binding?: {
+        readonly cwd: string;
+        readonly worktreePath: string | null;
+        readonly branch: string | null;
+      },
+    ) => Effect.Effect<void, T3poError>;
     readonly getTask: (id: string, projectId: ProjectId) => Effect.Effect<TaskRecord, T3poError>;
     readonly getTaskProject: (threadId: ThreadId) => Effect.Effect<ProjectId | null, T3poError>;
     readonly controlMemory: (input: T3poMemoryControl) => Effect.Effect<void, T3poError>;
@@ -298,6 +315,20 @@ const make = Effect.gen(function* () {
       }>`SELECT l.project_id AS projectId, s.available, s.last_sync_at AS lastCheckedAt, (SELECT count(*) FROM t3po_memory_events e WHERE e.project_id = l.project_id AND e.synced_at IS NULL AND e.superseded_by IS NULL AND e.kind != 'local_correction') AS pending FROM t3po_leads l LEFT JOIN t3po_memory_status s ON s.project_id = l.project_id WHERE ${input.projectId ? sql`l.project_id = ${input.projectId}` : sql`1 = 1`}`;
       const processing = yield* memory.statuses;
       return {
+        externalBindings: (yield* sql<{
+          projectId: string;
+          version: number;
+          accountId: string;
+          host: "github.com";
+          repository: string;
+          enabled: number;
+        }>`SELECT project_id AS projectId, version, account_id AS accountId, host, repository, enabled FROM t3po_external_bindings WHERE ${projectFilter}`).map(
+          (row) => ({
+            ...row,
+            projectId: ProjectId.make(row.projectId),
+            enabled: row.enabled === 1,
+          }),
+        ),
         spaceConnections: yield* sql<
           typeof T3poSpaceConnection.Type
         >`SELECT source_space_id AS sourceSpaceId, target_space_id AS targetSpaceId, target_project_id AS targetProjectId FROM t3po_space_connections`,
@@ -363,9 +394,60 @@ const make = Effect.gen(function* () {
   });
   const mutate = Effect.fn("T3poStore.mutate")(
     function* (input: T3poMutation, reviewedRunId?: RunId) {
+      if (input.type === "save_external_binding") {
+        yield* ExternalActionStore.setBinding(input).pipe(
+          Effect.provideService(SqlClient.SqlClient, sql),
+        );
+        return;
+      }
       if (input.type === "memory_control") return yield* new T3poError({ operation: "invalid" });
       const now = DateTime.formatIso(yield* DateTime.now);
-      if (input.type === "save_space_rules") {
+      if (input.type === "save_job_grant" || input.type === "revoke_job_grant") {
+        const task = yield* getTask(input.id, input.projectId);
+        if ((task.grant?.version ?? 0) !== input.expectedVersion)
+          return yield* new T3poError({ operation: "grant_stale" });
+        let grant = task.grant;
+        if (input.type === "save_job_grant") {
+          const budgets = yield* sql<{
+            maxRuns: number;
+            maxConcurrent: number;
+          }>`SELECT max_runs AS maxRuns, max_concurrent AS maxConcurrent FROM t3po_budgets WHERE project_id = ${input.projectId}`;
+          const budget = budgets[0];
+          const expiry = Date.parse(input.expiresAt);
+          if (input.briefRevision !== (task.briefRevision ?? 1))
+            return yield* new T3poError({ operation: "grant_stale" });
+          if (Number.isFinite(expiry) && expiry <= Date.parse(now))
+            return yield* new T3poError({ operation: "grant_expired" });
+          if (!budget || !Number.isFinite(expiry))
+            return yield* new T3poError({ operation: "grant_invalid" });
+          const spaces = yield* sql<{
+            spaceId: string;
+          }>`SELECT space_id AS spaceId FROM t3po_project_spaces WHERE project_id = ${input.projectId}`;
+          const projects = yield* sql<{
+            root: string;
+          }>`SELECT workspace_root AS root FROM projection_projects WHERE project_id = ${task.projectId}`;
+          grant = {
+            workspaceRoot: projects[0]?.root ?? null,
+            version: input.expectedVersion + 1,
+            briefRevision: input.briefRevision,
+            spaceId: spaces[0]?.spaceId ?? null,
+            workspace: task.workspace ?? { type: "root" },
+            route: "local",
+            expiresAt: DateTime.formatIso(DateTime.makeUnsafe(expiry)),
+            revoked: false,
+            maxRuns: Math.min(input.maxRuns ?? budget.maxRuns, budget.maxRuns),
+            maxConcurrent: Math.min(
+              input.maxConcurrent ?? budget.maxConcurrent,
+              budget.maxConcurrent,
+            ),
+          };
+        } else {
+          if (!grant) return yield* new T3poError({ operation: "grant_invalid" });
+          grant = { ...grant, version: grant.version + 1, revoked: true };
+        }
+        yield* sql`INSERT INTO t3po_job_grants (task_id, version, project_id, data) VALUES (${task.id}, ${grant.version}, ${task.projectId}, ${yield* encodeUnknownJson(grant)})`;
+        yield* sql`UPDATE t3po_tasks SET data = ${yield* encodeT3poTaskJson({ ...task, grant })} WHERE id = ${task.id}`;
+      } else if (input.type === "save_space_rules") {
         const existing = yield* sql`SELECT id FROM t3po_spaces WHERE id = ${input.id}`;
         if (!existing.length) return yield* new T3poError({ operation: "invalid" });
         yield* sql`UPDATE t3po_spaces SET rules = ${input.rules} WHERE id = ${input.id}`;
@@ -410,6 +492,15 @@ const make = Effect.gen(function* () {
         const active =
           yield* sql`SELECT thread_id FROM orchestration_v2_projection_threads WHERE json_extract(payload_json, '$.activeRunId') IS NOT NULL OR json_array_length(json_extract(payload_json, '$.pendingBackgroundTasks')) > 0 UNION SELECT thread_id FROM orchestration_v2_projection_runs WHERE status IN ('preparing', 'queued', 'starting', 'running', 'waiting') LIMIT 1`;
         if (active.length) return yield* new T3poError({ operation: "space_busy" });
+        const bound = yield* sql<{
+          data: string;
+        }>`SELECT data FROM t3po_tasks WHERE project_id = ${input.projectId} AND json_extract(data, '$.grant') IS NOT NULL`;
+        for (const row of bound) {
+          const task = yield* decodeT3poTaskJson(row.data);
+          const grant = { ...task.grant!, version: task.grant!.version + 1, revoked: true };
+          yield* sql`INSERT INTO t3po_job_grants (task_id, version, project_id, data) VALUES (${task.id}, ${grant.version}, ${task.projectId}, ${yield* encodeUnknownJson(grant)})`;
+          yield* sql`UPDATE t3po_tasks SET data = ${yield* encodeT3poTaskJson({ ...task, grant })} WHERE id = ${task.id}`;
+        }
         yield* sql`UPDATE t3po_space_handoffs SET revoked = 1 WHERE source_project_id = ${input.projectId} OR target_project_id = ${input.projectId}`;
         yield* sql`DELETE FROM t3po_space_connections WHERE target_project_id = ${input.projectId}`;
 
@@ -557,6 +648,9 @@ const make = Effect.gen(function* () {
             );
           }
           const changed =
+            (input.workspace !== undefined &&
+              (yield* encodeUnknownJson(input.workspace)) !==
+                (yield* encodeUnknownJson(task.workspace ?? { type: "root" }))) ||
             input.brief !== task.brief ||
             input.title !== task.title ||
             (input.desiredOutcome !== undefined && input.desiredOutcome !== task.desiredOutcome);
@@ -644,13 +738,28 @@ const make = Effect.gen(function* () {
         )
           return yield* new T3poError({ operation: "invalid" });
       }
-      const reservation = { ...input, title: task.title, brief: task.brief };
-      yield* sql`UPDATE t3po_tasks SET launch = ${yield* encodeT3poLaunchInputJson(reservation)} WHERE id = ${taskId} AND project_id = ${projectId} AND launch IS NULL`;
+      const reservation = {
+        ...input,
+        title: task.title,
+        brief: task.brief,
+        messageId: MessageId.make(`t3po-launch:${task.id}:revision:${task.briefRevision ?? 1}`),
+        briefRevision: task.briefRevision ?? 1,
+      };
+      yield* sql`UPDATE t3po_tasks SET launch = ${yield* encodeT3poLaunchInputJson(reservation)} WHERE id = ${taskId} AND project_id = ${projectId} AND (launch IS NULL OR (
+        COALESCE(json_extract(launch, '$.briefRevision'), 1) <> ${task.briefRevision ?? 1}
+        AND NOT EXISTS (SELECT 1 FROM t3po_task_executions WHERE task_id = ${taskId})
+        AND NOT EXISTS (SELECT 1 FROM t3po_grant_admissions WHERE task_id = ${taskId})
+      ))`;
       const rows = yield* sql<{
         launch: string;
       }>`SELECT launch FROM t3po_tasks WHERE id = ${taskId} AND project_id = ${projectId}`;
       if (!rows[0]) return yield* new T3poError({ operation: "invalid" });
-      return yield* decodeT3poLaunchInputJson(rows[0].launch);
+      const reserved = yield* decodeT3poLaunchInputJson(rows[0].launch);
+
+      if (reserved.messageId)
+        yield* sql`INSERT INTO t3po_launch_revisions (message_id, task_id, revision)
+          VALUES (${reserved.messageId}, ${task.id}, ${reserved.briefRevision ?? 1}) ON CONFLICT DO NOTHING`;
+      return reserved;
     },
     sql.withTransaction,
     Effect.mapError((cause) =>
@@ -768,6 +877,22 @@ const make = Effect.gen(function* () {
     Effect.mapError((cause) => new T3poError({ operation: "read", cause })),
   );
   return Store.of({
+    proposalEnabled: Effect.fn("T3poStore.proposalEnabled")((threadId: ThreadId) =>
+      ExternalActionStore.proposalBinding(threadId).pipe(
+        Effect.provideService(SqlClient.SqlClient, sql),
+        Effect.map((binding) => binding !== null),
+        Effect.mapError((cause) => new T3poError({ operation: "read", cause })),
+      ),
+    ),
+    checkStart: Effect.fn("T3poStore.checkStart")((threadId, runId, binding) =>
+      Authority.checkJobGrants(threadId, runId, true, binding).pipe(
+        sql.withTransaction,
+        Effect.provideService(SqlClient.SqlClient, sql),
+        Effect.mapError((cause) =>
+          isT3poError(cause) ? cause : new T3poError({ operation: "grant_invalid", cause }),
+        ),
+      ),
+    ),
     memoryDeliveryLock: Effect.succeed(sends),
     runMemoryWorker,
     controlMemory: memory.control,

@@ -1,3 +1,5 @@
+import * as Authority from "./Authority.ts";
+import * as TestClock from "effect/testing/TestClock";
 import authorityMigration from "../persistence/Migrations/103_T3poAuthority.ts";
 import { expect, it } from "@effect/vitest";
 import {
@@ -190,7 +192,88 @@ it.effect.each([false, true])(
         maxRuns: 1,
         maxConcurrent: 1,
       });
+      yield* store.mutate({
+        type: "save_job_grant",
+        projectId: foreignProject,
+        id: "handoff",
+        briefRevision: 1,
+        expectedVersion: 0,
+        expiresAt: DateTime.formatIso(DateTime.add(now, { hours: 1 })),
+        maxRuns: 1,
+        maxConcurrent: 1,
+      });
       yield* handoffEvents();
+      const nestedThread = ThreadId.make("nested-grant-worker");
+      expect(
+        yield* sink
+          .write({
+            events: [
+              {
+                id: EventId.make("nested-grant-thread"),
+                type: "thread.created",
+                threadId: nestedThread,
+                occurredAt: now,
+                payload: { ...thread(nestedThread, handoffThread), projectId: foreignProject },
+              },
+              {
+                id: EventId.make("nested-grant-run"),
+                type: "run.created",
+                threadId: nestedThread,
+                occurredAt: now,
+                payload: run("nested-grant-run", nestedThread),
+              },
+            ],
+          })
+          .pipe(Effect.flip),
+      ).toMatchObject({ cause: { operation: "grant_stale" } });
+      yield* Authority.checkJobGrants(handoffThread, "handoff", true);
+      yield* Authority.checkJobGrants(handoffThread, "handoff", true);
+      expect(yield* sql`SELECT * FROM t3po_grant_admissions`).toHaveLength(1);
+      expect(
+        yield* Authority.checkJobGrants(handoffThread, "second").pipe(
+          sql.withTransaction,
+          Effect.isFailure,
+        ),
+      ).toBe(true);
+      yield* TestClock.adjust("2 hours");
+      expect(
+        yield* Authority.checkJobGrants(handoffThread, "handoff", true).pipe(Effect.isFailure),
+      ).toBe(true);
+      yield* store.mutate({
+        type: "revoke_job_grant",
+        projectId: foreignProject,
+        id: "handoff",
+        expectedVersion: 1,
+      });
+      expect(
+        yield* Authority.checkJobGrants(handoffThread, "handoff", true).pipe(Effect.isFailure),
+      ).toBe(true);
+      yield* store.mutate({
+        type: "save_job_grant",
+        projectId: foreignProject,
+        id: "handoff",
+        briefRevision: 1,
+        expectedVersion: 2,
+        expiresAt: DateTime.formatIso(DateTime.add(now, { hours: 4 })),
+      });
+      expect(
+        yield* Authority.checkJobGrants(handoffThread, "handoff", true).pipe(Effect.isFailure),
+      ).toBe(true);
+      expect(yield* sql`SELECT * FROM t3po_job_grants WHERE task_id = 'handoff'`).toHaveLength(3);
+      yield* store.mutate({
+        type: "edit_task",
+        projectId: foreignProject,
+        id: "handoff",
+        title: "Changed",
+        brief: "New scope",
+        channelId: null,
+      });
+      expect(
+        yield* Authority.checkJobGrants(handoffThread, "fresh").pipe(
+          sql.withTransaction,
+          Effect.isFailure,
+        ),
+      ).toBe(true);
       expect(yield* sql`SELECT project_id FROM t3po_admissions WHERE run_id = 'handoff'`).toEqual([
         { project_id: foreignProject },
       ]);
@@ -428,5 +511,198 @@ it.effect("backfills historical usage and active reservations without inventing 
       usedRuns: 2,
       activeRuns: 1,
     });
+  }).pipe(Effect.provide(layer)),
+);
+
+it.effect("serializes the last grant slot and keeps channels organizational", () =>
+  Effect.gen(function* () {
+    const store = yield* Store.Store;
+    const sql = yield* SqlClient.SqlClient;
+    const projectId = ProjectId.make("grant-project");
+    yield* store.mutate({ type: "save_budget", projectId, maxRuns: 20, maxConcurrent: 10 });
+    yield* store.mutate({
+      type: "create_task",
+      projectId,
+      id: "bounded",
+      channelId: null,
+      title: "Job",
+      brief: "Scope",
+    });
+    const grant = {
+      type: "save_job_grant" as const,
+      projectId,
+      id: "bounded",
+      expectedVersion: 0,
+      briefRevision: 1,
+      expiresAt: "2099-01-01T00:00:00.000Z",
+      maxRuns: 1,
+      maxConcurrent: 1,
+    };
+    yield* store.mutate(grant);
+    const admit = Effect.fn("test.grantAdmission")(function* (runId: string) {
+      yield* Authority.checkJobGrants("t3po-task:bounded", runId);
+      yield* sql`INSERT INTO t3po_admissions (run_id, project_id, active) VALUES (${runId}, ${projectId}, 1)`;
+    }, sql.withTransaction);
+    const results = yield* Effect.all(
+      [admit("one").pipe(Effect.isSuccess), admit("two").pipe(Effect.isSuccess)],
+      { concurrency: "unbounded" },
+    );
+    expect(results.filter(Boolean)).toHaveLength(1);
+    const winner = results[0] ? "one" : "two";
+    yield* store.mutate({ type: "create_channel", projectId, id: "other", name: "Other" });
+    yield* store.mutate({
+      type: "edit_task",
+      projectId,
+      id: "bounded",
+      channelId: "other",
+      title: "Job",
+      brief: "Scope",
+    });
+    yield* store.checkStart("t3po-task:bounded", winner);
+    expect(yield* admit("third").pipe(Effect.isFailure)).toBe(true);
+    yield* sql`UPDATE t3po_admissions SET active = 0 WHERE run_id = ${winner}`;
+    yield* sql`DELETE FROM orchestration_v2_projection_runs WHERE run_id = ${winner}`;
+    expect(yield* admit("after-deletion").pipe(Effect.isFailure)).toBe(true);
+    yield* store.mutate({ type: "save_space", projectId, id: "new-space", name: "New space" });
+    yield* store.mutate({ type: "assign_space", projectId, spaceId: "new-space" });
+    expect(yield* store.checkStart("t3po-task:bounded", winner).pipe(Effect.isFailure)).toBe(true);
+    expect(yield* store.mutate(grant).pipe(Effect.isFailure)).toBe(true);
+    yield* store.mutate({ ...grant, expectedVersion: 2 });
+    expect(yield* store.checkStart("t3po-task:bounded", winner).pipe(Effect.isFailure)).toBe(true);
+    yield* store.mutate({ type: "revoke_job_grant", projectId, id: "bounded", expectedVersion: 3 });
+    expect(yield* admit("revoked-before-admission").pipe(Effect.isFailure)).toBe(true);
+  }).pipe(Effect.provide(layer)),
+);
+
+it.effect.each(["root", "worktree"] as const)(
+  "binds resolved %s execution and fails closed on missing history",
+  (type) =>
+    Effect.gen(function* () {
+      const store = yield* Store.Store;
+      const sql = yield* SqlClient.SqlClient;
+      const projectId = ProjectId.make("binding");
+      const threadId = "t3po-task:binding";
+      const worktreePath = type === "root" ? null : "/worktrees/generated";
+      const branch = type === "root" ? null : "generated/job-branch";
+      yield* sql`INSERT INTO projection_projects (project_id, title, workspace_root, scripts_json, created_at, updated_at)
+      VALUES (${projectId}, 'Test', '/project', '[]', '2026-01-01', '2026-01-01')`;
+      yield* sql`INSERT INTO orchestration_v2_projection_threads (thread_id, project_id, title, default_provider, runtime_mode, interaction_mode, created_at, updated_at, payload_json)
+      VALUES (${threadId}, ${projectId}, 'Test', 'codex', 'approval-required', 'default', '2026-01-01', '2026-01-01', json_object('worktreePath', ${worktreePath}, 'branch', ${branch}))`;
+      yield* store.mutate({ type: "save_budget", projectId, maxRuns: 5, maxConcurrent: 2 });
+      yield* store.mutate({
+        type: "create_task",
+        projectId,
+        id: "binding",
+        channelId: null,
+        title: "Test",
+        brief: "Scope",
+        workspace: type === "root" ? { type } : { type, baseRef: "main" },
+      });
+      yield* store.mutate({
+        type: "save_job_grant",
+        projectId,
+        id: "binding",
+        expectedVersion: 0,
+        briefRevision: 1,
+        expiresAt: "2099-01-01T00:00:00.000Z",
+      });
+      yield* Authority.checkJobGrants(threadId, "bound");
+      const binding = { cwd: worktreePath ?? "/project", worktreePath, branch };
+      yield* store.checkStart(threadId, "bound", binding);
+      yield* store.checkStart(threadId, "bound", binding);
+      expect(
+        (yield* store
+          .checkStart(threadId, "bound", { ...binding, cwd: "/other" })
+          .pipe(Effect.flip)).operation,
+      ).toBe("grant_invalid");
+      yield* sql`UPDATE orchestration_v2_projection_threads SET payload_json = json_set(payload_json, '$.branch', 'moved') WHERE thread_id = ${threadId}`;
+      expect(
+        (yield* store
+          .checkStart(threadId, "bound", { ...binding, branch: "moved" })
+          .pipe(Effect.flip)).operation,
+      ).toBe("grant_stale");
+      yield* sql`DELETE FROM t3po_job_grants WHERE task_id = 'binding'`;
+      expect((yield* store.checkStart(threadId, "bound").pipe(Effect.flip)).operation).toBe(
+        "grant_invalid",
+      );
+      yield* sql`DELETE FROM t3po_tasks WHERE id = 'binding'`;
+      expect((yield* store.checkStart(threadId, "bound").pipe(Effect.flip)).operation).toBe(
+        "grant_invalid",
+      );
+      yield* store.checkStart("unrelated", "legacy");
+    }).pipe(Effect.provide(layer)),
+);
+
+it.effect("replaces only uncommitted launch reservations and rejects the old reserved prompt", () =>
+  Effect.gen(function* () {
+    const store = yield* Store.Store;
+    const sql = yield* SqlClient.SqlClient;
+    const projectId = ProjectId.make("reservation");
+    yield* store.mutate({ type: "save_budget", projectId, maxRuns: 5, maxConcurrent: 2 });
+    yield* store.mutate({
+      type: "create_task",
+      projectId,
+      id: "reservation",
+      channelId: null,
+      title: "Test",
+      brief: "Old",
+    });
+    const grant = {
+      type: "save_job_grant" as const,
+      projectId,
+      id: "reservation",
+      expectedVersion: 0,
+      briefRevision: 1,
+      expiresAt: "2099-01-01T00:00:00.000Z",
+    };
+    yield* store.mutate(grant);
+    const selection = {
+      projectId,
+      taskId: "reservation",
+      modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "test" },
+      runtimeMode: "approval-required" as const,
+    };
+    const old = yield* store.reserveLaunch("reservation", projectId, selection);
+    yield* store.mutate({
+      type: "edit_task",
+      projectId,
+      id: "reservation",
+      title: "Test",
+      brief: "New",
+      channelId: null,
+    });
+    yield* store.mutate({ ...grant, expectedVersion: 1, briefRevision: 2 });
+    const fresh = yield* store.reserveLaunch("reservation", projectId, selection);
+    expect(fresh.briefRevision).toBe(2);
+    expect(
+      yield* Authority.checkJobGrants(
+        "t3po-task:reservation",
+        "old",
+        false,
+        undefined,
+        old.messageId,
+      ).pipe(Effect.flip),
+    ).toMatchObject({ operation: "grant_stale" });
+    yield* Authority.checkJobGrants(
+      "t3po-task:reservation",
+      "new",
+      false,
+      undefined,
+      fresh.messageId,
+    );
+    yield* sql`INSERT INTO t3po_admissions (run_id, project_id, active) VALUES ('new', ${projectId}, 1)`;
+    yield* store.mutate({
+      type: "edit_task",
+      projectId,
+      id: "reservation",
+      title: "Test",
+      brief: "Third",
+      channelId: null,
+    });
+    expect(yield* store.reserveLaunch("reservation", projectId, selection)).toEqual(fresh);
+    expect(
+      (yield* sql<{ active: number }>`SELECT active FROM t3po_admissions WHERE run_id = 'new'`)[0]
+        ?.active,
+    ).toBe(1);
   }).pipe(Effect.provide(layer)),
 );

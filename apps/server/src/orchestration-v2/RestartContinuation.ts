@@ -70,6 +70,7 @@ export function restartContinuationBlocked(
       request.kind !== "dynamic_tool_call" &&
       request.kind !== "auth_refresh" &&
       request.responseCapability.type !== "message" &&
+      request.responseCapability.type !== "server_action" &&
       (request.status === "pending" ||
         ((request.status === "expired" || request.status === "cancelled") &&
           request.responseCapability.type === "not_resumable" &&

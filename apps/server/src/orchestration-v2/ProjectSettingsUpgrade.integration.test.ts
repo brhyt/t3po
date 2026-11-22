@@ -1,3 +1,4 @@
+import * as PullRequestService from "../pullRequest/PullRequestService.ts";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
@@ -151,6 +152,7 @@ const layerRuntime = (dbPath: string) => {
       }),
     ),
     Layer.provide(McpSessionRegistryTestkit.layer),
+    Layer.provide(Layer.mock(PullRequestService.PullRequestService)({})),
     Layer.provide(McpProviderSessions.layer),
     Layer.provideMerge(SqlitePersistence.layerFromPath(dbPath)),
     Layer.provide(layerCheckpointStore),

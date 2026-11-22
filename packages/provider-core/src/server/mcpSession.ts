@@ -1,4 +1,11 @@
-import type { EnvironmentId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
+import type {
+  EnvironmentId,
+  ProviderInstanceId,
+  ThreadId,
+  RunId,
+  RunAttemptId,
+  ProviderSessionId,
+} from "@t3tools/contracts";
 import type * as Effect from "effect/Effect";
 
 /**
@@ -8,6 +15,12 @@ import type * as Effect from "effect/Effect";
 export const MCP_TOOL_EXPOSURE_HEADER = "t3-tool-exposure";
 
 export interface McpProviderSessionConfig {
+  readonly proposalExecution?: {
+    readonly runId: RunId;
+    readonly attemptId: RunAttemptId;
+    readonly providerSessionId: ProviderSessionId;
+    readonly capability: "propose-external-action";
+  };
   readonly environmentId: EnvironmentId;
   readonly threadId: ThreadId;
   readonly providerSessionId: string;

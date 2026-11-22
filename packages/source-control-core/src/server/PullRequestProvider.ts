@@ -410,6 +410,13 @@ export interface PullRequestProviderApi {
     PullRequestProviderError
   >;
 
+  readonly getDraftTarget?: (
+    input: ProviderRepositoryRef & { readonly number: number },
+  ) => Effect.Effect<
+    { readonly nodeId: string; readonly summary: ProviderChangeRequestSummary },
+    PullRequestProviderError
+  >;
+
   readonly getChangeRequestSummary?: (
     input: ProviderRepositoryRef & { readonly number: number },
   ) => Effect.Effect<ProviderChangeRequestSummary, PullRequestProviderError>;
@@ -514,6 +521,8 @@ export interface PullRequestProviderApi {
       readonly action: PullRequestAction;
       readonly stackNumber?: number;
       readonly expectedStackHeads?: ReadonlyArray<PullRequestStackHead>;
+      readonly expectedDraftNodeId?: string;
+      readonly beforeMutation?: Effect.Effect<boolean>;
       readonly removeAgentCreditsOnMerge?: boolean;
       readonly mergeMethod?: PullRequestMergeMethod;
       readonly updateMethod?: PullRequestUpdateMethod;

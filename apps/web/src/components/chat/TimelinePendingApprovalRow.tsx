@@ -48,7 +48,7 @@ export const TimelinePendingApprovalRow = memo(function TimelinePendingApprovalR
   const { respondingRequestIds, canOperateThread, onRespondToApproval } = use(TimelineRowCtx);
   const m = useMessages();
   const presentation = APPROVAL_PRESENTATION[approval.requestKind];
-  const canRespond = approval.responseCapability === "live";
+  const canRespond = approval.responseCapability !== "not_resumable";
   return (
     <WorkLogRow
       role="group"
@@ -100,6 +100,7 @@ export const TimelinePendingApprovalRow = memo(function TimelinePendingApprovalR
                     isResponding={respondingRequestIds.includes(approval.requestId)}
                     canRespond={canRespond}
                     options={approval.options}
+                    oneTimeOnly={approval.responseCapability === "server_action"}
                     onRespondToApproval={onRespondToApproval}
                   />
                 </>

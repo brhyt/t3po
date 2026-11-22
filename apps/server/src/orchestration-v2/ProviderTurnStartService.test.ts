@@ -1,3 +1,6 @@
+import * as McpSessionRegistryTestkit from "../mcp/McpSessionRegistry.testkit.ts";
+import * as ExternalActionExecutor from "../t3po/ExternalActionExecutor.ts";
+import * as SqlClient from "effect/sql/SqlClient";
 import * as T3poStore from "../t3po/Store.ts";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -158,7 +161,14 @@ function startWithMissingWorktree(
   const createWorktree = vi.fn(() => Effect.succeed({} as never));
   const listLocalBranchNames = vi.fn(() => Effect.succeed(["feature/restore"]));
   const layer = ProviderTurnStart.layer.pipe(
-    Layer.provide(Layer.mock(T3poStore.Store)({ context: () => Effect.succeed("") })),
+    Layer.provide(McpSessionRegistryTestkit.layer),
+    Layer.provide(
+      Layer.mock(T3poStore.Store)({
+        context: () => Effect.succeed(""),
+        checkStart: () => Effect.void,
+        proposalEnabled: () => Effect.succeed(false),
+      }),
+    ),
     Layer.provide(
       Layer.mergeAll(
         Layer.mock(ContextHandoffService.ContextHandoffServiceV2)({}),
@@ -446,6 +456,9 @@ it.each([
 });
 
 function makeLocalCommandHarness(input: {
+  readonly checkStart?: T3poStore.Store["Service"]["checkStart"];
+  readonly ordinaryTurn?: boolean;
+  readonly proposals?: boolean;
   readonly text: string;
   readonly manualContinuation?: boolean;
   readonly nativeResumeUnsupported?: boolean;
@@ -1134,20 +1147,27 @@ function makeLocalCommandHarness(input: {
   const forkThread = vi.fn((_fork: ProviderAdapter.ProviderAdapterV2ForkThreadInput) =>
     Effect.succeed(sideChatThread),
   );
+  const isolatedEnsureThread = vi.fn((_input: ProviderAdapter.ProviderAdapterV2EnsureThreadInput) =>
+    Effect.succeed(sideChatThread),
+  );
   const sideChatSession = {
+    supportsIsolatedProposalThread: true,
+    instanceId: newInstanceId,
+    providerSessionId,
     driver: providerThread.driver,
     providerSession,
-    ensureThread: () => Effect.succeed(sideChatThread),
+    ensureThread: isolatedEnsureThread,
     resumeThread: () => Effect.succeed(sideChatThread),
     forkThread,
     startTurn,
+    compactThread: startTurn,
     resumeTurn: input.nativeResumeUnsupported
       ? undefined
       : (input: ProviderAdapter.ProviderAdapterV2ResumeTurnInput) =>
           startTurn(ProviderAdapter.resumeTurnInput(input)),
   };
   const open = vi.fn(() =>
-    input.sideChat !== undefined
+    input.sideChat !== undefined || input.ordinaryTurn
       ? Effect.succeed(sideChatSession as never)
       : input.interruptOpen === true
         ? Effect.interrupt
@@ -1183,7 +1203,7 @@ function makeLocalCommandHarness(input: {
       input: RunExecutionService.RunExecutionServiceV2StartRootRunInput,
     ) => Effect.Effect<void, RunExecutionService.RunExecutionServiceV2Error>
   >((runInput) =>
-    input.sideChat !== undefined
+    input.sideChat !== undefined || input.ordinaryTurn
       ? (runInput.resume
           ? runInput.session.resumeTurn!({
               ...runInput,
@@ -1290,7 +1310,14 @@ function makeLocalCommandHarness(input: {
     ),
   );
   const layer = ProviderTurnStart.layer.pipe(
-    Layer.provide(Layer.mock(T3poStore.Store)({ context: () => Effect.succeed("") })),
+    Layer.provide(McpSessionRegistryTestkit.layer),
+    Layer.provide(
+      Layer.mock(T3poStore.Store)({
+        context: () => Effect.succeed(""),
+        checkStart: input.checkStart ?? (() => Effect.void),
+        proposalEnabled: () => Effect.succeed(input.proposals === true),
+      }),
+    ),
     Layer.provide(
       Layer.mergeAll(
         Layer.mock(ContextHandoffService.ContextHandoffServiceV2)({
@@ -1396,6 +1423,7 @@ function makeLocalCommandHarness(input: {
     createWorktree,
     open,
     fallbackEnsureThread,
+    isolatedEnsureThread,
     writeIfRunCurrent,
     startRootRun,
     startTurn,
@@ -1425,6 +1453,7 @@ function layerStartEffectWorker(
   control: Partial<ProviderTurnControlService.ProviderTurnControlServiceV2["Service"]> = {},
 ) {
   const executor = EffectWorker.layerExecutor.pipe(
+    Layer.provide(Layer.mock(ExternalActionExecutor.ExternalActionExecutor)({})),
     Layer.provide(Layer.mock(EventSink.EventSinkV2)({})),
     Layer.provide(
       Layer.mergeAll(
@@ -3048,3 +3077,163 @@ for (const previousMessages of [[], ["/compact", " /COMPACT "]]) {
       }),
   );
 }
+
+effectIt.effect.each(["queued", "prepared"] as const)(
+  "rechecks real job grants when replaying a %s provider start",
+  (phase) =>
+    Effect.gen(function* () {
+      const store = yield* T3poStore.Store;
+      const sql = yield* SqlClient.SqlClient;
+      let checks = 0;
+      const harness = makeLocalCommandHarness({
+        text: "Continue",
+        checkStart: Effect.fn("test.checkStart")(function* (threadId, runId) {
+          checks += 1;
+          if (phase === "prepared" && checks === 2)
+            yield* store.mutate({
+              type: "revoke_job_grant",
+              projectId: harness.projection().thread.projectId,
+              id: "replay-grant",
+              expectedVersion: 1,
+            });
+          yield* store.checkStart(threadId, runId);
+        }),
+      });
+      const projection = harness.projection();
+      const projectId = projection.thread.projectId;
+      const runId = projection.runs[0]!.id;
+      yield* store.mutate({ type: "save_budget", projectId, maxRuns: 5, maxConcurrent: 1 });
+      yield* store.mutate({
+        type: "create_task",
+        projectId,
+        id: "replay-grant",
+        channelId: null,
+        title: "Replay",
+        brief: "Scope",
+      });
+      yield* sql`UPDATE t3po_tasks SET data = json_set(data, '$.threadId', ${projection.thread.id}) WHERE id = 'replay-grant'`;
+      yield* store.mutate({
+        type: "save_job_grant",
+        projectId,
+        id: "replay-grant",
+        expectedVersion: 0,
+        briefRevision: 1,
+        expiresAt: "2099-01-01T00:00:00.000Z",
+      });
+      yield* sql`INSERT INTO t3po_grant_admissions (run_id, task_id, version) VALUES (${runId}, 'replay-grant', 1)`;
+      yield* store.checkStart(projection.thread.id, runId);
+      if (phase === "queued")
+        yield* store.mutate({
+          type: "revoke_job_grant",
+          projectId,
+          id: "replay-grant",
+          expectedVersion: 1,
+        });
+      expect(yield* harness.startWithRetry.pipe(Effect.isFailure)).toBe(true);
+      expect(yield* harness.start.pipe(Effect.isFailure)).toBe(true);
+      if (phase === "queued") expect(harness.open).not.toHaveBeenCalled();
+      expect(harness.startTurn).not.toHaveBeenCalled();
+    }).pipe(
+      Effect.provide(T3poStore.layer.pipe(Layer.provideMerge(SqlitePersistence.layerMemory))),
+    ),
+);
+
+for (const handoffs of [false, true]) {
+  for (const phase of ["prepared", "started"] as const) {
+    for (const action of ["revoke", "expire", "replace"] as const) {
+      effectIt.effect(
+        `guards ${phase} provider calls (handoffs=${handoffs}) after grant ${action}`,
+        () =>
+          Effect.gen(function* () {
+            const store = yield* T3poStore.Store;
+            const sql = yield* SqlClient.SqlClient;
+            const harness = makeLocalCommandHarness({
+              text: "Continue",
+              ordinaryTurn: true,
+              ...(handoffs ? { sideChat: { contextRun: "current" as const } } : {}),
+              checkStart: store.checkStart,
+            });
+            harness.startRootRun.mockImplementation(() => Effect.void);
+            const projection = harness.projection();
+            const projectId = projection.thread.projectId;
+            const runId = projection.runs[0]!.id;
+            yield* sql`INSERT INTO projection_projects (project_id, title, workspace_root, scripts_json, created_at, updated_at)
+        VALUES (${projectId}, 'Test', '/tmp/native-account-command', '[]', '2026-01-01', '2026-01-01')`;
+            yield* sql`INSERT INTO orchestration_v2_projection_threads (thread_id, project_id, title, default_provider, runtime_mode, interaction_mode, created_at, updated_at, payload_json)
+        VALUES (${projection.thread.id}, ${projectId}, 'Test', 'codex', 'approval-required', 'default', '2026-01-01', '2026-01-01', '{"worktreePath":null,"branch":null,"lineage":{"parentThreadId":null}}')`;
+            yield* store.mutate({ type: "save_budget", projectId, maxRuns: 5, maxConcurrent: 1 });
+            yield* store.mutate({
+              type: "create_task",
+              projectId,
+              id: "ordinary-grant",
+              channelId: null,
+              title: "Test",
+              brief: "Scope",
+              workspace: { type: "root" },
+            });
+            yield* sql`UPDATE t3po_tasks SET data = json_set(data, '$.threadId', ${projection.thread.id}) WHERE id = 'ordinary-grant'`;
+            const grant = {
+              type: "save_job_grant" as const,
+              projectId,
+              id: "ordinary-grant",
+              expectedVersion: 0,
+              briefRevision: 1,
+              expiresAt: "2099-01-01T00:00:00.000Z",
+            };
+            yield* store.mutate(grant);
+            yield* sql`INSERT INTO t3po_grant_admissions (run_id, task_id, version) VALUES (${runId}, 'ordinary-grant', 1)`;
+            yield* harness.startWithRetry;
+            const call = harness.startRootRun.mock.calls[0]![0];
+            if (phase === "started") yield* call.session.startTurn(call as never);
+            expect(harness.startTurn).toHaveBeenCalledTimes(phase === "started" ? 1 : 0);
+            if (action === "revoke")
+              yield* store.mutate({
+                type: "revoke_job_grant",
+                projectId,
+                id: "ordinary-grant",
+                expectedVersion: 1,
+              });
+            if (action === "replace") yield* store.mutate({ ...grant, expectedVersion: 1 });
+            if (action === "expire")
+              yield* TestClock.setTime(Date.parse("2099-01-02T00:00:00.000Z"));
+            expect(yield* call.session.startTurn(call as never).pipe(Effect.isFailure)).toBe(true);
+            expect(
+              yield* call.session.resumeTurn!({
+                ...call,
+                messageId: call.message.messageId,
+              } as never).pipe(Effect.isFailure),
+            ).toBe(true);
+            expect(yield* call.session.compactThread!(call as never).pipe(Effect.isFailure)).toBe(
+              true,
+            );
+            expect(harness.startTurn).toHaveBeenCalledTimes(phase === "started" ? 1 : 0);
+            expect(harness.projection().runs[0]!.status).toBe("running");
+          }).pipe(
+            Effect.provide(T3poStore.layer.pipe(Layer.provideMerge(SqlitePersistence.layerMemory))),
+          ),
+      );
+    }
+  }
+}
+
+effectIt.effect(
+  "starts opted-in jobs with a fresh proposal credential through production preparation",
+  () =>
+    Effect.gen(function* () {
+      const harness = makeLocalCommandHarness({
+        text: "Review this PR",
+        ordinaryTurn: true,
+        proposals: true,
+      });
+      yield* harness.startWithRetry;
+      expect(harness.isolatedEnsureThread).toHaveBeenCalledTimes(1);
+      expect(harness.isolatedEnsureThread.mock.calls[0]![0]).toMatchObject({
+        forceNewNativeThread: true,
+        proposalMcpSession: { authorizationHeader: expect.stringContaining("Bearer") },
+      });
+      expect(harness.startTurn).toHaveBeenCalledTimes(1);
+      expect(harness.projection().providerThreads[0]?.nativeThreadRef?.nativeId).toBe(
+        "side-chat-native",
+      );
+    }),
+);

@@ -1,3 +1,5 @@
+import { ExternalActionSettings } from "./ExternalActionSettings";
+import { useNowMinute } from "../../hooks/useNowMinute";
 import { useRoName } from "./useRoName";
 import { NeedsYou } from "./NeedsYou";
 import { ProjectMemory } from "./MemoryInspector";
@@ -138,6 +140,7 @@ export function ProjectBoard({
   title: string;
   channelId: string | null;
 }) {
+  const grantNow = Date.parse(`${useNowMinute()}Z`);
   const gt = useGT();
   const navigate = useNavigate();
   const [tab, setTab] = useState<"active" | "up_next" | "outputs" | "completed" | "archived">(
@@ -442,6 +445,12 @@ export function ProjectBoard({
               <T>New channel</T>
             </Button>
           </div>
+          <ExternalActionSettings
+            projectId={projectId}
+            bindings={query.data?.externalBindings}
+            save={save}
+            disabled={!canMutate || busy}
+          />
           <form
             key={`budget:${projectId}:${lead?.budget?.maxRuns}:${lead?.budget?.maxConcurrent}`}
             className="flex flex-wrap items-end gap-3"
@@ -677,6 +686,55 @@ export function ProjectBoard({
                 )}
               </div>
             </div>
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <span className="text-xs text-muted-foreground">
+                {task.grant
+                  ? `${gt("Job grant")} v${task.grant.version} · ${task.grant.revoked ? gt("Revoked") : task.grant.briefRevision !== (task.briefRevision ?? 1) ? gt("Stale") : Date.parse(task.grant.expiresAt) <= grantNow ? gt("Expired") : gt("Active")} · ${gt("Expires")}: ${new Date(task.grant.expiresAt).toLocaleString()} · ${gt("Run limit")}: ${task.grant.maxRuns} · ${gt("Concurrency limit")}: ${task.grant.maxConcurrent}`
+                  : gt("Legacy execution")}
+              </span>
+              <Button
+                variant="outline"
+                disabled={!canMutate || busy}
+                onClick={() =>
+                  void save({
+                    type: "save_job_grant",
+                    projectId: task.projectId,
+                    id: task.id,
+                    briefRevision: task.briefRevision ?? 1,
+                    expectedVersion: task.grant?.version ?? 0,
+                    expiresAt: new Date(Date.now() + 86400000).toISOString(),
+                    maxRuns: 1,
+                    maxConcurrent: 1,
+                  })
+                }
+              >
+                <T>Grant one run for 24 hours</T>
+              </Button>
+              {task.grant && !task.grant.revoked ? (
+                <Button
+                  variant="outline"
+                  disabled={!canMutate || busy}
+                  onClick={() =>
+                    void save({
+                      type: "revoke_job_grant",
+                      projectId: task.projectId,
+                      id: task.id,
+                      expectedVersion: task.grant!.version,
+                    })
+                  }
+                >
+                  <T>Revoke grant</T>
+                </Button>
+              ) : null}
+            </div>
+            {task.grant ? (
+              <p className="mt-2 text-xs text-muted-foreground">
+                <T>
+                  Nested managed workers are blocked. Revoking a grant does not cancel running
+                  turns.
+                </T>
+              </p>
+            ) : null}
             <NativeChildren
               environmentId={environmentId}
               threadId={task.threadId}

@@ -7,6 +7,7 @@ import type { McpInvocationScope } from "../mcp/McpInvocationContext.ts";
 
 // Unscoped search, remote routing and device/browser tools need their own space-aware principals.
 const scopedTools = new Set([
+  "propose_pull_request_draft",
   "orchestrator_capabilities",
   "tool_search",
   "t3_work_route",

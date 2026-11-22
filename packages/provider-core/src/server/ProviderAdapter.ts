@@ -532,6 +532,8 @@ export interface ProviderAdapterV2OpenSessionInput {
 }
 
 export interface ProviderAdapterV2EnsureThreadInput {
+  /** Server-minted credential delivered only to a fresh native thread. */
+  readonly proposalMcpSession?: import("./mcpSession.ts").McpProviderSessionConfig;
   readonly threadId: ThreadId;
   readonly title?: string;
   readonly modelSelection: ModelSelection;
@@ -698,6 +700,7 @@ export type ProviderAdapterV2SubagentOutcome = {
 };
 
 export interface ProviderAdapterV2SessionRuntime {
+  readonly supportsIsolatedProposalThread?: true;
   readonly instanceId: ProviderInstanceId;
   readonly driver: ProviderDriverKind;
   readonly providerSessionId: ProviderSessionId;

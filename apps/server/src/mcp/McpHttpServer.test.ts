@@ -1,3 +1,4 @@
+import * as ExternalActionService from "../t3po/ExternalActionService.ts";
 import * as SpacePolicy from "../t3po/SpacePolicy.ts";
 import * as SqlClient from "effect/sql/SqlClient";
 import * as Orchestrator from "../orchestration-v2/Orchestrator.ts";
@@ -17,6 +18,9 @@ import {
   ProviderInstanceId,
   ProviderInteractionMode,
   RuntimeMode,
+  RunId,
+  RunAttemptId,
+  ProviderSessionId,
   ThreadId,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
@@ -1473,9 +1477,10 @@ it.effect("accepts case-insensitive MCP bearer schemes and diagnoses rejected cr
         { disableListenLog: true, disableLogger: true },
       ).pipe(Layer.build);
       const httpClient = yield* HttpClient.HttpClient;
-      const initialize = (authorization?: string) =>
+      const initialize = (authorization?: string, headers: Record<string, string> = {}) =>
         httpClient.post("/mcp", {
           headers: {
+            ...headers,
             accept: "application/json, text/event-stream",
             ...(authorization === undefined ? {} : { authorization }),
           },
@@ -1494,6 +1499,32 @@ it.effect("accepts case-insensitive MCP bearer schemes and diagnoses rejected cr
           expect.soft(response.status, `${kind} ${scheme}`).toBe(200);
         }
       }
+      let active = true;
+      const privileged = yield* registry.issue({
+        threadId,
+        providerInstanceId: ProviderInstanceId.make("codex"),
+        proposalExecution: {
+          scope: {
+            runId: RunId.make("run-privileged"),
+            attemptId: RunAttemptId.make("attempt-privileged"),
+            providerSessionId: ProviderSessionId.make("session-privileged"),
+            capability: "propose-external-action",
+          },
+          isActive: Effect.sync(() => active),
+        },
+      });
+      expect((yield* initialize(privileged.config.authorizationHeader)).status).toBe(200);
+      active = false;
+      expect(
+        (yield* initialize(privileged.config.authorizationHeader, {
+          "t3-run-id": "new-run",
+          "t3-attempt-id": "new-attempt",
+          "t3-provider-session-id": "new-session",
+        })).status,
+      ).toBe(401);
+      yield* registry.touch(threadId);
+      expect((yield* initialize(privileged.config.authorizationHeader)).status).toBe(401);
+      expect((yield* initialize(issued.config.authorizationHeader)).status).toBe(200);
       messages.length = 0;
       for (const [authorization, reason] of [
         [undefined, "missing_authorization_header"],
@@ -2147,3 +2178,55 @@ it.effect("applies persisted space boundaries before invoking a registered tool 
     ),
   );
 });
+
+it.effect(
+  "rejects ordinary MCP credentials for scoped PR proposals and forwards only bound callers",
+  () => {
+    let calls = 0;
+    const layer = McpHttpServer.layerExternalActionsToolkit.pipe(
+      Layer.provideMerge(McpHttpServer.layerInProcessMcpServer),
+      Layer.provideMerge(McpToolAccessTestkit.liveThreadsLayer),
+      Layer.provide(
+        Layer.succeed(ExternalActionService.ExternalActionService, {
+          proposeDraft: () =>
+            Effect.sync(() => {
+              calls += 1;
+              return { operationId: "op", requestId: "request", state: "pending" };
+            }),
+        }),
+      ),
+    );
+    return Effect.gen(function* () {
+      const server = yield* McpServer.McpServer;
+      const scope = { ...invocation, capabilities: new Set(["pull-requests"] as const) };
+      const call = server.callTool({
+        name: "propose_pull_request_draft",
+        arguments: { number: 42, requestKey: "intent-1" },
+      });
+      const denied = yield* call.pipe(
+        Effect.provideService(McpInvocationContext.McpInvocationContext, scope),
+        Effect.provideService(McpSchema.McpServerClient, client),
+        Effect.result,
+      );
+      expect(denied._tag).toBe("Failure");
+      expect(calls).toBe(0);
+      const accepted = yield* call.pipe(
+        Effect.provideService(McpInvocationContext.McpInvocationContext, {
+          ...scope,
+          thread: {
+            ...scope.thread!,
+            proposalExecution: {
+              runId: RunId.make("run"),
+              attemptId: RunAttemptId.make("attempt"),
+              providerSessionId: ProviderSessionId.make("session"),
+              capability: "propose-external-action",
+            },
+          },
+        }),
+        Effect.provideService(McpSchema.McpServerClient, client),
+      );
+      expect(accepted.isError).not.toBe(true);
+      expect(calls).toBe(1);
+    }).pipe(Effect.provide(layer));
+  },
+);

@@ -1,3 +1,9 @@
+import { prepareProposalThread } from "../ProposalExecutionIdentity.ts";
+import * as ProposalProjection from "../ProjectionStore.ts";
+import { HttpServer } from "effect/http";
+import * as NetAddress from "effect/net/NetAddress";
+import * as McpSessionRegistry from "../../mcp/McpSessionRegistry.ts";
+import * as ServerEnvironment from "../../environment/ServerEnvironment.ts";
 import { historyResponseItems } from "@t3tools/provider-core/server/handoffBudget";
 import { makeProviderFailure } from "@t3tools/provider-core/server/failure";
 import {
@@ -11,6 +17,7 @@ import {
   CheckpointId,
   CodexSettings,
   EnvironmentId,
+  EventId,
   MessageId,
   type ModelSelection,
   NodeId,
@@ -2430,6 +2437,270 @@ describe("CodexAdapterV2 post-settle continuation", () => {
         ),
       ),
     ),
+  );
+
+  it.effect(
+    "delivers a fresh proposal bearer through Codex thread/start with exact immutable execution scope",
+    () =>
+      Effect.gen(function* () {
+        let active = true;
+        let now = 1000;
+        const registry = yield* McpSessionRegistry.__testing
+          .make({ now: () => now, livenessWindowMs: 100 })
+          .pipe(
+            Effect.provideService(
+              HttpServer.HttpServer,
+              HttpServer.HttpServer.of({
+                address: NetAddress.inetAddressFromIpStringUnsafe("127.0.0.1", 43123),
+                serve: (() => Effect.void) as HttpServer.HttpServer["Service"]["serve"],
+              }),
+            ),
+            Effect.provideService(
+              ServerEnvironment.ServerEnvironment,
+              ServerEnvironment.ServerEnvironment.of({
+                getEnvironmentId: Effect.succeed(EnvironmentId.make("proposal-test")),
+                getDescriptor: Effect.die("unused"),
+              }),
+            ),
+          );
+        const scenario = "proposal-isolation";
+        const scope = {
+          runId: RunId.make("run-attempt-one"),
+          attemptId: RunAttemptId.make("attempt-one"),
+          providerSessionId: ProviderSessionId.make(`provider-session-${scenario}`),
+          capability: "propose-external-action" as const,
+        };
+        const request = {
+          threadId: ThreadId.make(`thread-${scenario}`),
+          providerInstanceId: ProviderInstanceId.make("codex"),
+          proposalExecution: { scope, isActive: Effect.sync(() => active) },
+        };
+        const ordinary = yield* registry.issue({
+          threadId: request.threadId,
+          providerInstanceId: request.providerInstanceId,
+        });
+        yield* (yield* McpProviderSessions.McpProviderSessions).set(ordinary.config);
+        const preamble = codexReplayPreamble({
+          nativeThreadId: "ordinary-thread",
+          nativeTurnId: "unused",
+          prompt: "unused",
+        }).slice(0, 5);
+        const expectedTurnParams = yield* CodexAdapterV2.buildCodexTurnStartParams({
+          nativeThreadId: "isolated-thread",
+          codexInput: [{ type: "text", text: "work" }],
+          runtimePolicy: CODEX_TEST_RUNTIME_POLICY,
+          modelSelection: CODEX_TEST_MODEL_SELECTION,
+          hasT3Mcp: true,
+          browserToolsAvailable: true,
+          deviceToolsAvailable: false,
+        });
+        const fresh = codexReplayPreamble({
+          nativeThreadId: "isolated-thread",
+          nativeTurnId: "isolated-turn",
+          prompt: "work",
+          turnPolicy: {
+            approvalPolicy: {
+              granular: {
+                mcp_elicitations: true,
+                request_permissions: false,
+                rules: false,
+                sandbox_approval: false,
+                skill_approval: false,
+              },
+            },
+            sandboxPolicy: { type: "dangerFullAccess" },
+          },
+        })
+          .slice(3)
+          .map((entry) =>
+            entry.type !== "runtime_exit" &&
+            Predicate.isObject(entry.frame) &&
+            typeof entry.frame.id === "number"
+              ? withReplayRequestId(entry, entry.frame.id + 1)
+              : entry,
+          );
+        for (let index = 0; index < fresh.length; index++) {
+          const entry = fresh[index]!;
+          if (
+            entry.type === "expect_outbound" &&
+            Predicate.isObject(entry.frame) &&
+            entry.frame.method === "turn/start"
+          ) {
+            fresh[index] = { ...entry, frame: { ...entry.frame, params: expectedTurnParams } };
+          }
+        }
+        const configs: Array<Record<string, unknown>> = [];
+        const harness = yield* makeCodexReplayHarness(
+          makeCodexReplayTranscript({ scenario, entries: [...preamble, ...fresh] }),
+          () => Effect.void,
+          (method, params) =>
+            Effect.sync(() => {
+              if (method === "thread/start")
+                configs.push((params as { config: Record<string, unknown> }).config);
+            }),
+        );
+        const nowUtc = yield* DateTime.now;
+        const turn = makeCodexTestTurnInput({
+          threadId: harness.threadId,
+          providerThread: harness.providerThread,
+          now: nowUtc,
+          attemptId: scope.attemptId,
+          text: "work",
+        });
+        const base = ProposalProjection.emptyProjection({
+          id: EventId.make("proposal-created"),
+          type: "thread.created",
+          threadId: harness.threadId,
+          occurredAt: nowUtc,
+          payload: turn.appThread,
+        });
+        let persistedThread = harness.providerThread;
+        const isolated = yield* prepareProposalThread({
+          runtime: harness.runtime,
+          thread: {
+            existingProviderThread: {
+              ...harness.providerThread,
+              id: ProviderThreadId.make("stable-provider-row"),
+            },
+            threadId: harness.threadId,
+            modelSelection: CODEX_TEST_MODEL_SELECTION,
+            runtimePolicy: CODEX_TEST_RUNTIME_POLICY,
+          },
+          runId: scope.runId,
+          attemptId: scope.attemptId,
+        }).pipe(
+          Effect.provideService(McpSessionRegistry.McpSessionRegistry, registry),
+          Effect.provide(
+            Layer.mock(ProposalProjection.ProjectionStoreV2)({
+              getTurnStartContext: () =>
+                Effect.sync(() => ({
+                  ...base,
+                  hasConversation: false,
+                  runs: [
+                    {
+                      id: scope.runId,
+                      threadId: harness.threadId,
+                      ordinal: 1,
+                      providerInstanceId: harness.runtime.instanceId,
+                      modelSelection: CODEX_TEST_MODEL_SELECTION,
+                      providerThreadId: persistedThread.id,
+                      userMessageId: turn.message.messageId,
+                      rootNodeId: turn.rootNodeId,
+                      activeAttemptId: scope.attemptId,
+                      status: active ? ("running" as const) : ("completed" as const),
+                      requestedAt: nowUtc,
+                      startedAt: nowUtc,
+                      completedAt: null,
+                      checkpointId: null,
+                      contextHandoffId: null,
+                    },
+                  ],
+                  attempts: [
+                    {
+                      id: scope.attemptId,
+                      runId: scope.runId,
+                      attemptOrdinal: 1,
+                      rootNodeId: turn.rootNodeId,
+                      providerInstanceId: harness.runtime.instanceId,
+                      providerThreadId: persistedThread.id,
+                      providerTurnId: null,
+                      reason: "initial" as const,
+                      status: "running" as const,
+                      startedAt: nowUtc,
+                      completedAt: null,
+                    },
+                  ],
+                  providerThreads: [persistedThread],
+                })),
+            }),
+          ),
+        );
+        assert.equal(isolated.id, "stable-provider-row");
+        assert.equal(isolated.nativeThreadRef?.nativeId, "isolated-thread");
+        persistedThread = isolated;
+        const crossRun = yield* harness.runtime
+          .startTurn(
+            makeCodexTestTurnInput({
+              threadId: harness.threadId,
+              providerThread: isolated,
+              now: yield* DateTime.now,
+              attemptId: RunAttemptId.make("another-attempt"),
+              text: "must not start",
+            }),
+          )
+          .pipe(Effect.result);
+        assert.equal(crossRun._tag, "Failure");
+        if (crossRun._tag === "Failure")
+          assert.equal(crossRun.failure._tag, "ProviderAdapterProtocolError");
+        yield* harness.runtime.startTurn(
+          makeCodexTestTurnInput({
+            threadId: harness.threadId,
+            providerThread: isolated,
+            now: yield* DateTime.now,
+            attemptId: scope.attemptId,
+            text: "work",
+          }),
+        );
+        assert.isUndefined(configs[0]?.["mcp_servers.t3-proposals"]);
+        const proposal = configs[1]?.["mcp_servers.t3-proposals"] as {
+          http_headers: { Authorization: string };
+          enabled_tools: string[];
+        };
+        assert.deepEqual(proposal.enabled_tools, []);
+        const token = proposal.http_headers.Authorization.replace(/^Bearer /, "");
+        assert.deepEqual((yield* registry.resolve(token))?.thread.proposalExecution, scope);
+        assert.equal((yield* registry.resolve(token))?.capabilities.size, 0);
+        assert.isUndefined(yield* registry.resolve(`${token}forged`));
+        persistedThread = {
+          ...isolated,
+          nativeThreadRef: { ...isolated.nativeThreadRef!, nativeId: "replaced-native-thread" },
+        };
+        assert.isUndefined(yield* registry.resolve(token));
+        persistedThread = isolated;
+        assert.isUndefined(yield* registry.resolve(token));
+        active = false;
+        assert.isUndefined(yield* registry.resolve(token));
+        active = true;
+        const replacement = yield* registry.issue({
+          ...request,
+          proposalExecution: {
+            ...request.proposalExecution,
+            scope: { ...scope, attemptId: RunAttemptId.make("retry") },
+          },
+        });
+        assert.isUndefined(yield* registry.resolve(token));
+        const replacementToken = replacement.config.authorizationHeader.replace(/^Bearer /, "");
+        assert.equal(
+          (yield* registry.resolve(replacementToken))?.thread.proposalExecution?.attemptId,
+          "retry",
+        );
+        active = false;
+        assert.isUndefined(yield* registry.resolve(replacementToken));
+        active = true;
+        yield* registry.touch(request.threadId);
+        assert.isUndefined(yield* registry.resolve(replacementToken));
+        const last = yield* registry.issue(request);
+        now += 101;
+        yield* registry.touch(request.threadId);
+        assert.isUndefined(
+          yield* registry.resolve(last.config.authorizationHeader.replace(/^Bearer /, "")),
+        );
+        const legacy = yield* registry.resolve(
+          ordinary.config.authorizationHeader.replace(/^Bearer /, ""),
+        );
+        assert.isDefined(legacy);
+        assert.isUndefined(legacy?.thread.proposalExecution);
+      }).pipe(
+        Effect.scoped,
+        Effect.provide(
+          Layer.mergeAll(
+            IdAllocator.layer,
+            McpProviderSessions.layer,
+            NodeServices.layer,
+            NodeCrypto.layer,
+          ),
+        ),
+      ),
   );
 
   // regression: #36520 MCP servers can tell a delegate_task child from a user thread

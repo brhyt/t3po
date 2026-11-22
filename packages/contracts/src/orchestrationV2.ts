@@ -1299,6 +1299,7 @@ export const OrchestrationV2RuntimeRequest = Schema.Struct({
       supportsFeedback: Schema.optional(Schema.Boolean),
     }),
     Schema.Struct({ type: Schema.Literal("message") }),
+    Schema.Struct({ type: Schema.Literal("server_action"), operationId: Schema.String }),
     Schema.Struct({ type: Schema.Literal("not_resumable"), reason: Schema.String }),
   ]),
   createdAt: Schema.DateTimeUtc,

@@ -1,3 +1,6 @@
+import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
+import * as TurnItemPositionStore from "./orchestration-v2/TurnItemPositionStore.ts";
+import * as ExternalActionService from "./t3po/ExternalActionService.ts";
 import * as SpacePolicy from "./t3po/SpacePolicy.ts";
 import * as T3poWork from "./t3po/Work.ts";
 import * as T3poWorkRunner from "./t3po/WorkRunner.ts";
@@ -442,6 +445,7 @@ const layerRepositoryIdentityResolver = Layer.effect(
 ).pipe(Layer.provide(layerSourceControlProviderRegistry), Layer.provide(ProcessRunner.layer));
 
 const layerPullRequestService = PullRequestService.layer.pipe(
+  Layer.provide(RuntimeLayer.layerProjectService),
   Layer.provide(PullRequestProviderRegistry.layer),
   Layer.provide(PullRequestFilesViewed.layer),
   Layer.provide(PullRequestReadCache.layer),
@@ -614,6 +618,7 @@ const layerScheduledTaskWebhookOrigin = Layer.effect(
 );
 
 const layerOrchestrationV2Runtime = RuntimeLayer.layerProduction.pipe(
+  Layer.provide(layerPullRequestService),
   Layer.provide(UsageLimitSources.layerResetFallback),
   Layer.provide(layerScheduledTaskWebhookOrigin),
   Layer.provide(ProviderUsageAnalytics.layer),
@@ -887,6 +892,13 @@ const layerMakeRoutes = Layer.mergeAll(
 ).pipe(
   Layer.provide(
     PullRequestReviewGuideService.layer.pipe(Layer.provide(PullRequestReviewGuides.layer)),
+  ),
+  Layer.provide(
+    ExternalActionService.layer.pipe(
+      Layer.provide(RuntimeLayer.layerEventSink),
+      Layer.provide(TurnItemPositionStore.layer),
+      Layer.provide(IdAllocator.layer),
+    ),
   ),
   // delegate_task to a linked environment, from /mcp and the follower above.
   Layer.provide(RemoteDelegation.layer.pipe(Layer.provide(ProjectionStoreV2.layer))),

@@ -1,3 +1,4 @@
+import * as PullRequestService from "../pullRequest/PullRequestService.ts";
 import * as Exit from "effect/Exit";
 import * as EffectOutbox from "./EffectOutbox.ts";
 import * as EffectWorker from "./EffectWorker.ts";
@@ -155,6 +156,7 @@ const layerTest = Layer.mergeAll(
     }),
   ),
   Layer.provide(McpSessionRegistryTestkit.layer),
+  Layer.provide(Layer.mock(PullRequestService.PullRequestService)({})),
   Layer.provide(McpProviderSessions.layer),
   Layer.provide(SqlitePersistence.layerMemory),
   Layer.provide(layerCheckpointStoreTest),

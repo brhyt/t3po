@@ -266,6 +266,74 @@ it.effect.each(
 );
 
 it.effect(
+  "rejects broad or structured responses to server-owned actions without resolving them",
+  () =>
+    Effect.gen(function* () {
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const projections = yield* ProjectionStore.ProjectionStoreV2;
+      const outbox = yield* EffectOutbox.EffectOutboxV2;
+      const threadId = ThreadId.make("thread:server-action");
+      const requestId = RuntimeRequestId.make("request:server-action");
+      const now = yield* DateTime.now;
+      yield* orchestrator.dispatch({
+        type: "thread.create",
+        commandId: CommandId.make("create-server-action"),
+        threadId,
+        projectId: ProjectId.make("project:server-action"),
+        title: "Operation",
+        modelSelection,
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        branch: null,
+        worktreePath: null,
+        createdBy: "user",
+        creationSource: "web",
+      });
+      yield* projections.apply({
+        id: EventId.make("request:server-action"),
+        type: "runtime-request.updated",
+        threadId,
+        occurredAt: now,
+        payload: {
+          id: requestId,
+          nodeId: NodeId.make("node:server-action"),
+          providerTurnId: null,
+          nativeRequestRef: null,
+          kind: "permission",
+          status: "pending",
+          responseCapability: { type: "server_action", operationId: "operation" },
+          createdAt: now,
+          resolvedAt: null,
+        },
+      });
+      for (const [index, invalid] of [
+        { decision: "acceptForSession" as const },
+        { decision: "accept" as const, answers: {} },
+        { decision: "decline" as const, feedback: "No" },
+        { decision: "accept" as const, attachmentsByQuestionId: {} },
+        {},
+      ].entries()) {
+        const commandId = CommandId.make(`invalid-server-action:${index}`);
+        const result = yield* orchestrator
+          .dispatch({
+            type: "runtime-request.respond",
+            commandId,
+            threadId,
+            requestId,
+            ...invalid,
+          })
+          .pipe(Effect.result);
+        assert.isTrue(Result.isFailure(result));
+        assert.deepEqual(yield* outbox.listByCommandId(commandId), []);
+        assert.equal(
+          (yield* projections.getRuntimeRequest(threadId, requestId))?.status,
+          "pending",
+        );
+      }
+    }).pipe(Effect.provide(layerTest)),
+);
+
+it.effect(
   "records approval feedback and targets only its runtime request without dispatching a parent turn",
   () =>
     Effect.gen(function* () {

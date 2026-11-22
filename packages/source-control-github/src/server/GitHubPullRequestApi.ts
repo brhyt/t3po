@@ -309,7 +309,17 @@ export class GitHubBranchDeletionRefusedError extends Schema.TaggedError<GitHubB
   }
 }
 
+export class GitHubDraftTargetMismatchError extends Schema.TaggedError<GitHubDraftTargetMismatchError>()(
+  "GitHubDraftTargetMismatchError",
+  { number: Schema.Int },
+) {
+  override get message(): string {
+    return "The exact GitHub draft target could not be verified.";
+  }
+}
+
 export type GitHubPullRequestApiError =
+  | GitHubDraftTargetMismatchError
   | GitHubBranchDeletionRefusedError
   | GitHubStackActionError
   | GitHubRequestPolicy.GitHubApiError
@@ -554,6 +564,15 @@ export class GitHubPullRequestApi extends Context.Service<
       }>;
     }) => Effect.Effect<ReadonlyArray<GitHubPullRequestStat>, GitHubPullRequestApiError>;
 
+    readonly getDraftTarget: (input: {
+      readonly cwd: string;
+      readonly host: string;
+      readonly repository: string;
+      readonly number: number;
+    }) => Effect.Effect<
+      { readonly nodeId: string; readonly summary: ProviderChangeRequestSummary },
+      GitHubPullRequestApiError
+    >;
     readonly getPullRequestSummary: (input: {
       readonly cwd: string;
       readonly repository: string;
@@ -773,6 +792,8 @@ export class GitHubPullRequestApi extends Context.Service<
       readonly action: PullRequestAction;
       readonly stackNumber?: number;
       readonly expectedStackHeads?: ReadonlyArray<PullRequestStackHead>;
+      readonly expectedDraftNodeId?: string;
+      readonly beforeMutation?: Effect.Effect<boolean>;
       readonly removeAgentCreditsOnMerge?: boolean;
       readonly mergeMethod?: PullRequestMergeMethod;
       readonly updateMethod?: PullRequestUpdateMethod;
@@ -1871,6 +1892,18 @@ export const make = Effect.gen(function* () {
     withVerifiedCredential,
     revalidateChecks,
     getRoutingIdentity,
+    getDraftTarget: Effect.fn("GitHubPullRequestApi.getDraftTarget")(function* (input) {
+      const { owner, name } = parseRepositorySelector(input.repository);
+      const target = { ...input, operation: "getDraftTarget" };
+      const readNode = client
+        .PullRequestNodeId({ owner, name, number: input.number })
+        .pipe(graphql({ ...target, allowReserve: true }));
+      const nodeId = toPullRequestNodeId(yield* readNode);
+      const summary = yield* getPullRequestSummary(input);
+      if (!nodeId || nodeId !== toPullRequestNodeId(yield* readNode))
+        return yield* new GitHubDraftTargetMismatchError({ number: input.number });
+      return { nodeId, summary };
+    }),
     getViewerLogin: Effect.fn("GitHubPullRequestApi.getViewerLogin")(function (input) {
       return getRoutingIdentity(input).pipe(Effect.map((identity) => identity.viewer));
     }),
@@ -2587,6 +2620,32 @@ export const make = Effect.gen(function* () {
     }),
 
     runPullRequestAction: Effect.fn("GitHubPullRequestApi.runPullRequestAction")(function (input) {
+      if (input.expectedDraftNodeId !== undefined) {
+        return Effect.gen(function* () {
+          if (
+            input.action !== "draft" ||
+            input.stackNumber !== undefined ||
+            !input.expectedDraftNodeId?.trim()
+          ) {
+            return yield* new GitHubDraftTargetMismatchError({ number: input.number });
+          }
+          const { owner, name } = parseRepositorySelector(input.repository);
+          const target = { ...input, operation: "runPullRequestAction" };
+          // Approval targets bypass the node cache, which can outlive repository transfers.
+          const read = yield* client
+            .PullRequestNodeId({ owner, name, number: input.number })
+            .pipe(graphql({ ...target, allowReserve: true }));
+          if (toPullRequestNodeId(read) !== input.expectedDraftNodeId) {
+            return yield* new GitHubDraftTargetMismatchError({ number: input.number });
+          }
+          if (input.beforeMutation && !(yield* input.beforeMutation)) {
+            return yield* new GitHubDraftTargetMismatchError({ number: input.number });
+          }
+          return yield* actionSummary(simpleActionMutations.draft(input.expectedDraftNodeId)).pipe(
+            graphql(target),
+          );
+        });
+      }
       if (input.action === "delete-branch") {
         return Effect.gen(function* () {
           if (input.stackNumber !== undefined) {

@@ -28,7 +28,7 @@ export interface PendingApprovalCardProps {
 export function PendingApprovalCard(props: PendingApprovalCardProps) {
   const gt = useGT();
   const m = useMessages();
-  const options: ReadonlyArray<ProviderApprovalOption> = props.approval.options ?? [
+  const availableOptions: ReadonlyArray<ProviderApprovalOption> = props.approval.options ?? [
     { decision: "accept", label: gt("Allow once") },
     { decision: "acceptForSession", label: gt("Allow session") },
     {
@@ -36,8 +36,17 @@ export function PendingApprovalCard(props: PendingApprovalCardProps) {
       label: gt("Decline", { $context: "verb, rejects the approval request" }),
     },
   ];
+  const options =
+    props.approval.responseCapability === "server_action"
+      ? availableOptions.filter(
+          (option) =>
+            option.decision === "accept" ||
+            option.decision === "decline" ||
+            option.decision === "cancel",
+        )
+      : availableOptions;
   const warning = options.find((option) => option.warning)?.warning;
-  const canRespond = props.approval.responseCapability === "live";
+  const canRespond = props.approval.responseCapability !== "not_resumable";
   const disabled = !canRespond || props.respondingApprovalId === props.approval.requestId;
   const [explanationOpen, setExplanationOpen] = useState(false);
   return (

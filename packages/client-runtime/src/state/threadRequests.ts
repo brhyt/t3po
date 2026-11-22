@@ -60,7 +60,7 @@ export interface ThreadPendingApproval {
   readonly fullAccessOverride?: ProviderApprovalFullAccessOverride;
   readonly appName?: string;
   readonly options?: ReadonlyArray<ProviderApprovalOption>;
-  readonly responseCapability: "live" | "not_resumable";
+  readonly responseCapability: "live" | "server_action" | "not_resumable";
   readonly supportsFeedback?: boolean;
 }
 
@@ -292,7 +292,10 @@ export function derivePendingThreadRequests(
       ...(item?.type === "approval_request" && item.options !== undefined
         ? { options: item.options }
         : {}),
-      responseCapability: responseCapability === "live" ? "live" : "not_resumable",
+      responseCapability:
+        responseCapability === "live" || responseCapability === "server_action"
+          ? responseCapability
+          : "not_resumable",
       ...(request.responseCapability.type === "live" && request.responseCapability.supportsFeedback
         ? { supportsFeedback: true }
         : {}),

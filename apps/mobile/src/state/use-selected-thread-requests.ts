@@ -332,10 +332,8 @@ export function useSelectedThreadRequests() {
     ) {
       return;
     }
-    if (
-      activePendingApprovals.find((approval) => approval.requestId === requestId)
-        ?.responseCapability !== "live"
-    ) {
+    const approval = activePendingApprovals.find((approval) => approval.requestId === requestId);
+    if (approval === undefined || approval.responseCapability === "not_resumable") {
       return;
     }
 

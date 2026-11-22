@@ -1,3 +1,4 @@
+import * as ExternalActionExecutor from "../t3po/ExternalActionExecutor.ts";
 import * as T3poStore from "../t3po/Store.ts";
 import * as WorktreeBranchSync from "./WorktreeBranchSync.ts";
 import * as GuestShareService from "../guest/GuestShareService.ts";
@@ -340,6 +341,7 @@ const layerThreadTitleRegenerationProvided = ThreadTitleRegenerationService.laye
   ),
 );
 const layerEffectExecutorProvided = EffectWorker.layerExecutor.pipe(
+  Layer.provide(ExternalActionExecutor.layer),
   Layer.provide(layerEventSink),
   Layer.provide(
     Layer.mergeAll(

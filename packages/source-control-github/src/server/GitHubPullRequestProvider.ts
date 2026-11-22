@@ -476,6 +476,8 @@ export const make = Effect.gen(function* () {
         })
         .pipe(Effect.mapError(fail("listChangeRequestStats"))),
 
+    getDraftTarget: (input) =>
+      cli.getDraftTarget(input).pipe(Effect.mapError(fail("getDraftTarget"))),
     getChangeRequestSummary: (input) =>
       cli.getPullRequestSummary(input).pipe(
         Effect.map((summary) => ({
@@ -732,6 +734,10 @@ export const make = Effect.gen(function* () {
           host: input.host,
           number: input.number,
           action: input.action,
+          ...(input.expectedDraftNodeId === undefined
+            ? {}
+            : { expectedDraftNodeId: input.expectedDraftNodeId }),
+          ...(input.beforeMutation === undefined ? {} : { beforeMutation: input.beforeMutation }),
           ...(input.removeAgentCreditsOnMerge === true ? { removeAgentCreditsOnMerge: true } : {}),
           ...(input.stackNumber === undefined ? {} : { stackNumber: input.stackNumber }),
           ...(input.expectedStackHeads === undefined

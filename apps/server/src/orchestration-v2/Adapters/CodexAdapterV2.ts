@@ -1507,6 +1507,7 @@ const CODEX_DIRECT_ONLY_T3_TOOLS = ["t3_thread_wait", "delegate_task"];
 function codexThreadRuntimeParams(input: {
   readonly threadId: ThreadId | null;
   readonly mcpSession: McpProviderSession.McpProviderSessionConfig | undefined;
+  readonly proposalMcpSession?: McpProviderSession.McpProviderSessionConfig;
   readonly modelSelection?: { readonly model: string };
   readonly runtimePolicy?: ProviderAdapter.ProviderAdapterV2RuntimePolicy;
 }): {
@@ -1528,6 +1529,16 @@ function codexThreadRuntimeParams(input: {
     ...(input.modelSelection === undefined ? {} : { model: input.modelSelection.model }),
     config: {
       ...CODEX_THREAD_CONFIG,
+      ...(input.proposalMcpSession === undefined
+        ? {}
+        : {
+            "mcp_servers.t3-proposals": {
+              url: input.proposalMcpSession.endpoint,
+              http_headers: { Authorization: input.proposalMcpSession.authorizationHeader },
+              // No privileged tool is exposed until the approval flow is implemented.
+              enabled_tools: [],
+            },
+          }),
       // One app-server serves many threads, so the id goes in per-thread shell config, not its env.
       ...(input.threadId === null
         ? {}
@@ -7889,7 +7900,22 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
           }
         });
 
+        const proposalExecutions = new Map<
+          string,
+          NonNullable<McpProviderSession.McpProviderSessionConfig["proposalExecution"]>
+        >();
+        const proposalTurnMismatch = (turn: ProviderAdapter.ProviderAdapterV2TurnInput) => {
+          const bound = proposalExecutions.get(turn.providerThread.nativeThreadRef?.nativeId ?? "");
+          return (
+            bound !== undefined &&
+            (bound.runId !== turn.runId ||
+              bound.attemptId !== turn.attemptId ||
+              bound.providerSessionId !== input.providerSessionId)
+          );
+        };
+
         const runtime: ProviderAdapter.ProviderAdapterV2SessionRuntime = {
+          supportsIsolatedProposalThread: true,
           instanceId: adapterOptions.instanceId,
           driver: CODEX_PROVIDER,
           providerSessionId: input.providerSessionId,
@@ -7951,6 +7977,9 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
                   ...codexThreadRuntimeParams({
                     threadId: threadInput.threadId,
                     mcpSession,
+                    ...(threadInput.proposalMcpSession
+                      ? { proposalMcpSession: threadInput.proposalMcpSession }
+                      : {}),
                     modelSelection: threadInput.modelSelection,
                     runtimePolicy: threadInput.runtimePolicy,
                   }),
@@ -7958,6 +7987,12 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
                   ...(IdAllocator.isDelegatedTaskThread(threadInput.threadId)
                     ? { threadSource: "subagent" }
                     : {}),
+                }),
+              ),
+              Effect.tap((response) =>
+                Effect.sync(() => {
+                  const execution = threadInput.proposalMcpSession?.proposalExecution;
+                  if (execution) proposalExecutions.set(response.thread.id, execution);
                 }),
               ),
               Effect.map((response): OrchestrationV2ProviderThread =>
@@ -7982,6 +8017,12 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
           resumeThread: Effect.fn("CodexAdapterV2.resumeThread")(
             function* (threadInput) {
               const nativeThreadId = yield* getNativeThreadId(threadInput.providerThread);
+              if (proposalExecutions.has(nativeThreadId)) {
+                return yield* new ProviderAdapter.ProviderAdapterProtocolError({
+                  driver: CODEX_PROVIDER,
+                  detail: "Run-bound proposal credentials require a fresh native thread.",
+                });
+              }
               const appThreadId = threadInput.threadId ?? threadInput.providerThread.appThreadId;
               const resume = resumeNativeThread(nativeThreadId, {
                 excludeTurns: true,
@@ -8035,6 +8076,11 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
           ),
           compactThread: Effect.fn("CodexAdapterV2.compactThread")(
             function* (turnInput) {
+              if (proposalTurnMismatch(turnInput))
+                return yield* new ProviderAdapter.ProviderAdapterProtocolError({
+                  driver: CODEX_PROVIDER,
+                  detail: "An isolated proposal thread cannot be reused by another execution.",
+                });
               const threadId = yield* getNativeThreadId(turnInput.providerThread);
               yield* Ref.update(pendingRootTurns, (current) =>
                 new Map(current).set(threadId, turnInput),
@@ -8091,40 +8137,59 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
             ),
           ),
           resumeTurn: (input) => runtime.startTurn(ProviderAdapter.resumeTurnInput(input)),
-          startTurn: (turnInput) => {
-            const continuation =
-              turnInput.restartContinuationOfRunId !== undefined || turnInput.resume === true;
-            const goalCommand = !continuation ? parseGoalCommand(turnInput.message) : null;
-            if (goalCommand !== null) return runGoalCommand(turnInput, goalCommand);
-            const nativeThreadId = turnInput.providerThread.nativeThreadRef?.nativeId;
-            return Effect.gen(function* () {
-              if (
-                !continuation &&
-                nativeThreadId != null &&
-                goalsPausedForWake.has(nativeThreadId) &&
-                goalsByNativeThread.get(nativeThreadId)?.status === "paused"
-              ) {
-                return yield* activateGoal(turnInput, nativeThreadId, toCodexInput(turnInput));
-              }
-              yield* startNativeTurn(
-                turnInput,
-                !continuation ? yield* toCodexInput(turnInput) : [],
-              );
-            }).pipe(
-              Effect.mapError(
-                (cause) =>
-                  new ProviderAdapter.ProviderAdapterTurnStartError({
+          startTurn: Effect.fn("CodexAdapterV2.startTurn")(
+            (
+              turnInput: ProviderAdapter.ProviderAdapterV2TurnInput,
+            ): Effect.Effect<void, ProviderAdapter.ProviderAdapterV2Error> => {
+              if (proposalTurnMismatch(turnInput))
+                return Effect.fail(
+                  new ProviderAdapter.ProviderAdapterProtocolError({
                     driver: CODEX_PROVIDER,
-                    threadId: turnInput.threadId,
-                    providerThreadId: turnInput.providerThread.id,
-                    runId: turnInput.runId,
-                    cause,
+                    detail: "An isolated proposal thread cannot be reused by another execution.",
                   }),
-              ),
-            );
-          },
+                );
+              const continuation =
+                turnInput.restartContinuationOfRunId !== undefined || turnInput.resume === true;
+              const goalCommand = !continuation ? parseGoalCommand(turnInput.message) : null;
+              if (goalCommand !== null) return runGoalCommand(turnInput, goalCommand);
+              const nativeThreadId = turnInput.providerThread.nativeThreadRef?.nativeId;
+              return Effect.gen(function* () {
+                if (
+                  !continuation &&
+                  nativeThreadId != null &&
+                  goalsPausedForWake.has(nativeThreadId) &&
+                  goalsByNativeThread.get(nativeThreadId)?.status === "paused"
+                ) {
+                  return yield* activateGoal(turnInput, nativeThreadId, toCodexInput(turnInput));
+                }
+                yield* startNativeTurn(
+                  turnInput,
+                  !continuation ? yield* toCodexInput(turnInput) : [],
+                );
+              }).pipe(
+                Effect.mapError(
+                  (cause) =>
+                    new ProviderAdapter.ProviderAdapterTurnStartError({
+                      driver: CODEX_PROVIDER,
+                      threadId: turnInput.threadId,
+                      providerThreadId: turnInput.providerThread.id,
+                      runId: turnInput.runId,
+                      cause,
+                    }),
+                ),
+              );
+            },
+          ),
           steerTurn: Effect.fn("CodexAdapterV2.steerTurn")(
             function* (turnInput) {
+              const bound = proposalExecutions.get(
+                turnInput.providerThread.nativeThreadRef?.nativeId ?? "",
+              );
+              if (bound !== undefined && bound.runId !== turnInput.runId)
+                return yield* new ProviderAdapter.ProviderAdapterProtocolError({
+                  driver: CODEX_PROVIDER,
+                  detail: "An isolated proposal thread cannot be steered by another run.",
+                });
               const threadId = yield* getNativeThreadId(turnInput.providerThread);
               const latestTurnId = latestRunTurnId(turnInput.providerTurnId);
               const held = heldGoalTurn(turnInput.providerThread, latestTurnId);

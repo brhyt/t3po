@@ -8,6 +8,9 @@ import {
   type ProviderInteractionMode,
   type OrchestrationV2LinkedSender,
   type RuntimeMode,
+  type RunId,
+  type RunAttemptId,
+  type ProviderSessionId,
   type ThreadId,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
@@ -25,7 +28,15 @@ const ALL_MCP_CAPABILITIES = [
 ] as const;
 export type McpCapability = (typeof ALL_MCP_CAPABILITIES)[number];
 
+export interface McpProposalExecution {
+  readonly runId: RunId;
+  readonly attemptId: RunAttemptId;
+  readonly providerSessionId: ProviderSessionId;
+  readonly capability: "propose-external-action";
+}
+
 export interface McpThreadCaller {
+  readonly proposalExecution?: McpProposalExecution;
   readonly threadId: ThreadId;
   readonly providerSessionId: string;
   readonly providerInstanceId: ProviderInstanceId;
@@ -190,6 +201,13 @@ export const hiddenFromOutsideClients = (): boolean => {
   const fiber = Fiber.getCurrent();
   const scope = fiber && Context.getOrUndefined(fiber.context, McpInvocationContext);
   return scope === undefined || scope.thread !== undefined;
+};
+
+/** Proposal credentials are minted for one admitted run, independently of ordinary MCP access. */
+export const hiddenWithoutProposal = (): boolean => {
+  const fiber = Fiber.getCurrent();
+  const scope = fiber && Context.getOrUndefined(fiber.context, McpInvocationContext);
+  return scope?.thread?.proposalExecution?.capability === "propose-external-action";
 };
 
 /** `McpSchema.EnabledWhen` for tools that only serve links, hidden while the beta is off. */

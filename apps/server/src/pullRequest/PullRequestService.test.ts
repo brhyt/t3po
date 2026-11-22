@@ -5265,3 +5265,75 @@ it.effect.each(["expiry", "commit expiry", "cache hit", "commit cache hit", "ref
       assert.strictEqual(diffReads, 2);
     }),
 );
+
+it.effect("pins exact draft actions to the verified account before calling the provider", () =>
+  Effect.gen(function* () {
+    const calls: string[] = [];
+    const service = yield* makeService({
+      projects: [project({ id: "p1", title: "web", workspaceRoot: "/a", repository: "acme/web" })],
+      providers: [
+        fakePullRequestProvider(SourceControlProviderKind.make("github"), {
+          withVerifiedCredential: (_, use) =>
+            use({
+              accountId: "101",
+              viewer: "octocat",
+              credentialFingerprint: "credential-a",
+            }),
+          runAction: (input) =>
+            Effect.sync(() => {
+              calls.push(input.expectedDraftNodeId ?? "unpinned");
+            }),
+        }),
+      ],
+    });
+    const input = {
+      projectId: "p1" as ProjectId,
+      repository: "acme/web",
+      number: 1,
+      host: "github.com",
+      action: "draft" as const,
+      expectedDraftNodeId: "PR_1",
+    };
+    for (const rejected of [
+      input,
+      { ...input, expectedAccountId: "202" },
+      { ...input, expectedAccountId: "101", repository: "other/repository" },
+      { ...input, expectedAccountId: "101", projectId: "missing" as ProjectId },
+      { ...input, expectedAccountId: "101", action: "close" as const },
+    ]) {
+      yield* Effect.flip(service.runAction(rejected));
+    }
+    assert.deepStrictEqual(calls, []);
+    yield* service.runAction({ ...input, expectedAccountId: "101" });
+    assert.deepStrictEqual(calls, ["PR_1"]);
+  }),
+);
+
+it.effect("resolves draft targets freshly through the verified own-repository credential", () =>
+  Effect.gen(function* () {
+    let reads = 0;
+    const service = yield* makeService({
+      projects: [project({ id: "p1", title: "web", workspaceRoot: "/a", repository: "acme/web" })],
+      providers: [
+        fakePullRequestProvider(SourceControlProviderKind.make("github"), {
+          withVerifiedCredential: (_, use) =>
+            use({ accountId: "101", viewer: "octocat", credentialFingerprint: "credential-a" }),
+          getDraftTarget: () =>
+            Effect.sync(() => ({ nodeId: `PR_${++reads}`, summary: hostedChangeRequest("Body") })),
+        }),
+      ],
+    });
+    const ref = {
+      projectId: "p1" as ProjectId,
+      repository: "acme/web",
+      host: "github.com",
+      number: 1,
+      expectedAccountId: "101",
+    };
+    yield* Effect.flip(service.draftTarget({ ...ref, expectedAccountId: "202" }));
+    yield* Effect.flip(service.draftTarget({ ...ref, repository: "other/repo" }));
+    assert.strictEqual(reads, 0);
+    assert.strictEqual((yield* service.draftTarget(ref)).nodeId, "PR_1");
+    assert.strictEqual((yield* service.draftTarget(ref)).nodeId, "PR_2");
+  }),
+);

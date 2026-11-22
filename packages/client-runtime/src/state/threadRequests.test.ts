@@ -79,15 +79,31 @@ describe("declining approvals before sending", () => {
     },
   );
 
-  it("skips approvals the provider can no longer answer", async () => {
-    const respond = vi.fn(async () => AsyncResult.success(undefined));
-    expect(
-      await declinePendingApprovals(
-        [{ ...approval, responseCapability: "not_resumable" }],
-        respond,
-      ),
-    ).toBe(true);
-    expect(respond).not.toHaveBeenCalled();
+  it.each(["not_resumable", "server_action"] as const)(
+    "leaves $0 approvals untouched when redirecting a provider",
+    async (responseCapability) => {
+      const respond = vi.fn(async () => AsyncResult.success(undefined));
+      expect(await declinePendingApprovals([{ ...approval, responseCapability }], respond)).toBe(
+        true,
+      );
+      expect(respond).not.toHaveBeenCalled();
+    },
+  );
+
+  it("keeps server-owned approvals actionable without provider feedback", () => {
+    const pending = derivePendingThreadRequests({
+      runtimeRequests: [
+        {
+          ...projection.runtimeRequests[0]!,
+          kind: "permission",
+          responseCapability: { type: "server_action", operationId: "operation" },
+        },
+      ],
+      turnItems: [],
+    });
+    expect(pending.approvals).toHaveLength(1);
+    expect(pending.approvals[0]).toMatchObject({ responseCapability: "server_action" });
+    expect(pending.approvals[0]?.supportsFeedback).toBeUndefined();
   });
 
   it("sends feedback only to the displayed request, leaving other approvals pending", async () => {

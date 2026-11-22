@@ -3550,6 +3550,7 @@ it.layer(layerTest)("orchestration V2 foundation persistence", (it) => {
 
   it.effect.each([
     { type: "terminal.cleanup" },
+    { type: "t3po.external-action", operationId: "restart-external-action" },
     { type: "provider-runtime.continue", sourceRunId: RunId.make("run:restart-replay") },
   ] as const)(
     "retires live provider effects and requeues $type after process loss",

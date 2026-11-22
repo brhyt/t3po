@@ -1,3 +1,4 @@
+import * as ExternalActionExecutor from "../t3po/ExternalActionExecutor.ts";
 import * as EventSink from "./EventSink.ts";
 import { assert, it } from "@effect/vitest";
 import {
@@ -171,6 +172,7 @@ function layerExecutorFor(input: {
     ),
   );
   return EffectWorker.layerExecutor.pipe(
+    Layer.provide(Layer.mock(ExternalActionExecutor.ExternalActionExecutor)({})),
     Layer.provide(Layer.mock(EventSink.EventSinkV2)({})),
     Layer.provide(
       Layer.mergeAll(
