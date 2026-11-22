@@ -3447,6 +3447,16 @@ const make = Effect.gen(function* () {
                 : yield* decodeConsumerUsage(grant.usageJson).pipe(
                     Effect.orElseSucceed(() => null),
                   );
+            const sourceRun = target.runs.find((entry) => entry.id === run.runId);
+            if (
+              sourceRun &&
+              grant.imageRequestId === null &&
+              !(grant.status === "rejected" && grant.consumedAt === null)
+            ) {
+              Object.assign(run, {
+                usageReceipt: threadUsageReceipt(sourceRun, target, { ...grant, usage }),
+              });
+            }
             const expiredForward =
               grant.status === "forwarding" &&
               grant.consumedAt !== null &&
