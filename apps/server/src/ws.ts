@@ -1,3 +1,4 @@
+import * as PrivacySources from "./privacy/PrivacySources.ts";
 import * as PrivacyControls from "./privacy/PrivacyControls.ts";
 import * as PrivacyObserver from "./privacy/PrivacyObserver.ts";
 import * as T3poMemoryInspector from "./t3po/MemoryInspector.ts";
@@ -1491,6 +1492,10 @@ export const layerWsRpc = (
       );
       const privacyObserver = yield* PrivacyObserver.PrivacyObserver.pipe(
         Effect.provide(PrivacyObserver.layer),
+      );
+      const privacySources = yield* PrivacySources.PrivacySources.pipe(
+        Effect.provide(PrivacySources.layer),
+        Effect.provideService(PrivacyObserver.PrivacyObserver, privacyObserver),
       );
       const existingT3poStore = yield* Effect.serviceOption(T3poStore.Store);
       const t3poStore = Option.isSome(existingT3poStore)
@@ -3087,6 +3092,7 @@ export const layerWsRpc = (
           privacyControls.changeActivity(input.enabled),
         [WS_METHODS.privacyControls]: () => privacyControls.snapshot(),
         [WS_METHODS.privacyProviderChange]: (input) => privacyControls.changeProvider(input),
+        [WS_METHODS.privacySources]: () => privacySources.snapshots(),
         [WS_METHODS.privacySnapshot]: () => privacyObserver.snapshot(),
         [WS_METHODS.privacyChange]: (input) => privacyObserver.change(input),
         [WS_METHODS.t3poMemoryList]: (input) => memoryInspector.list(input),

@@ -10,6 +10,7 @@ vi.mock(import("../chat/GlobalVoiceInputIndicator"), () => ({
 }));
 
 const state = vi.hoisted(() => ({
+  catalog: null as unknown,
   read: true,
   write: true,
   calls: [] as unknown[],
@@ -48,6 +49,7 @@ vi.mock(import("../../state/t3po"), async () => {
       activity: () => snapshots("null"),
       activityChange: { permissionAtom: () => permissions(state.write) },
       providerChange: { permissionAtom: () => permissions(state.write) },
+      privacySources: () => snapshots(JSON.stringify(state.catalog)),
       privacySnapshot: ({ environmentId }: { environmentId: string }) =>
         snapshots(JSON.stringify(environmentId === "local" ? state.data : null)),
       privacyChange: { permissionAtom: () => permissions(state.write) },
@@ -62,6 +64,7 @@ vi.mock(import("../../state/use-atom-command"), () => ({
 }));
 
 function setup() {
+  state.catalog = null;
   state.read = true;
   state.write = true;
   state.calls = [];
@@ -114,8 +117,8 @@ it("isolates views and search state when switching machines", async () => {
   await userEvent.click(page.getByText("Inspect masked metadata").last());
   await expect.element(page.getByText("Only the first 1 MiB was scanned.")).toBeVisible();
   await userEvent.click(page.getByRole("checkbox", { name: "Possible sensitive data" }));
-  await expect.element(page.getByRole("cell", { name: /auth.example/ })).not.toBeInTheDocument();
-  await userEvent.click(page.getByRole("button", { name: "Block", exact: true }));
+  await expect.element(page.getByRole("cell", { name: /auth.example/ })).toBeVisible();
+  await userEvent.click(page.getByRole("button", { name: "Block", exact: true }).last());
   expect(state.calls).toEqual([
     { environmentId: "local", input: { action: "block", host: "inference.example" } },
   ]);
@@ -162,6 +165,7 @@ it("starts a scoped timed block and restores access without inferring task succe
   setup();
   state.data = {
     ...state.data!,
+    component: { name: "observer", version: "fixture", identityKind: "source-hash" },
     policyStorage: { status: "ready", persistenceError: false },
     experiments: [
       {
@@ -185,6 +189,10 @@ it("starts a scoped timed block and restores access without inferring task succe
   };
   await using _screen = await render(<PrivacyPage />, { router: "/privacy" });
   await userEvent.click(page.getByRole("button", { name: "Experiments", exact: true }));
+  await expect.element(page.getByRole("button", { name: "Save outcome" })).not.toBeInTheDocument();
+  await expect
+    .element(page.getByRole("textbox", { name: "Safe task reference" }))
+    .not.toBeInTheDocument();
   await userEvent.fill(page.getByRole("textbox", { name: "Exact hostname" }), "new.example");
   await userEvent.click(page.getByRole("button", { name: "Start timed block" }));
   await userEvent.click(page.getByRole("button", { name: "Restore access and collect recovery" }));
@@ -197,3 +205,80 @@ it("starts a scoped timed block and restores access without inferring task succe
     { environmentId: "local", input: { action: "stop-experiment", experimentId: "fixture" } },
   ]);
 });
+
+it.each([true, false])(
+  "records a user outcome separately and requires confirmation to delete finished evidence (write=%s)",
+  async (write) => {
+    setup();
+    state.write = write;
+    state.data = {
+      ...state.data!,
+      supportedActions: ["experiment-metadata", "experiment-outcome", "delete-experiment"],
+      policyStorage: { status: "ready", persistenceError: false },
+      experiments: [
+        {
+          id: "finished",
+          host: "inference.example",
+          startedAt: 1,
+          expiresAt: 301,
+          recoveryAt: 2,
+          finishedAt: 3,
+          phase: "finished",
+          baselineStartedAt: 1,
+          baselineEndedAt: 1,
+          evidenceIncomplete: true,
+          outcome: "unknown",
+          evidence: "bounded-proxy-observations",
+          baseline: { observed: 1, blocked: 0, responses: 1, errors: 0 },
+          blocked: { observed: 1, blocked: 1, responses: 0, errors: 0 },
+          recovery: { observed: 1, blocked: 0, responses: 1, errors: 0 },
+        },
+      ],
+    };
+    await using _screen = await render(<PrivacyPage />, { router: "/privacy" });
+    await userEvent.click(page.getByRole("button", { name: "Experiments", exact: true }));
+    await expect.element(page.getByText(/Task outcome unknown/)).toBeVisible();
+    if (!write) {
+      await expect.element(page.getByRole("button", { name: "Save outcome" })).toBeDisabled();
+      await expect
+        .element(page.getByRole("button", { name: "Delete experiment", exact: true }))
+        .toBeDisabled();
+      expect(state.calls).toEqual([]);
+      return;
+    }
+
+    await userEvent.selectOptions(
+      page.getByRole("combobox", { name: "User-reported outcome" }),
+      "failed",
+    );
+    await userEvent.click(page.getByRole("button", { name: "Save outcome" }));
+    expect(state.calls).toEqual([
+      {
+        environmentId: "local",
+        input: { action: "experiment-outcome", experimentId: "finished", outcome: "failed" },
+      },
+    ]);
+    await userEvent.click(page.getByRole("button", { name: "Delete experiment", exact: true }));
+    await userEvent.click(page.getByRole("button", { name: "Cancel", exact: true }));
+    expect(state.calls).toHaveLength(1);
+    await userEvent.click(page.getByRole("button", { name: "Delete experiment", exact: true }));
+    await userEvent.selectOptions(page.getByRole("combobox", { name: "Machine" }), "remote");
+    await expect
+      .element(page.getByRole("button", { name: "Confirm deletion" }))
+      .not.toBeInTheDocument();
+    await userEvent.selectOptions(page.getByRole("combobox", { name: "Machine" }), "local");
+    await userEvent.click(page.getByRole("button", { name: "Experiments", exact: true }));
+    await expect
+      .element(page.getByRole("button", { name: "Confirm deletion" }))
+      .not.toBeInTheDocument();
+    await userEvent.click(page.getByRole("button", { name: "Delete experiment", exact: true }));
+    await userEvent.click(page.getByRole("button", { name: "Confirm deletion" }));
+    expect(state.calls).toEqual([
+      {
+        environmentId: "local",
+        input: { action: "experiment-outcome", experimentId: "finished", outcome: "failed" },
+      },
+      { environmentId: "local", input: { action: "delete-experiment", experimentId: "finished" } },
+    ]);
+  },
+);

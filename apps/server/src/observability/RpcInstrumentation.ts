@@ -44,6 +44,7 @@ const RPC_AGGREGATES = {
   [WS_METHODS.privacyControls]: "privacy",
   [WS_METHODS.privacyProviderChange]: "privacy",
   [WS_METHODS.privacySnapshot]: "privacy",
+  [WS_METHODS.privacySources]: "privacy",
   [WS_METHODS.privacyChange]: "privacy",
   [WS_METHODS.t3poMemoryList]: "t3po",
   [WS_METHODS.t3poMemoryCorrect]: "t3po",

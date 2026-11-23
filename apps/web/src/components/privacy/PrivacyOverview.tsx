@@ -4,9 +4,11 @@ import { T } from "gt-react";
 export function PrivacyOverview({
   journal,
   refreshing,
+  fetchedAt,
 }: {
   journal: PrivacyJournal;
   refreshing: boolean;
+  fetchedAt: number;
 }) {
   const tracking = journal.tracking;
   return (
@@ -22,6 +24,42 @@ export function PrivacyOverview({
             <T>Snapshot available; continuous health is not verified</T>
           )}
         </p>
+        <p className="mt-2 break-all text-sm">
+          <T>Component / version</T>:{" "}
+          {journal.component ? (
+            `${journal.component.name} / ${journal.component.version} (${journal.component.identityKind})`
+          ) : (
+            <T>Unknown</T>
+          )}
+        </p>
+        <p className="mt-2 text-sm">
+          <T>Snapshot generated</T>:{" "}
+          {journal.generatedAt ? (
+            new Date(journal.generatedAt * 1000).toLocaleString()
+          ) : (
+            <T>Unknown</T>
+          )}
+        </p>
+        <p className="mt-2 text-sm">
+          <T>Fetched at</T>: {fetchedAt ? new Date(fetchedAt).toLocaleString() : <T>Unknown</T>}
+        </p>
+        <p className="mt-2 text-sm">
+          <T>Observation window</T>:{" "}
+          {journal.observationWindow ? (
+            <>
+              {new Date(journal.observationWindow.startedAt * 1000).toLocaleString()} –{" "}
+              {new Date(journal.observationWindow.endedAt * 1000).toLocaleString()} ·{" "}
+              {journal.observationWindow.retainedEvents}
+            </>
+          ) : (
+            <T>Unknown</T>
+          )}
+        </p>
+        {journal.observationWindow?.truncated ? (
+          <p>
+            <T>Evidence is incomplete.</T>
+          </p>
+        ) : null}
         <p className="mt-2 text-sm text-muted-foreground">
           <T>Last observation</T>:{" "}
           {tracking?.lastObservedAt ? (
@@ -84,13 +122,25 @@ export function PrivacyOverview({
           </summary>
           <p className="mt-2">
             <T>
-              Up to 2,000 live events are retained. Pattern detection can miss encoded or
-              unsupported content. Raw payloads and matched values are not saved.
+              Up to 2,000 live events are retained in memory and lost on restart or clearing.
+              Pattern detection can miss encoded or unsupported content. Raw payloads and matched
+              values are not saved.
+            </T>
+          </p>
+          <p className="mt-2">
+            <T>
+              Experiments persist until manually deleted; clearing live events does not delete
+              experiments.
             </T>
           </p>
           {tracking ? (
             <p className="mt-2">
-              {tracking.retentionDays} <T>days maximum findings retention</T> ·{" "}
+              {tracking.retentionDays}{" "}
+              <T>
+                days since the latest occurrence before a finding expires. Earlier counts can
+                predate this window.
+              </T>{" "}
+              ·{" "}
               {tracking.persistent && !tracking.persistenceError ? (
                 <T>Persistent findings available</T>
               ) : (

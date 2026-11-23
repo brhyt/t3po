@@ -39,6 +39,7 @@ import * as RpcAuthorization from "./RpcAuthorization.ts";
 
 describe("RPC authorization scopes", () => {
   it("lets readers observe T3PO work but reserves mutation and launch for operators", () => {
+    expect(requiredScopeForRpcMethod(WS_METHODS.privacySources)).toBe(AuthDiagnosticsReadScope);
     expect(requiredScopeForRpcMethod(WS_METHODS.privacySnapshot)).toBe(AuthDiagnosticsReadScope);
     expect(requiredScopeForRpcMethod(WS_METHODS.privacyControls)).toBe(AuthDiagnosticsReadScope);
     expect(requiredScopeForRpcMethod(WS_METHODS.privacyProviderChange)).toBe(

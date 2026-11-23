@@ -77,6 +77,7 @@ export * from "./clientRpcPermissions.ts";
 
 export * from "./t3po.ts";
 export * from "./privacy.ts";
+export * from "./privacySources.ts";
 
 export * from "./t3poArtifacts.ts";
 export * from "./t3poAttention.ts";

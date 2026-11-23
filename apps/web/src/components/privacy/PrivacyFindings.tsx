@@ -24,6 +24,13 @@ export function PrivacyFindings({
           coverage. Findings are masked signals for investigation, not proof of a leak.
         </T>
       </p>
+      <p className="text-sm text-muted-foreground">
+        <T>
+          Authentication-shaped headers are not proof of an authorized or expected destination.
+          Detection type and location describe potential exposure; inspection gaps describe missing
+          evidence.
+        </T>
+      </p>
       {journal.issues?.length ? (
         <div className="space-y-2">
           {journal.issues.map((issue) => (
@@ -48,7 +55,8 @@ export function PrivacyFindings({
                   <T>Finding detail</T>
                 </summary>
                 <p className="mt-2">
-                  <T>Severity and confidence: unknown</T>
+                  <T>Severity, confidence and destination expectation: unknown</T>
+                  <T>Historical detection context and launch evidence: unknown.</T>
                 </p>
                 <p>
                   <T>First seen</T>: {new Date(issue.firstSeen * 1000).toLocaleString()}

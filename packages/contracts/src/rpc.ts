@@ -1,3 +1,4 @@
+import { PrivacySourcesSnapshot } from "./privacySources.ts";
 import {
   PrivacySnapshot,
   PrivacyRule,
@@ -487,6 +488,7 @@ export const WS_METHODS = {
   privacyActivityChange: "privacy.activityChange",
   privacyControls: "privacy.controls",
   privacyProviderChange: "privacy.providerChange",
+  privacySources: "privacy.sources",
   privacySnapshot: "privacy.snapshot",
   privacyChange: "privacy.change",
   t3poMemoryList: "t3po.memoryList",
@@ -1643,6 +1645,11 @@ const WsPrivacyProviderChangeRpc = Rpc.make(WS_METHODS.privacyProviderChange, {
   success: Schema.Void,
   error: Schema.Union([PrivacyObserverError, EnvironmentAuthorizationError]),
 });
+const WsPrivacySourcesRpc = Rpc.make(WS_METHODS.privacySources, {
+  payload: Schema.Struct({}),
+  success: PrivacySourcesSnapshot,
+  error: EnvironmentAuthorizationError,
+});
 const WsPrivacySnapshotRpc = Rpc.make(WS_METHODS.privacySnapshot, {
   payload: Schema.Struct({}),
   success: PrivacySnapshot,
@@ -2540,6 +2547,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsPrivacyActivityChangeRpc,
   WsPrivacyControlsRpc,
   WsPrivacyProviderChangeRpc,
+  WsPrivacySourcesRpc,
   WsPrivacySnapshotRpc,
   WsPrivacyChangeRpc,
   WsT3poMemoryListRpc,

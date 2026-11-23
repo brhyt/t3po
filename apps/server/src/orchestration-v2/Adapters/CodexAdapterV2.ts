@@ -1,3 +1,4 @@
+import * as ProviderLaunchAttribution from "../../privacy/ProviderLaunchAttribution.ts";
 import { pipe } from "effect/Function";
 import * as DocumentText from "../../provider/DocumentText.ts";
 import { revertCodexThread } from "../../provider/CodexThreadRevert.ts";
@@ -1774,6 +1775,9 @@ export const layerAppServerClientFactory: Layer.Layer<
 > = Layer.effect(
   CodexAppServerClientFactory,
   Effect.gen(function* () {
+    const launchAttribution = yield* ProviderLaunchAttribution.ProviderLaunchAttribution.pipe(
+      Effect.provide(ProviderLaunchAttribution.layer),
+    );
     const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
     const { native: nativeEventLogger } = yield* ProviderEventLoggers.ProviderEventLoggers;
     const agentScope = yield* AgentScope;
@@ -1782,10 +1786,13 @@ export const layerAppServerClientFactory: Layer.Layer<
     return CodexAppServerClientFactory.of({
       open: Effect.fn("CodexAdapterV2.open")(function* (input) {
         const scope = yield* Scope.Scope;
-        const environment = {
-          ...codexAppServerEnvironment(input.environment),
-          ...(input.settings.homePath ? { CODEX_HOME: input.settings.homePath } : {}),
-        };
+        const environment = yield* launchAttribution.route(
+          {
+            ...codexAppServerEnvironment(input.environment),
+            ...(input.settings.homePath ? { CODEX_HOME: input.settings.homePath } : {}),
+          },
+          { providerInstanceId: input.instanceId, initiatingThreadId: input.threadId },
+        );
         const command = yield* makeCodexAppServerSpawnCommand({
           command: input.settings.binaryPath || "codex",
           args: codexAppServerArgs(

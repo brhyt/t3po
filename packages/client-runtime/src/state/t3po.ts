@@ -45,6 +45,10 @@ export function createT3poAtoms<R, E>(
       label: "privacy:providerChange",
       tag: WS_METHODS.privacyProviderChange,
     }),
+    privacySources: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "privacy:sources",
+      tag: WS_METHODS.privacySources,
+    }),
     privacySnapshot: createEnvironmentRpcQueryAtomFamily(runtime, {
       label: "privacy:snapshot",
       tag: WS_METHODS.privacySnapshot,
