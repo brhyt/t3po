@@ -7,6 +7,7 @@ import { t3po } from "../../state/t3po";
 import { useEnvironmentQuery } from "../../state/query";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { Button } from "../ui/button";
+import { WorkSettings } from "./WorkSettings";
 
 export function WorkPanel({
   environmentId,
@@ -64,6 +65,7 @@ export function WorkPanel({
       <h3 className="text-sm font-semibold">
         <T>Work</T>
       </h3>
+      <WorkSettings environmentId={environmentId} projectId={projectId} />
       {query.error ? <p className="text-xs text-destructive">{query.error}</p> : null}
       {error ? (
         <p role="alert" className="text-xs text-destructive">

@@ -185,6 +185,7 @@ it.effect.each([false, true])(
         targetProjectId: foreignProject,
         enabled: true,
       });
+      yield* store.mutate({ type: "save_budget", projectId: foreignProject, maxConcurrent: 0 });
       expect(yield* handoffEvents().pipe(Effect.isFailure)).toBe(true);
       yield* store.mutate({
         type: "save_budget",
@@ -360,11 +361,12 @@ it.effect.each([false, true])(
           ],
         });
       });
-      expect(yield* launch("unconfigured").pipe(Effect.isFailure)).toBe(true);
+      yield* store.mutate({ type: "save_budget", projectId, maxConcurrent: 0 });
+      expect(yield* launch("disabled").pipe(Effect.isFailure)).toBe(true);
       expect(
-        yield* sql`SELECT thread_id FROM orchestration_v2_projection_threads WHERE thread_id = 'child:unconfigured'`,
+        yield* sql`SELECT thread_id FROM orchestration_v2_projection_threads WHERE thread_id = 'child:disabled'`,
       ).toHaveLength(0);
-      yield* store.mutate({ type: "save_budget", projectId, maxRuns: 2, maxConcurrent: 1 });
+      yield* store.mutate({ type: "save_budget", projectId, maxConcurrent: 1 });
       const admitted = yield* Effect.all(
         [launch("a").pipe(Effect.isSuccess), launch("b").pipe(Effect.isSuccess)],
         { concurrency: "unbounded" },
@@ -372,8 +374,7 @@ it.effect.each([false, true])(
       expect(admitted.filter(Boolean)).toHaveLength(1);
       const winner = admitted[0] ? "a" : "b";
       const winnerId = ThreadId.make(`child:${winner}`);
-      expect((yield* store.read).leads[0]?.budget).toEqual({
-        maxRuns: 2,
+      expect((yield* store.read).leads[0]?.budget).toMatchObject({
         maxConcurrent: 1,
         usedRuns: 1,
         activeRuns: 1,
@@ -393,6 +394,25 @@ it.effect.each([false, true])(
           })
           .pipe(Effect.isFailure),
       ).toBe(true);
+      // Job permissions raise the ceiling for the project's jobs and lead-started agents.
+      yield* store.mutate({ type: "save_work_access", projectId, runtimeMode: "full-access" });
+      yield* sink.write({
+        events: [
+          {
+            id: EventId.make("allowed-escalate"),
+            type: "thread.runtime-mode-updated",
+            threadId: winnerId,
+            occurredAt: now,
+            payload: { ...thread(winnerId, leadId), runtimeMode: "full-access" },
+          },
+        ],
+      });
+      yield* store.mutate({
+        type: "save_work_access",
+        projectId,
+        runtimeMode: "approval-required",
+      });
+      expect((yield* store.read).leads[0]?.workAccess).toBeUndefined();
       yield* sink.write({
         events: [
           {
@@ -420,7 +440,8 @@ it.effect.each([false, true])(
           },
         ],
       });
-      expect(yield* launch("exhausted").pipe(Effect.isFailure)).toBe(true);
+      // Total runs are not capped: a free slot admits more work.
+      yield* launch("more");
       const callback = (id: string, threadId = leadId) =>
         sink.write({
           events: [
@@ -437,20 +458,33 @@ it.effect.each([false, true])(
             },
           ],
         });
-      expect(yield* callback("exhausted-callback").pipe(Effect.flip)).toMatchObject({
+      expect(yield* callback("busy-callback").pipe(Effect.flip)).toMatchObject({
         cause: { _tag: "T3poError", operation: "budget" },
       });
-      yield* store.mutate({ type: "save_budget", projectId, maxRuns: 4, maxConcurrent: 1 });
+      yield* sink.write({
+        events: [
+          {
+            id: EventId.make("more-done"),
+            type: "run.updated",
+            threadId: ThreadId.make("child:more"),
+            occurredAt: now,
+            payload: {
+              ...run("more", ThreadId.make("child:more")),
+              status: "completed",
+              completedAt: now,
+            },
+          },
+        ],
+      });
       // An existing worker's persisted mode must still be checked at callback admission.
       yield* sql`UPDATE orchestration_v2_projection_threads SET payload_json = json_set(payload_json, '$.runtimeMode', 'full-access') WHERE thread_id = ${winnerId}`;
       expect(yield* callback("worker-callback", winnerId).pipe(Effect.flip)).toMatchObject({
         cause: { _tag: "T3poError", operation: "approval" },
       });
       yield* callback("lead-callback");
-      expect((yield* store.read).leads[0]?.budget).toEqual({
-        maxRuns: 4,
+      expect((yield* store.read).leads[0]?.budget).toMatchObject({
         maxConcurrent: 1,
-        usedRuns: 3,
+        usedRuns: 4,
         activeRuns: 1,
       });
       expect(yield* callback("concurrent-callback").pipe(Effect.flip)).toMatchObject({
@@ -477,11 +511,11 @@ it.effect.each([false, true])(
         yield* sql`SELECT json_extract(payload_json, '$.runtimeMode') AS mode FROM orchestration_v2_projection_threads WHERE thread_id = ${leadId}`,
       ).toEqual([{ mode: "full-access" }]);
       expect(
-        yield* sql`SELECT run_id FROM orchestration_v2_projection_runs WHERE run_id IN ('exhausted-callback', 'worker-callback', 'concurrent-callback')`,
+        yield* sql`SELECT run_id FROM orchestration_v2_projection_runs WHERE run_id IN ('busy-callback', 'worker-callback', 'concurrent-callback')`,
       ).toEqual([]);
       const reconstructed = yield* Store.Store.pipe(Effect.provide(Layer.fresh(Store.layer)));
-      expect((yield* reconstructed.read).leads[0]?.budget?.usedRuns).toBe(3);
-      expect(yield* sql`SELECT run_id FROM t3po_admissions`).toHaveLength(3);
+      expect((yield* reconstructed.read).leads[0]?.budget?.usedRuns).toBe(4);
+      expect(yield* sql`SELECT run_id FROM t3po_admissions`).toHaveLength(4);
     }).pipe(Effect.provide(layer)),
 );
 
@@ -504,7 +538,7 @@ it.effect("backfills historical usage and active reservations without inventing 
     yield* sql`DROP TABLE t3po_budgets`;
     yield* authorityMigration;
     expect((yield* store.read).leads[0]?.budget).toBeUndefined();
-    yield* store.mutate({ type: "save_budget", projectId, maxRuns: 0, maxConcurrent: 0 });
+    yield* store.mutate({ type: "save_budget", projectId, maxConcurrent: 0 });
     expect((yield* store.read).leads[0]?.budget).toEqual({
       maxRuns: 0,
       maxConcurrent: 0,
@@ -519,7 +553,7 @@ it.effect("serializes the last grant slot and keeps channels organizational", ()
     const store = yield* Store.Store;
     const sql = yield* SqlClient.SqlClient;
     const projectId = ProjectId.make("grant-project");
-    yield* store.mutate({ type: "save_budget", projectId, maxRuns: 20, maxConcurrent: 10 });
+    yield* store.mutate({ type: "save_budget", projectId, maxConcurrent: 10 });
     yield* store.mutate({
       type: "create_task",
       projectId,
@@ -588,7 +622,7 @@ it.effect.each(["root", "worktree"] as const)(
       VALUES (${projectId}, 'Test', '/project', '[]', '2026-01-01', '2026-01-01')`;
       yield* sql`INSERT INTO orchestration_v2_projection_threads (thread_id, project_id, title, default_provider, runtime_mode, interaction_mode, created_at, updated_at, payload_json)
       VALUES (${threadId}, ${projectId}, 'Test', 'codex', 'approval-required', 'default', '2026-01-01', '2026-01-01', json_object('worktreePath', ${worktreePath}, 'branch', ${branch}))`;
-      yield* store.mutate({ type: "save_budget", projectId, maxRuns: 5, maxConcurrent: 2 });
+      yield* store.mutate({ type: "save_budget", projectId, maxConcurrent: 2 });
       yield* store.mutate({
         type: "create_task",
         projectId,
@@ -638,7 +672,7 @@ it.effect("replaces only uncommitted launch reservations and rejects the old res
     const store = yield* Store.Store;
     const sql = yield* SqlClient.SqlClient;
     const projectId = ProjectId.make("reservation");
-    yield* store.mutate({ type: "save_budget", projectId, maxRuns: 5, maxConcurrent: 2 });
+    yield* store.mutate({ type: "save_budget", projectId, maxConcurrent: 2 });
     yield* store.mutate({
       type: "create_task",
       projectId,

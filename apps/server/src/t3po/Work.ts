@@ -8,7 +8,8 @@ import {
   T3poWorkRoute,
   T3poWorkstream,
   T3poLaunchInput,
-  type ModelSelection,
+  ModelSelection,
+  RuntimeMode,
   type T3poWorkReceipt,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
@@ -28,6 +29,8 @@ const encode = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));
 const encodeRoute = Schema.encodeEffect(Schema.fromJsonString(T3poWorkRoute));
 const encodeLaunch = Schema.encodeEffect(Schema.fromJsonString(T3poLaunchInput));
 const decodeStream = Schema.decodeEffect(Schema.fromJsonString(T3poWorkstream));
+const decodeModel = Schema.decodeEffect(Schema.fromJsonString(ModelSelection));
+const isRuntimeMode = Schema.is(RuntimeMode);
 export const decodeRoute = Schema.decodeEffect(Schema.fromJsonString(T3poWorkRoute));
 export const decodeLaunch = Schema.decodeEffect(Schema.fromJsonString(T3poLaunchInput));
 export interface RouteRow {
@@ -138,11 +141,18 @@ export const reserve = Effect.fn("T3poWork.reserve")(
           yield* sql`INSERT INTO t3po_space_handoffs (job_id, source_project_id, source_space_id, target_project_id, target_space_id) VALUES (${jobId}, ${sourceProjectId}, ${grant.sourceSpaceId}, ${projectId}, ${grant.targetSpaceId})`;
         const active = { ...stream, state: "active" as const };
         yield* sql`INSERT INTO t3po_workstreams (id, project_id, channel_id, data) VALUES (${stream.id}, ${projectId}, ${owner.channelId}, ${yield* encode(active)}) ON CONFLICT(id) DO UPDATE SET data = excluded.data`;
+        // The project's chosen model for jobs wins over the handing-off chat's model.
+        const leadSettings = yield* sql<{
+          workModel: string | null;
+          workAccess: string | null;
+        }>`SELECT json_extract(data, '$.workModel') AS workModel, json_extract(data, '$.workAccess') AS workAccess FROM t3po_leads WHERE project_id = ${projectId}`;
+        const workModel = leadSettings[0]?.workModel;
+        const workAccess = leadSettings[0]?.workAccess;
         const launch = yield* encodeLaunch({
           projectId,
           taskId: jobId,
-          modelSelection,
-          runtimeMode: "approval-required",
+          modelSelection: workModel ? yield* decodeModel(workModel) : modelSelection,
+          runtimeMode: isRuntimeMode(workAccess) ? workAccess : "approval-required",
         });
         yield* sql`INSERT INTO t3po_work_routes (id, project_id, caller_thread_id, job_id, workstream_id, input, launch) VALUES (${id}, ${projectId}, ${callerThreadId}, ${jobId}, ${stream.id}, ${encoded}, ${launch})`;
         return {

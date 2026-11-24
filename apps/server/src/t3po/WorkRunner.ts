@@ -1,5 +1,12 @@
 import * as NodeOS from "node:os";
-import { CommandId, MessageId, ProjectId, ThreadId, isT3poError } from "@t3tools/contracts";
+import {
+  CommandId,
+  MessageId,
+  ProjectId,
+  T3PO_DEFAULT_CONCURRENT_JOBS,
+  ThreadId,
+  isT3poError,
+} from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as DateTime from "effect/DateTime";
 import * as SqlClient from "effect/sql/SqlClient";
@@ -49,16 +56,12 @@ export const drain = Effect.fn("T3poWork.drain")(function* (
         const existing = yield* threads.getThreadShell(task.threadId);
         // Replaying an accepted launch must not consume another allowance.
         if (!existing || (input.action === "follow_up" && !existing.activeRunId)) {
-          const budget = yield* sql<{
-            maxRuns: number;
+          const slots = yield* sql<{
             maxConcurrent: number;
-            used: number;
             active: number;
-          }>`SELECT max_runs AS maxRuns, max_concurrent AS maxConcurrent, (SELECT count(*) FROM t3po_admissions WHERE project_id = b.project_id) AS used, (SELECT count(*) FROM t3po_admissions WHERE project_id = b.project_id AND active = 1) AS active FROM t3po_budgets b WHERE project_id = ${projectId}`;
-          if (!budget[0] || budget[0].used >= budget[0].maxRuns)
-            return "Waiting for a project run allowance.";
-          if (budget[0].active >= budget[0].maxConcurrent)
-            return "Waiting for a project concurrency slot.";
+          }>`SELECT COALESCE((SELECT max_concurrent FROM t3po_budgets WHERE project_id = ${projectId}), ${T3PO_DEFAULT_CONCURRENT_JOBS}) AS maxConcurrent, (SELECT count(*) FROM t3po_admissions WHERE project_id = ${projectId} AND active = 1) AS active`;
+          if ((slots[0]?.active ?? 0) >= (slots[0]?.maxConcurrent ?? 0))
+            return "Waiting for an agent slot in this project.";
         }
         if (input.action === "new_job") {
           yield* service.launch(launch);

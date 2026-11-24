@@ -31,7 +31,11 @@ export const T3poQuery = Schema.Struct({
 });
 export type T3poQuery = typeof T3poQuery.Type;
 
+/** Jobs a project runs at once when no limit is saved. */
+export const T3PO_DEFAULT_CONCURRENT_JOBS = 3;
+
 const T3poBudget = Schema.Struct({
+  /** No longer enforced; jobs run until they finish. Kept for older clients. */
   maxRuns: NonNegativeInt,
   maxConcurrent: NonNegativeInt,
   usedRuns: NonNegativeInt,
@@ -45,6 +49,10 @@ export const T3poLead = Schema.Struct({
   threadId: ThreadId,
   /** The name is a placeholder; the lead names itself after a few conversation turns. */
   autoName: Schema.optional(Schema.Boolean),
+  /** Model for jobs the lead and its channels hand off. Unset: the handing-off chat's model. */
+  workModel: Schema.optional(ModelSelection),
+  /** Most permissive mode jobs, and agents a lead or job starts, may run in. Unset: approval-required. */
+  workAccess: Schema.optional(RuntimeMode),
 });
 export type T3poLead = typeof T3poLead.Type;
 export const T3poChannel = Schema.Struct({
@@ -334,8 +342,20 @@ export const T3poMutation = Schema.Union([
   Schema.Struct({
     type: Schema.Literal("save_budget"),
     projectId: ProjectId,
-    maxRuns: NonNegativeInt,
+    /** Ignored; jobs are limited only by how many run at once. */
+    maxRuns: Schema.optional(NonNegativeInt),
     maxConcurrent: NonNegativeInt,
+  }),
+  Schema.Struct({
+    type: Schema.Literal("save_work_model"),
+    projectId: ProjectId,
+    /** Null: jobs use the model of the chat that hands them off. */
+    modelSelection: Schema.NullOr(ModelSelection),
+  }),
+  Schema.Struct({
+    type: Schema.Literal("save_work_access"),
+    projectId: ProjectId,
+    runtimeMode: RuntimeMode,
   }),
   Schema.Struct({
     type: Schema.Literal("save_lead"),
@@ -437,9 +457,9 @@ export class T3poError extends Schema.TaggedError<T3poError>()("T3poError", {
     if (this.operation === "space_boundary")
       return "No active Space connection authorizes this operation.";
     if (this.operation === "budget")
-      return "Configure or increase the project run budget before starting task work.";
+      return "Every agent slot in this project is in use or set to zero. Wait for a job to finish or raise how many run at once.";
     if (this.operation === "approval")
-      return "Project task work requires the approval-required runtime mode.";
+      return "This project's job permissions don't allow that mode. Change Job permissions in the Work panel.";
     if (this.operation === "busy") return "Stop the running task before archiving it.";
     if (this.operation === "workspace")
       return "Choose an existing Git base branch for the worktree, or use the project folder.";

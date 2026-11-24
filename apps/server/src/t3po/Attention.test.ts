@@ -103,7 +103,7 @@ effectIt.effect("bounds project scans and resumes strictly after the previous ta
       });
       yield* sql`INSERT INTO t3po_tasks(id, project_id, data) VALUES (${id}, ${task.projectId}, ${data})`;
     }
-    yield* sql`INSERT INTO t3po_budgets(project_id, max_runs, max_concurrent) VALUES (${task.projectId}, 1, 1)`;
+    yield* sql`INSERT INTO t3po_budgets(project_id, max_runs, max_concurrent) VALUES (${task.projectId}, 1, 0)`;
     yield* sql`INSERT INTO t3po_admissions(run_id, project_id, active) VALUES ('used-run', ${task.projectId}, 0)`;
     yield* sql`INSERT INTO t3po_memory_events_v2(event_id, project_id, kind, text, occurred_at) VALUES ('pending', ${task.projectId}, 'project_brief', 'brief', 'now')`;
     yield* sql`INSERT INTO t3po_memory_status(project_id, failures) VALUES (${task.projectId}, 1)`;
@@ -115,7 +115,7 @@ effectIt.effect("bounds project scans and resumes strictly after the previous ta
         key: `project-budget:${task.projectId}`,
         projectId: task.projectId,
         reason: "budget",
-        blockedBy: "run_limit",
+        blockedBy: "concurrency_disabled",
         usedRuns: 1,
         maxRuns: 1,
       },
@@ -136,7 +136,8 @@ effectIt.effect("bounds project scans and resumes strictly after the previous ta
       projectItems: [],
       nextCursor: null,
     });
-    yield* sql`UPDATE t3po_budgets SET max_runs = 2 WHERE project_id = ${task.projectId}`;
+    // Used-up total runs no longer block work; only zero agents at once does.
+    yield* sql`UPDATE t3po_budgets SET max_concurrent = 1 WHERE project_id = ${task.projectId}`;
     yield* sql`UPDATE t3po_admissions SET active = 1 WHERE project_id = ${task.projectId}`;
     yield* sql`UPDATE t3po_memory_status SET failures = 0 WHERE project_id = ${task.projectId}`;
     expect((yield* queue.list({ projectId: task.projectId })).projectItems).toEqual([]);
@@ -150,7 +151,7 @@ effectIt.effect("bounds project scans and resumes strictly after the previous ta
         reason: "budget",
         blockedBy: "concurrency_disabled",
         usedRuns: 1,
-        maxRuns: 2,
+        maxRuns: 1,
       },
     ]);
     yield* sql`DELETE FROM t3po_budgets WHERE project_id = ${task.projectId}`;

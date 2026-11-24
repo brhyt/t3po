@@ -4,6 +4,8 @@ import {
   T3poWorkspace,
   T3poTask,
   T3poError,
+  T3PO_DEFAULT_CONCURRENT_JOBS,
+  RuntimeMode,
   type OrchestrationV2DomainEvent,
 } from "@t3tools/contracts";
 import * as SpaceConnections from "./SpaceConnections.ts";
@@ -31,6 +33,26 @@ const authorityProject = Effect.fn("T3po.authorityProject")(function* (
   return projectId;
 });
 
+const runtimeModeRank: Record<RuntimeMode, number> = {
+  "approval-required": 0,
+  "auto-accept-edits": 1,
+  auto: 2,
+  "full-access": 3,
+};
+const isRuntimeMode = Schema.is(RuntimeMode);
+/** Whether the project's job permissions allow `mode`; unset permissions allow only approval-required. */
+const workAccessAllows = Effect.fn("T3po.workAccessAllows")(function* (
+  projectId: string,
+  mode: string | undefined,
+) {
+  const sql = yield* SqlClient.SqlClient;
+  const rows = yield* sql<{
+    access: string | null;
+  }>`SELECT json_extract(data, '$.workAccess') AS access FROM t3po_leads WHERE project_id = ${projectId}`;
+  const stored = rows[0]?.access;
+  const access = isRuntimeMode(stored) ? stored : "approval-required";
+  return isRuntimeMode(mode) && runtimeModeRank[mode] <= runtimeModeRank[access];
+});
 const checkSpace = Effect.fn("T3po.checkSpace")(function* (event: OrchestrationV2DomainEvent) {
   const sql = yield* SqlClient.SqlClient;
   const scopeOf = Effect.fn("T3po.threadSpace")(function* (id: string) {
@@ -220,10 +242,9 @@ export const admitRun = Effect.fn("T3po.admitRun")(function* (event: Orchestrati
     event.type === "thread.created" ||
     event.type === "thread.provider-switched"
   ) {
-    if (
-      event.payload.runtimeMode !== "approval-required" &&
-      (yield* authorityProject(event.threadId))
-    )
+    if (event.payload.runtimeMode === "approval-required") return;
+    const governed = yield* authorityProject(event.threadId);
+    if (governed && !(yield* workAccessAllows(governed, event.payload.runtimeMode)))
       return yield* new T3poError({ operation: "approval" });
     return;
   }
@@ -260,12 +281,13 @@ export const admitRun = Effect.fn("T3po.admitRun")(function* (event: Orchestrati
     const thread = yield* sql<{
       mode: string;
     }>`SELECT json_extract(payload_json, '$.runtimeMode') AS mode FROM orchestration_v2_projection_threads WHERE thread_id = ${event.threadId}`;
-    if (thread[0]?.mode !== "approval-required")
+    if (!(yield* workAccessAllows(workerProjectId, thread[0]?.mode)))
       return yield* new T3poError({ operation: "approval" });
   }
-  const budget = yield* sql`SELECT project_id FROM t3po_budgets b WHERE project_id = ${projectId}
-    AND max_runs > (SELECT count(*) FROM t3po_admissions WHERE project_id = b.project_id)
-    AND max_concurrent > (SELECT count(*) FROM t3po_admissions WHERE project_id = b.project_id AND active = 1)`;
-  if (!budget.length) return yield* new T3poError({ operation: "budget" });
+  // Jobs run until they finish; a project only limits how many run at once.
+  const slots = yield* sql<{ open: number }>`SELECT
+    COALESCE((SELECT max_concurrent FROM t3po_budgets WHERE project_id = ${projectId}), ${T3PO_DEFAULT_CONCURRENT_JOBS})
+    > (SELECT count(*) FROM t3po_admissions WHERE project_id = ${projectId} AND active = 1) AS open`;
+  if (!slots[0]?.open) return yield* new T3poError({ operation: "budget" });
   yield* sql`INSERT INTO t3po_admissions (run_id, project_id, active) VALUES (${event.payload.id}, ${projectId}, ${active ? 1 : 0})`;
 });

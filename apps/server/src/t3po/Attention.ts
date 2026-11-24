@@ -93,12 +93,13 @@ const make = Effect.gen(function* () {
           (SELECT count(*) FROM t3po_admissions WHERE project_id = ${input.projectId}) AS usedRuns
           FROM t3po_budgets WHERE project_id = ${input.projectId}`;
         const budget = budgets[0];
-        if (budget && (budget.usedRuns >= budget.maxRuns || budget.maxConcurrent === 0)) {
+        // Only "no agents at once" blocks work; total runs are not limited.
+        if (budget?.maxConcurrent === 0) {
           projectItems.push({
             key: `project-budget:${input.projectId}`,
             projectId: input.projectId,
             reason: "budget",
-            blockedBy: budget.usedRuns >= budget.maxRuns ? "run_limit" : "concurrency_disabled",
+            blockedBy: "concurrency_disabled",
             usedRuns: budget.usedRuns,
             maxRuns: budget.maxRuns,
           });

@@ -308,6 +308,7 @@ it.effect("pins revisions and durably reports once without starting a destinatio
     yield* executor.execute(pending);
     yield* sink.write({ events: [{ ...terminal, id: EventId.make("terminal-replayed") }] });
     yield* executor.execute(pending);
+    yield* store.mutate({ type: "save_budget", projectId, maxConcurrent: 0 });
     expect(
       (yield* Effect.result(
         sink.write({

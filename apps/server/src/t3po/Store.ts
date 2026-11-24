@@ -34,6 +34,7 @@ import {
   type T3poQuery,
   type T3poWorkspace,
   OrchestrationV2ThreadLaunchWorkspaceStrategy,
+  T3PO_DEFAULT_CONCURRENT_JOBS,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
@@ -437,17 +438,15 @@ const make = Effect.gen(function* () {
         let grant = task.grant;
         if (input.type === "save_job_grant") {
           const budgets = yield* sql<{
-            maxRuns: number;
             maxConcurrent: number;
-          }>`SELECT max_runs AS maxRuns, max_concurrent AS maxConcurrent FROM t3po_budgets WHERE project_id = ${input.projectId}`;
-          const budget = budgets[0];
+          }>`SELECT max_concurrent AS maxConcurrent FROM t3po_budgets WHERE project_id = ${input.projectId}`;
+          const maxConcurrent = budgets[0]?.maxConcurrent ?? T3PO_DEFAULT_CONCURRENT_JOBS;
           const expiry = Date.parse(input.expiresAt);
           if (input.briefRevision !== (task.briefRevision ?? 1))
             return yield* new T3poError({ operation: "grant_stale" });
           if (Number.isFinite(expiry) && expiry <= Date.parse(now))
             return yield* new T3poError({ operation: "grant_expired" });
-          if (!budget || !Number.isFinite(expiry))
-            return yield* new T3poError({ operation: "grant_invalid" });
+          if (!Number.isFinite(expiry)) return yield* new T3poError({ operation: "grant_invalid" });
           const spaces = yield* sql<{
             spaceId: string;
           }>`SELECT space_id AS spaceId FROM t3po_project_spaces WHERE project_id = ${input.projectId}`;
@@ -463,11 +462,8 @@ const make = Effect.gen(function* () {
             route: "local",
             expiresAt: DateTime.formatIso(DateTime.makeUnsafe(expiry)),
             revoked: false,
-            maxRuns: Math.min(input.maxRuns ?? budget.maxRuns, budget.maxRuns),
-            maxConcurrent: Math.min(
-              input.maxConcurrent ?? budget.maxConcurrent,
-              budget.maxConcurrent,
-            ),
+            maxRuns: input.maxRuns ?? 1,
+            maxConcurrent: Math.min(input.maxConcurrent ?? maxConcurrent, maxConcurrent),
           };
         } else {
           if (!grant) return yield* new T3poError({ operation: "grant_invalid" });
@@ -590,7 +586,28 @@ const make = Effect.gen(function* () {
         yield* sql`UPDATE t3po_tasks SET data = json_set(data, '$.workstreamId', ${input.workstreamId}) WHERE id = ${task.id}`;
         yield* sql`UPDATE t3po_work_routes SET workstream_id = ${input.workstreamId} WHERE job_id = ${task.id}`;
       } else if (input.type === "save_budget") {
-        yield* sql`INSERT INTO t3po_budgets (project_id, max_runs, max_concurrent) VALUES (${input.projectId}, ${input.maxRuns}, ${input.maxConcurrent}) ON CONFLICT(project_id) DO UPDATE SET max_runs = excluded.max_runs, max_concurrent = excluded.max_concurrent`;
+        // max_runs is no longer enforced; only how many jobs run at once is.
+        yield* sql`INSERT INTO t3po_budgets (project_id, max_runs, max_concurrent) VALUES (${input.projectId}, 0, ${input.maxConcurrent}) ON CONFLICT(project_id) DO UPDATE SET max_concurrent = excluded.max_concurrent`;
+      } else if (input.type === "save_work_access") {
+        const rows = yield* sql<{
+          data: string;
+        }>`SELECT data FROM t3po_leads WHERE project_id = ${input.projectId}`;
+        if (!rows[0]) return yield* new T3poError({ operation: "invalid" });
+        const { workAccess: _previous, ...lead } = yield* decodeT3poLeadJson(rows[0].data);
+        const data: T3poLead =
+          input.runtimeMode === "approval-required"
+            ? lead
+            : { ...lead, workAccess: input.runtimeMode };
+        yield* sql`UPDATE t3po_leads SET data = ${yield* encodeT3poLeadJson(data)} WHERE project_id = ${input.projectId}`;
+      } else if (input.type === "save_work_model") {
+        const rows = yield* sql<{
+          data: string;
+        }>`SELECT data FROM t3po_leads WHERE project_id = ${input.projectId}`;
+        if (!rows[0]) return yield* new T3poError({ operation: "invalid" });
+        const { workModel: _previous, ...lead } = yield* decodeT3poLeadJson(rows[0].data);
+        const data: T3poLead =
+          input.modelSelection === null ? lead : { ...lead, workModel: input.modelSelection };
+        yield* sql`UPDATE t3po_leads SET data = ${yield* encodeT3poLeadJson(data)} WHERE project_id = ${input.projectId}`;
       } else if (input.type === "save_lead") {
         const previous = yield* sql<{
           data: string;
@@ -605,6 +622,8 @@ const make = Effect.gen(function* () {
           brief: input.brief,
           threadId: ThreadId.make(`t3po-lead:${input.projectId}`),
           ...(input.name === undefined ? { autoName: true } : {}),
+          ...(prior?.workModel ? { workModel: prior.workModel } : {}),
+          ...(prior?.workAccess ? { workAccess: prior.workAccess } : {}),
         };
         yield* sql`INSERT INTO t3po_leads (project_id, data) VALUES (${input.projectId}, ${yield* encodeT3poLeadJson(data)}) ON CONFLICT(project_id) DO UPDATE SET data = excluded.data`;
       } else if (input.type === "create_channel") {

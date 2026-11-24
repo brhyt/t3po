@@ -159,6 +159,8 @@ const make = Effect.gen(function* () {
           input.type === "move_conversation" ||
           input.type === "save_budget" ||
           input.type === "save_lead" ||
+          input.type === "save_work_model" ||
+          input.type === "save_work_access" ||
           input.type.endsWith("channel"),
       });
     },

@@ -5,6 +5,7 @@ import { NeedsYou } from "./NeedsYou";
 import { ProjectMemory } from "./MemoryInspector";
 import { NativeChildren } from "./NativeChildren.tsx";
 import { TaskResults } from "./TaskResults";
+import { WorkSettings } from "./WorkSettings";
 import { randomUUID } from "../../lib/utils";
 import { useAtomValue } from "@effect/atom-react";
 import { Link, useNavigate } from "@tanstack/react-router";
@@ -14,7 +15,6 @@ import { useRef, useState } from "react";
 import {
   DEFAULT_SERVER_SETTINGS,
   type EnvironmentId,
-  type ModelSelection,
   type ProjectId,
   type T3poLead,
   type T3poMutation,
@@ -175,17 +175,17 @@ export function ProjectBoard({
       config?.settings ?? DEFAULT_SERVER_SETTINGS,
       projectId,
     );
-  const [model, setModel] = useState<ModelSelection | null>(null);
-  const selectedModel = model ?? defaultModel;
 
   const [editingTask, setEditingTask] = useState<T3poTaskView | null>(null);
   const [memoryOpen, setMemoryOpen] = useState(false);
-  const budgetControl = useRef<HTMLInputElement>(null);
+  const budgetControl = useRef<HTMLDivElement>(null);
   const memoryControl = useRef<HTMLDivElement>(null);
   const [form, setForm] = useState<"lead" | "task" | "channel" | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const lead = query.data?.leads.find((lead) => lead.projectId === projectId);
+  // Board launches use the same model as jobs the lead hands off.
+  const selectedModel = lead?.workModel ?? defaultModel;
   const memory = query.data?.memory.find((entry) => entry.projectId === projectId);
   const channels =
     query.data?.channels.filter(
@@ -232,7 +232,8 @@ export function ProjectBoard({
           projectId: targetProject,
           ...(task ? { taskId: task.id } : {}),
           modelSelection: selectedModel,
-          runtimeMode: "approval-required",
+          // Jobs run with the project's job permissions; lead and channel chats stay supervised.
+          runtimeMode: task ? (lead?.workAccess ?? "approval-required") : "approval-required",
         },
       });
       if (result._tag !== "Success") {
@@ -525,61 +526,11 @@ export function ProjectBoard({
             save={save}
             disabled={!canMutate || busy}
           />
-          <form
-            key={`budget:${projectId}:${lead?.budget?.maxRuns}:${lead?.budget?.maxConcurrent}`}
-            className="flex flex-wrap items-end gap-3"
-            onSubmit={(event) => {
-              event.preventDefault();
-              const data = new FormData(event.currentTarget);
-              void save({
-                type: "save_budget",
-                projectId,
-                maxRuns: Number(data.get("maxRuns")),
-                maxConcurrent: Number(data.get("maxConcurrent")),
-              });
-            }}
-          >
-            <label className="text-xs">
-              <T>Task run budget</T>
-              <input
-                className="block w-32 rounded border bg-background p-2"
-                ref={budgetControl}
-                name="maxRuns"
-                type="number"
-                min="0"
-                step="1"
-                required
-                defaultValue={lead?.budget?.maxRuns}
-                disabled={!canMutate || busy}
-              />
-            </label>
-            <label className="text-xs">
-              <T>Concurrent task runs</T>
-              <input
-                className="block w-32 rounded border bg-background p-2"
-                name="maxConcurrent"
-                type="number"
-                min="0"
-                step="1"
-                required
-                defaultValue={lead?.budget?.maxConcurrent}
-                disabled={!canMutate || busy}
-              />
-            </label>
-            <Button type="submit" variant="outline" disabled={!canMutate || busy || !lead}>
-              <T>Save budget</T>
-            </Button>
-            <p className="text-xs text-muted-foreground">
-              {lead?.budget ? (
-                gt("{used} runs used; {active} active", {
-                  used: lead.budget.usedRuns,
-                  active: lead.budget.activeRuns,
-                })
-              ) : (
-                <T>Set a budget before starting tasks</T>
-              )}
-            </p>
-          </form>
+          {projectId ? (
+            <div ref={budgetControl} tabIndex={-1} className="max-w-80">
+              <WorkSettings environmentId={environmentId} projectId={projectId} />
+            </div>
+          ) : null}
           {form ? (
             <WorkForm
               key={`${form}:${lead?.name}`}
@@ -609,43 +560,6 @@ export function ProjectBoard({
             />
           ) : null}
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <label className="flex items-center gap-2 text-xs text-muted-foreground">
-              <T>Model for new work</T>
-              <select
-                aria-label={gt("Model for new work")}
-                className="max-w-60 rounded-lg border bg-background p-2 text-foreground"
-                value={selectedModel ? `${selectedModel.instanceId}/${selectedModel.model}` : ""}
-                onChange={(event) => {
-                  const option = providers
-                    .flatMap((provider) =>
-                      provider.models.map((model) => ({
-                        instanceId: provider.instanceId,
-                        model: model.slug,
-                      })),
-                    )
-                    .find((model) => `${model.instanceId}/${model.model}` === event.target.value);
-                  if (option) setModel(option);
-                }}
-              >
-                <option value="" disabled>
-                  {gt("Choose a model")}
-                </option>
-                {providers
-                  .filter(
-                    (provider) => provider.status !== "disabled" && provider.status !== "error",
-                  )
-                  .flatMap((provider) =>
-                    provider.models.map((model) => (
-                      <option
-                        key={`${provider.instanceId}/${model.slug}`}
-                        value={`${provider.instanceId}/${model.slug}`}
-                      >
-                        {provider.displayName ?? provider.driver} · {model.name}
-                      </option>
-                    )),
-                  )}
-              </select>
-            </label>
             <Button
               disabled={
                 !canMutate ||

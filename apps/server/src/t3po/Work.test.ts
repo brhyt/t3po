@@ -41,6 +41,37 @@ const seed = Effect.gen(function* () {
   yield* sql`INSERT INTO orchestration_v2_projection_messages (message_id, thread_id, run_id, role, streaming, created_at, updated_at, payload_json) VALUES ('source', ${caller}, 'run', 'user', 0, 'now', 'now', '{"text":"Measure latency"}')`;
 });
 
+it.effect("launches handed-off jobs with the project's work model and permissions", () =>
+  Effect.gen(function* () {
+    yield* seed;
+    const store = yield* Store.Store;
+    const sql = yield* SqlClient.SqlClient;
+    const launched = (id: string) =>
+      sql<{
+        model: string;
+        mode: string;
+      }>`SELECT json_extract(launch, '$.modelSelection.model') AS model, json_extract(launch, '$.runtimeMode') AS mode FROM t3po_work_routes WHERE id = ${id}`.pipe(
+        Effect.map((rows) => rows[0]),
+      );
+    const launchModel = (id: string) => launched(id).pipe(Effect.map((row) => row?.model));
+    const chatModel = yield* reserve(caller, input, model);
+    expect(yield* launchModel(chatModel.id)).toBe("test-model");
+    const workModel = { instanceId: ProviderInstanceId.make("claude"), model: "work-model" };
+    yield* store.mutate({ type: "save_work_model", projectId, modelSelection: workModel });
+    yield* store.mutate({ type: "save_work_access", projectId, runtimeMode: "full-access" });
+    // Renaming the lead (also how it names itself) must not drop the chosen model.
+    yield* store.mutate({ type: "save_lead", projectId, name: "Renamed", brief: "Improve" });
+    expect((yield* store.read).leads[0]?.workModel).toEqual(workModel);
+    const chosen = yield* reserve(caller, { ...input, requestId: "second" }, model);
+    expect(yield* launched(chosen.id)).toEqual({ model: "work-model", mode: "full-access" });
+    expect((yield* launched(chatModel.id))?.mode).toBe("approval-required");
+    yield* store.mutate({ type: "save_work_model", projectId, modelSelection: null });
+    expect((yield* store.read).leads[0]?.workModel).toBeUndefined();
+    const reset = yield* reserve(caller, { ...input, requestId: "third" }, model);
+    expect(yield* launchModel(reset.id)).toBe("test-model");
+  }).pipe(Effect.provide(fixture)),
+);
+
 it.effect("persists before dispatch, groups independent jobs and replays without duplicates", () =>
   Effect.gen(function* () {
     yield* seed;
@@ -173,7 +204,7 @@ it.effect("recovers queued dispatch after capacity clears and does not relaunch 
   Effect.gen(function* () {
     yield* seed;
     const store = yield* Store.Store;
-    yield* store.mutate({ type: "save_budget", projectId, maxRuns: 3, maxConcurrent: 1 });
+    yield* store.mutate({ type: "save_budget", projectId, maxConcurrent: 1 });
     const receipt = yield* reserve(caller, input, model);
     const launches: string[] = [];
     const threads = {
@@ -227,7 +258,7 @@ it.effect(
         },
         model,
       );
-      yield* store.mutate({ type: "save_budget", projectId, maxRuns: 0, maxConcurrent: 0 });
+      yield* store.mutate({ type: "save_budget", projectId, maxConcurrent: 0 });
       const threads = {
         getThreadShell: () => Effect.succeed({ id: caller, deletedAt: null }),
         sendToThread: () => Effect.die("A committed send must not be retried."),

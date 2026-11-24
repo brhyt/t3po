@@ -38,14 +38,7 @@ export function NeedsYou({
           </Button>
           <p className="text-muted-foreground">
             {item.reason === "budget" ? (
-              <>
-                {item.blockedBy === "run_limit" ? (
-                  <T>Task run allowance exhausted.</T>
-                ) : (
-                  <T>New task runs are disabled.</T>
-                )}{" "}
-                {gt("{used} of {limit} runs used.", { used: item.usedRuns, limit: item.maxRuns })}
-              </>
+              <T>New task runs are disabled.</T>
             ) : (
               gt("Delivery receipt missing for {count} records.", { count: item.pendingCount })
             )}
