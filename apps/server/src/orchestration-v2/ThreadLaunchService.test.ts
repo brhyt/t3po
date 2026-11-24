@@ -3501,17 +3501,25 @@ it.effect(
     const projectWork = T3poService.layer.pipe(Layer.provide(support));
     return Effect.gen(function* () {
       const service = yield* T3poService.Service;
+      // Opening the project chat starts an unnamed lead; it names itself later.
+      const lead = yield* service.launch({
+        projectId,
+        modelSelection,
+        runtimeMode: "approval-required",
+      });
+      expect(lead.threadId).toBe(`t3po-lead:${projectId}`);
+      expect((yield* service.snapshot({ projectId })).leads[0]).toMatchObject({
+        name: "Lead",
+        brief: "",
+        autoName: true,
+      });
       yield* service.mutate({
         type: "save_lead",
         projectId,
         name: "Project lead",
         brief: "Deliver tested changes.",
       });
-      const lead = yield* service.launch({
-        projectId,
-        modelSelection,
-        runtimeMode: "approval-required",
-      });
+      expect((yield* service.snapshot({ projectId })).leads[0]?.autoName).toBeUndefined();
       yield* service.mutate({
         type: "create_task",
         projectId,

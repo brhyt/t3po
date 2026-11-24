@@ -49,6 +49,8 @@ const decodeT3poTaskJson = Schema.decodeEffect(Schema.fromJsonString(T3poTask));
 const encodeT3poLeadJson = Schema.encodeEffect(Schema.fromJsonString(T3poLead));
 const encodeT3poChannelJson = Schema.encodeEffect(Schema.fromJsonString(T3poChannel));
 const encodeT3poTaskJson = Schema.encodeEffect(Schema.fromJsonString(T3poTask));
+/** Stored name of a lead that has not named itself yet; clients show their own label for it. */
+const T3PO_LEAD_PLACEHOLDER_NAME = "Lead";
 const LaunchReservation = Schema.Struct({
   ...T3poLaunchInput.fields,
   briefRevision: Schema.optional(Schema.Number),
@@ -593,13 +595,16 @@ const make = Effect.gen(function* () {
         const previous = yield* sql<{
           data: string;
         }>`SELECT data FROM t3po_leads WHERE project_id = ${input.projectId}`;
-        if (!previous[0] || (yield* decodeT3poLeadJson(previous[0].data)).brief !== input.brief)
+        const prior = previous[0] ? yield* decodeT3poLeadJson(previous[0].data) : undefined;
+        if (prior ? prior.brief !== input.brief : input.brief.trim() !== "")
           yield* enqueueMemory(input.projectId, "project_brief", input.brief);
         const data: T3poLead = {
           projectId: input.projectId,
-          name: input.name,
+          // Without a name the lead keeps its placeholder and names itself later (LeadNaming).
+          name: input.name ?? (prior?.autoName ? prior.name : T3PO_LEAD_PLACEHOLDER_NAME),
           brief: input.brief,
           threadId: ThreadId.make(`t3po-lead:${input.projectId}`),
+          ...(input.name === undefined ? { autoName: true } : {}),
         };
         yield* sql`INSERT INTO t3po_leads (project_id, data) VALUES (${input.projectId}, ${yield* encodeT3poLeadJson(data)}) ON CONFLICT(project_id) DO UPDATE SET data = excluded.data`;
       } else if (input.type === "create_channel") {

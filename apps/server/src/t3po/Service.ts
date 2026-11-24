@@ -170,7 +170,14 @@ const make = Effect.gen(function* () {
     function* (input: T3poLaunchInput) {
       const project = yield* requireProject(input.projectId);
       const records = yield* store.list({ projectId: input.projectId, metadataOnly: true });
-      const lead = records.leads.find((lead) => lead.projectId === input.projectId);
+      let lead = records.leads.find((lead) => lead.projectId === input.projectId);
+      if (!lead && input.taskId === undefined) {
+        // Opening a project or channel chat starts its lead; it names itself after a few turns.
+        yield* mutate({ type: "save_lead", projectId: input.projectId, brief: "" });
+        lead = (yield* store.list({ projectId: input.projectId, metadataOnly: true })).leads.find(
+          (lead) => lead.projectId === input.projectId,
+        );
+      }
       const task =
         input.taskId === undefined
           ? undefined

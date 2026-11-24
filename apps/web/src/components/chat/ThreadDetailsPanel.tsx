@@ -1,4 +1,5 @@
 import { WorkPanel } from "../t3po/WorkPanel";
+import { LeadCard } from "../t3po/LeadCard";
 import type {
   EditorId,
   EnvironmentId,
@@ -147,6 +148,12 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
       contentKey={THREAD_DETAILS_ITEMS.filter((item) => visible[item.id])
         .map((item) => item.id)
         .join(",")}
+      header={
+        !props.draftId &&
+        (props.threadId.startsWith("t3po-channel:") || props.threadId.startsWith("t3po-lead:")) ? (
+          <LeadCard environmentId={props.environmentId} projectId={props.projectId} />
+        ) : undefined
+      }
       onContextMenu={(event) => {
         // Popups the card opens bubble here through React; they, fields, links, and selected text
         // keep their own menus.

@@ -4,6 +4,7 @@ import * as ExternalActionService from "./t3po/ExternalActionService.ts";
 import * as SpacePolicy from "./t3po/SpacePolicy.ts";
 import * as T3poWork from "./t3po/Work.ts";
 import * as T3poWorkRunner from "./t3po/WorkRunner.ts";
+import * as T3poLeadNaming from "./t3po/LeadNaming.ts";
 import * as T3poService from "./t3po/Service.ts";
 import * as T3poStore from "./t3po/Store.ts";
 import * as T3poChanges from "./t3po/Changes.ts";
@@ -742,6 +743,9 @@ const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
     }),
   ),
   Layer.effectDiscard(T3poWorkRunner.run.pipe(Effect.forkScoped)).pipe(
+    Layer.provide(T3poService.layer),
+  ),
+  Layer.effectDiscard(T3poLeadNaming.run.pipe(Effect.forkScoped)).pipe(
     Layer.provide(T3poService.layer),
   ),
   ProviderUsageLimitsIngestion.layer,

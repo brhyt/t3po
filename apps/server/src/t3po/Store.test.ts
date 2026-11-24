@@ -144,6 +144,7 @@ it.effect(
       });
       const records = yield* second.read;
       expect(records.leads[0]?.threadId).toBe("t3po-lead:project-a");
+      expect(records.leads[0]?.autoName).toBeUndefined();
       const context = yield* second.context(projectId, ThreadId.make("t3po-lead:project-a"));
       expect(context).toContain("Use fresh evidence.");
       expect(context).toContain("Investigate recall");
@@ -154,6 +155,13 @@ it.effect(
           .reserveLaunch(task.id, otherProjectId, { ...selection, projectId: otherProjectId })
           .pipe(Effect.flip)).operation,
       ).toBe("invalid");
+      // Clearing the name hands it back to the lead, keeping its conversation.
+      yield* second.mutate({ type: "save_lead", projectId, brief: "Use fresh evidence." });
+      expect((yield* second.read).leads[0]).toMatchObject({
+        name: "Lead",
+        autoName: true,
+        threadId: "t3po-lead:project-a",
+      });
     }).pipe(Effect.provide(database)),
 );
 

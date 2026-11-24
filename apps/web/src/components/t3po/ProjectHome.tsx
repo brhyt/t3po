@@ -585,7 +585,6 @@ export function ProjectBoard({
               key={`${form}:${lead?.name}`}
               kind={form}
               lead={lead}
-              projectTitle={title}
               busy={busy}
               onCancel={() => setForm(null)}
               channels={channels}
@@ -593,7 +592,7 @@ export function ProjectBoard({
               onSave={(name, brief, id, selectedChannelId, workspace) =>
                 void save(
                   form === "lead"
-                    ? { type: "save_lead", projectId, name, brief }
+                    ? { type: "save_lead", projectId, ...(name ? { name } : {}), brief }
                     : form === "channel"
                       ? { type: "create_channel", projectId, id, name }
                       : {
@@ -832,7 +831,6 @@ export function ProjectBoard({
                 kind="task"
                 task={editingTask}
                 lead={undefined}
-                projectTitle={title}
                 channels={
                   query.data?.channels.filter((channel) => channel.projectId === task.projectId) ??
                   []
@@ -942,7 +940,6 @@ export function ProjectBoard({
 function WorkForm({
   kind,
   lead,
-  projectTitle,
   task,
   channels,
   initialChannelId,
@@ -952,7 +949,6 @@ function WorkForm({
 }: {
   kind: "lead" | "task" | "channel";
   lead: T3poLead | undefined;
-  projectTitle: string;
   task?: T3poTaskView;
   channels: readonly (typeof T3poChannel.Type)[];
   initialChannelId: string | null;
@@ -969,7 +965,7 @@ function WorkForm({
   const gt = useGT();
   const [id] = useState(() => task?.id ?? randomUUID());
   const [name, setName] = useState(
-    task?.title ?? (kind === "lead" ? (lead?.name ?? `${projectTitle} T3PO`) : ""),
+    task?.title ?? (kind === "lead" ? (lead && !lead.autoName ? lead.name : "") : ""),
   );
   const [brief, setBrief] = useState(task?.brief ?? (kind === "lead" ? (lead?.brief ?? "") : ""));
   const [channel, setChannel] = useState(initialChannelId ?? "");
@@ -1010,9 +1006,10 @@ function WorkForm({
               : gt("Task title")}
         </span>
         <Input
-          required
+          required={kind !== "lead"}
           maxLength={200}
           value={name}
+          {...(kind === "lead" ? { placeholder: gt("Leave blank and the lead names itself") } : {})}
           onChange={(event) => setName(event.target.value)}
         />
       </label>
@@ -1111,7 +1108,10 @@ function WorkForm({
         <Button variant="ghost" disabled={busy} onClick={onCancel}>
           <T>Cancel</T>
         </Button>
-        <Button type="submit" disabled={busy || !name.trim() || (kind === "task" && !brief.trim())}>
+        <Button
+          type="submit"
+          disabled={busy || (kind !== "lead" && !name.trim()) || (kind === "task" && !brief.trim())}
+        >
           <T>Save</T>
         </Button>
       </div>

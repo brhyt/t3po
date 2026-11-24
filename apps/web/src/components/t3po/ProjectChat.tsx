@@ -20,7 +20,6 @@ import { Button } from "../ui/button";
 import { SidebarInset, SidebarTrigger } from "../ui/sidebar";
 import { WorkspacePageHeader } from "../WorkspacePageHeader";
 import { isElectron } from "../../env";
-import { ProjectHome } from "./ProjectHome";
 
 export function ProjectChat({
   environmentId,
@@ -57,7 +56,8 @@ export function ProjectChat({
   const canLaunch = useAtomValue(t3po.launch.permissionAtom(environmentId));
   const launch = useAtomCommand(t3po.launch);
   const [error, setError] = useState<string | null>(null);
-  const available = !!lead && (!channelId || !!channel);
+  // Opening a chat starts the project's lead when it has none; the lead names itself later.
+  const available = !channelId || !!channel;
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- opens the durable conversation for the selected project/channel through the idempotent server launch command
   useEffect(() => {
     if (!available || thread || !model || !canLaunch || error) return;
@@ -101,7 +101,6 @@ export function ProjectChat({
     gt,
     error,
   ]);
-  if (query.data && !lead) return <ProjectHome />;
   if (available && thread && threadId)
     return (
       <Navigate

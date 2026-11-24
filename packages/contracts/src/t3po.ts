@@ -43,6 +43,8 @@ export const T3poLead = Schema.Struct({
   name: TrimmedNonEmptyString.check(Schema.isMaxLength(200)),
   brief: Schema.String.check(Schema.isMaxLength(12000)),
   threadId: ThreadId,
+  /** The name is a placeholder; the lead names itself after a few conversation turns. */
+  autoName: Schema.optional(Schema.Boolean),
 });
 export type T3poLead = typeof T3poLead.Type;
 export const T3poChannel = Schema.Struct({
@@ -338,7 +340,8 @@ export const T3poMutation = Schema.Union([
   Schema.Struct({
     type: Schema.Literal("save_lead"),
     projectId: ProjectId,
-    name: TrimmedNonEmptyString.check(Schema.isMaxLength(200)),
+    /** Omitted: the lead keeps or gets a placeholder name and names itself later. */
+    name: Schema.optional(TrimmedNonEmptyString.check(Schema.isMaxLength(200))),
     brief: Schema.String.check(Schema.isMaxLength(12000)),
   }),
   Schema.Struct({

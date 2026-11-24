@@ -26,6 +26,7 @@ export function ThreadDetailsCard({
   handle,
   contentKey,
   onContextMenu,
+  header,
   children,
 }: {
   threadRef: ScopedThreadRef;
@@ -34,6 +35,8 @@ export function ThreadDetailsCard({
   /** Changes when the set of rendered items changes, so cached heights are measured again. */
   contentKey: string;
   onContextMenu?: MouseEventHandler<HTMLDivElement>;
+  /** A separate floating card stacked above the details card, such as the project lead. */
+  header?: ReactNode;
   children: (density: "full" | "compact" | "essential") => ReactNode;
 }) {
   const gt = useGT();
@@ -56,7 +59,18 @@ export function ThreadDetailsCard({
   });
   const contentHeights =
     measurements.key === measurementKey ? measurements.heights : { full: 0, compact: 0 };
-  const height = placement?.height ?? Math.max(0, (canvas?.container.height ?? 0) - 52);
+  const [headerElement, setHeaderElement] = useState<HTMLDivElement | null>(null);
+  const [headerHeight, setHeaderHeight] = useState(0);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- measures the header card's DOM height via ResizeObserver so the details card below gives up that space
+  useLayoutEffect(() => {
+    if (!headerElement) return;
+    const measure = () => setHeaderHeight(headerElement.offsetHeight + THREAD_DETAILS_CARD_GAP);
+    measure();
+    return observeResize(headerElement, measure);
+  }, [headerElement]);
+  const stackHeight = placement?.height ?? Math.max(0, (canvas?.container.height ?? 0) - 52);
+  const headerSpace = header && headerElement ? headerHeight : 0;
+  const height = Math.max(0, stackHeight - headerSpace);
   const density = resolveThreadDetailsCardDensity(height, contentHeights);
   const measureDetailsCard = canvas?.measureDetailsCard;
   const cardWidth = preferredPlacement?.width;
@@ -99,7 +113,7 @@ export function ThreadDetailsCard({
         measureDetailsCard?.({
           threadRef: { environmentId, threadId },
           width: cardWidth,
-          fullContentHeight: next,
+          fullContentHeight: next + headerSpace,
         });
       }
     };
@@ -113,6 +127,7 @@ export function ThreadDetailsCard({
     measureDetailsCard,
     environmentId,
     threadId,
+    headerSpace,
   ]);
   const card = (
     <div
@@ -129,6 +144,23 @@ export function ThreadDetailsCard({
         <div ref={setContentElement}>{children(density)}</div>
       </ScrollArea>
     </div>
+  );
+  const stack = header ? (
+    <div
+      className="flex max-h-full min-h-0 flex-col"
+      style={{ gap: THREAD_DETAILS_CARD_GAP, ...(placement ? { maxHeight: stackHeight } : {}) }}
+    >
+      <div
+        ref={setHeaderElement}
+        className="dropdown-glass isolate shrink-0 overflow-hidden rounded-2xl"
+        data-thread-details-header
+      >
+        {header}
+      </div>
+      {card}
+    </div>
+  ) : (
+    card
   );
   return (
     <Popover
@@ -161,12 +193,12 @@ export function ThreadDetailsCard({
             right: placement.right,
             top: placement.y,
             width: placement.width,
-            maxHeight: height,
+            maxHeight: stackHeight,
           }}
           data-density={density}
           data-thread-details-panel="inline"
         >
-          {card}
+          {stack}
         </aside>
       ) : null}
       {/* Rendered in both modes: base-ui keeps a popup that unmounts mid-open
@@ -192,7 +224,7 @@ export function ThreadDetailsCard({
       >
         {mode === "popover" ? (
           <div data-density={density} data-thread-details-panel="popover">
-            {card}
+            {stack}
           </div>
         ) : null}
       </PopoverPopup>
