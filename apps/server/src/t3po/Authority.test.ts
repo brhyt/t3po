@@ -379,6 +379,13 @@ it.effect.each([false, true])(
         usedRuns: 1,
         activeRuns: 1,
       });
+      // A supervised project keeps its jobs from leaving approval-required.
+      yield* store.mutate({
+        type: "save_work_access",
+        projectId,
+        runtimeMode: "approval-required",
+      });
+      expect((yield* store.read).leads[0]?.workAccess).toBe("approval-required");
       expect(
         yield* sink
           .write({
@@ -394,8 +401,9 @@ it.effect.each([false, true])(
           })
           .pipe(Effect.isFailure),
       ).toBe(true);
-      // Job permissions raise the ceiling for the project's jobs and lead-started agents.
+      // Full access is the default, so choosing it again clears the stored setting.
       yield* store.mutate({ type: "save_work_access", projectId, runtimeMode: "full-access" });
+      expect((yield* store.read).leads[0]?.workAccess).toBeUndefined();
       yield* sink.write({
         events: [
           {
@@ -412,7 +420,6 @@ it.effect.each([false, true])(
         projectId,
         runtimeMode: "approval-required",
       });
-      expect((yield* store.read).leads[0]?.workAccess).toBeUndefined();
       yield* sink.write({
         events: [
           {

@@ -5,6 +5,7 @@ import {
   T3poTask,
   T3poError,
   T3PO_DEFAULT_CONCURRENT_JOBS,
+  T3PO_DEFAULT_WORK_ACCESS,
   RuntimeMode,
   type OrchestrationV2DomainEvent,
 } from "@t3tools/contracts";
@@ -40,7 +41,7 @@ const runtimeModeRank: Record<RuntimeMode, number> = {
   "full-access": 3,
 };
 const isRuntimeMode = Schema.is(RuntimeMode);
-/** Whether the project's job permissions allow `mode`; unset permissions allow only approval-required. */
+/** Whether the project's job permissions allow `mode`; unset permissions allow T3PO_DEFAULT_WORK_ACCESS. */
 const workAccessAllows = Effect.fn("T3po.workAccessAllows")(function* (
   projectId: string,
   mode: string | undefined,
@@ -50,7 +51,7 @@ const workAccessAllows = Effect.fn("T3po.workAccessAllows")(function* (
     access: string | null;
   }>`SELECT json_extract(data, '$.workAccess') AS access FROM t3po_leads WHERE project_id = ${projectId}`;
   const stored = rows[0]?.access;
-  const access = isRuntimeMode(stored) ? stored : "approval-required";
+  const access = isRuntimeMode(stored) ? stored : T3PO_DEFAULT_WORK_ACCESS;
   return isRuntimeMode(mode) && runtimeModeRank[mode] <= runtimeModeRank[access];
 });
 const checkSpace = Effect.fn("T3po.checkSpace")(function* (event: OrchestrationV2DomainEvent) {

@@ -35,6 +35,7 @@ import {
   type T3poWorkspace,
   OrchestrationV2ThreadLaunchWorkspaceStrategy,
   T3PO_DEFAULT_CONCURRENT_JOBS,
+  T3PO_DEFAULT_WORK_ACCESS,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
@@ -595,7 +596,7 @@ const make = Effect.gen(function* () {
         if (!rows[0]) return yield* new T3poError({ operation: "invalid" });
         const { workAccess: _previous, ...lead } = yield* decodeT3poLeadJson(rows[0].data);
         const data: T3poLead =
-          input.runtimeMode === "approval-required"
+          input.runtimeMode === T3PO_DEFAULT_WORK_ACCESS
             ? lead
             : { ...lead, workAccess: input.runtimeMode };
         yield* sql`UPDATE t3po_leads SET data = ${yield* encodeT3poLeadJson(data)} WHERE project_id = ${input.projectId}`;

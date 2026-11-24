@@ -2,11 +2,23 @@ import { useState } from "react";
 import { useAtomValue } from "@effect/atom-react";
 import { Link } from "@tanstack/react-router";
 import { T, useGT } from "gt-react";
-import type { EnvironmentId, ProjectId, ThreadId, T3poMutation } from "@t3tools/contracts";
+import { scopeThreadRef } from "@t3tools/client-runtime/environment";
+import {
+  T3PO_DEFAULT_WORK_ACCESS,
+  type EnvironmentId,
+  type ProjectId,
+  type RuntimeMode,
+  type ThreadId,
+  type T3poMutation,
+} from "@t3tools/contracts";
 import { t3po } from "../../state/t3po";
 import { useEnvironmentQuery } from "../../state/query";
+import { useQuietThreadShell } from "../../state/entities";
+import { threadEnvironment } from "../../state/threads";
 import { useAtomCommand } from "../../state/use-atom-command";
+import { useOrchestrationCommand } from "../../state/use-orchestration-command";
 import { Button } from "../ui/button";
+import { Switch } from "../ui/switch";
 import { WorkSettings } from "./WorkSettings";
 
 export function WorkPanel({
@@ -42,6 +54,9 @@ export function WorkPanel({
     (stream) => stream.channelId === (channelId ?? null),
   );
   const tasks = (query.data?.tasks ?? []).filter((task) => task.channelId === (channelId ?? null));
+  const workAccess =
+    query.data?.leads.find((lead) => lead.projectId === projectId)?.workAccess ??
+    T3PO_DEFAULT_WORK_ACCESS;
   const statuses = {
     up_next: gt("Queued"),
     active: gt("Running"),
@@ -140,6 +155,13 @@ export function WorkPanel({
                   {task.dispatch?.state !== "sent" && task.dispatch?.reason ? (
                     <p className="text-xs text-muted-foreground">{task.dispatch.reason}</p>
                   ) : null}
+                  {task.executionExists ? (
+                    <JobSupervision
+                      environmentId={environmentId}
+                      threadId={task.threadId}
+                      workAccess={workAccess}
+                    />
+                  ) : null}
                   <label className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
                     <T>Move</T>
                     <select
@@ -191,5 +213,65 @@ export function WorkPanel({
         </div>
       ) : null}
     </section>
+  );
+}
+
+/** Lets the user supervise one job: it then waits for approval before acting. */
+function JobSupervision({
+  environmentId,
+  threadId,
+  workAccess,
+}: {
+  environmentId: EnvironmentId;
+  threadId: ThreadId;
+  workAccess: RuntimeMode;
+}) {
+  const gt = useGT();
+  const shell = useQuietThreadShell(scopeThreadRef(environmentId, threadId));
+  const setRuntimeMode = useOrchestrationCommand(threadEnvironment.setRuntimeMode, {
+    reportFailure: false,
+  });
+  const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState(false);
+  if (!shell) return null;
+  const supervised = shell.runtimeMode === "approval-required";
+  // In a supervised project there is no less supervised mode to return to.
+  if (!supervised && workAccess === "approval-required") return null;
+  async function toggle(next: boolean) {
+    setBusy(true);
+    setFailed(false);
+    try {
+      const result = await setRuntimeMode({
+        environmentId,
+        input: {
+          threadId,
+          runtimeMode: next ? "approval-required" : workAccess,
+          createdAt: new Date().toISOString(),
+        },
+      });
+      setFailed(result._tag !== "Success");
+    } catch {
+      setFailed(true);
+    }
+    setBusy(false);
+  }
+  return (
+    <div className="mt-1 text-xs text-muted-foreground">
+      <label className="flex items-center gap-2">
+        <Switch
+          size="sm"
+          checked={supervised}
+          disabled={busy || (supervised && workAccess === "approval-required")}
+          aria-label={gt("Supervise this job")}
+          onCheckedChange={(checked) => void toggle(Boolean(checked))}
+        />
+        <T>Supervised</T>
+      </label>
+      {failed ? (
+        <p role="alert" className="text-destructive">
+          <T>Could not change supervision.</T>
+        </p>
+      ) : null}
+    </div>
   );
 }

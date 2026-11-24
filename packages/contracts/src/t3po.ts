@@ -33,6 +33,8 @@ export type T3poQuery = typeof T3poQuery.Type;
 
 /** Jobs a project runs at once when no limit is saved. */
 export const T3PO_DEFAULT_CONCURRENT_JOBS = 3;
+/** Jobs run until done without waiting on approvals; supervise a single job from the Work panel. */
+export const T3PO_DEFAULT_WORK_ACCESS = "full-access" as const;
 
 const T3poBudget = Schema.Struct({
   /** No longer enforced; jobs run until they finish. Kept for older clients. */
@@ -51,7 +53,7 @@ export const T3poLead = Schema.Struct({
   autoName: Schema.optional(Schema.Boolean),
   /** Model for jobs the lead and its channels hand off. Unset: the handing-off chat's model. */
   workModel: Schema.optional(ModelSelection),
-  /** Most permissive mode jobs, and agents a lead or job starts, may run in. Unset: approval-required. */
+  /** Most permissive mode jobs, and agents a lead or job starts, may run in. Unset: T3PO_DEFAULT_WORK_ACCESS. */
   workAccess: Schema.optional(RuntimeMode),
 });
 export type T3poLead = typeof T3poLead.Type;

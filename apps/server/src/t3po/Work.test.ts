@@ -58,13 +58,13 @@ it.effect("launches handed-off jobs with the project's work model and permission
     expect(yield* launchModel(chatModel.id)).toBe("test-model");
     const workModel = { instanceId: ProviderInstanceId.make("claude"), model: "work-model" };
     yield* store.mutate({ type: "save_work_model", projectId, modelSelection: workModel });
-    yield* store.mutate({ type: "save_work_access", projectId, runtimeMode: "full-access" });
+    yield* store.mutate({ type: "save_work_access", projectId, runtimeMode: "approval-required" });
     // Renaming the lead (also how it names itself) must not drop the chosen model.
     yield* store.mutate({ type: "save_lead", projectId, name: "Renamed", brief: "Improve" });
     expect((yield* store.read).leads[0]?.workModel).toEqual(workModel);
     const chosen = yield* reserve(caller, { ...input, requestId: "second" }, model);
-    expect(yield* launched(chosen.id)).toEqual({ model: "work-model", mode: "full-access" });
-    expect((yield* launched(chatModel.id))?.mode).toBe("approval-required");
+    expect(yield* launched(chosen.id)).toEqual({ model: "work-model", mode: "approval-required" });
+    expect((yield* launched(chatModel.id))?.mode).toBe("full-access");
     yield* store.mutate({ type: "save_work_model", projectId, modelSelection: null });
     expect((yield* store.read).leads[0]?.workModel).toBeUndefined();
     const reset = yield* reserve(caller, { ...input, requestId: "third" }, model);

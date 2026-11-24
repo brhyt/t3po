@@ -5,6 +5,7 @@ import { T, useGT, useMessages } from "gt-react";
 import {
   RuntimeMode,
   T3PO_DEFAULT_CONCURRENT_JOBS,
+  T3PO_DEFAULT_WORK_ACCESS,
   type EnvironmentId,
   type ProjectId,
   type T3poMutation,
@@ -118,7 +119,7 @@ export function WorkSettings({
         <select
           aria-label={gt("Job permissions")}
           className="min-w-0 max-w-48 rounded border bg-background p-1 text-foreground"
-          value={lead.workAccess ?? "approval-required"}
+          value={lead.workAccess ?? T3PO_DEFAULT_WORK_ACCESS}
           disabled={disabled}
           onChange={(event) => {
             const runtimeMode = event.target.value;
