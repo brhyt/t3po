@@ -96,9 +96,60 @@ export const drain = Effect.fn("T3poWork.drain")(function* (
   }
 });
 
+/** Wakes the chat that routed a job once the job's latest run ends, so its lead follows up with the user. */
+export const announce = Effect.fn("T3poWork.announce")(function* () {
+  const sql = yield* SqlClient.SqlClient;
+  const threads = yield* Threads.ThreadManagementService;
+  const finished = yield* sql<{
+    runId: string;
+    projectId: string;
+    jobThreadId: string;
+    title: string;
+    status: string;
+    text: string | null;
+    callerThreadId: string;
+  }>`SELECT e.run_id AS runId, t.project_id AS projectId, json_extract(t.data, '$.threadId') AS jobThreadId,
+      json_extract(t.data, '$.title') AS title, json_extract(e.result_json, '$.status') AS status,
+      json_extract(e.result_json, '$.text') AS text,
+      (SELECT w.caller_thread_id FROM t3po_work_routes w WHERE w.job_id = e.task_id ORDER BY w.sequence DESC LIMIT 1) AS callerThreadId
+    FROM t3po_task_executions e
+    JOIN t3po_tasks t ON t.id = e.task_id
+    JOIN orchestration_v2_projection_runs r ON r.run_id = e.run_id
+    WHERE e.result_json IS NOT NULL
+      AND json_extract(e.result_json, '$.status') IN ('completed', 'failed')
+      AND EXISTS (SELECT 1 FROM t3po_work_routes w WHERE w.job_id = e.task_id)
+      AND r.ordinal = (SELECT max(ordinal) FROM orchestration_v2_projection_runs WHERE thread_id = r.thread_id)
+      AND NOT EXISTS (SELECT 1 FROM orchestration_command_receipts c WHERE c.command_id = 't3po-job-done:' || e.run_id)
+    LIMIT 20`;
+  for (const job of finished) {
+    const caller = yield* threads.getThreadShell(ThreadId.make(job.callerThreadId));
+    if (!caller || caller.deletedAt || caller.archivedAt) continue;
+    const outcome = job.status === "completed" ? "finished" : "failed";
+    yield* threads
+      .sendToThread({
+        projectId: ProjectId.make(job.projectId),
+        threadId: caller.id,
+        senderThreadId: ThreadId.make(job.jobThreadId),
+        commandId: CommandId.make(`t3po-job-done:${job.runId}`),
+        messageId: MessageId.make(`t3po-job-done:${job.runId}`),
+        text: `Job "${job.title}" ${outcome}. Its final report:
+
+${(job.text ?? "").slice(0, 12000) || "(no final message)"}
+
+Follow up with the user now: summarize what it produced, point out anything that needs their review or a decision, and route the next step if one is clear.`,
+        attachments: [],
+        mode: "queue",
+        createdBy: "agent",
+        creationSource: "server",
+      })
+      .pipe(Effect.catch((cause) => Effect.logWarning("Job report to lead failed", cause)));
+  }
+});
+
 export const run = Effect.gen(function* () {
   while (true) {
     yield* drain().pipe(Effect.catch((cause) => Effect.logWarning("Work queue retry", cause)));
+    yield* announce().pipe(Effect.catch((cause) => Effect.logWarning("Job report retry", cause)));
     yield* Effect.sleep("5 seconds");
   }
 });

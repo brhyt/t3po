@@ -198,7 +198,7 @@ it.effect("moves grouping without replacing execution and keeps stream closure i
 import * as TestClock from "effect/testing/TestClock";
 import * as Service from "./Service.ts";
 import * as Threads from "../orchestration-v2/ThreadManagementService.ts";
-import { drain } from "./WorkRunner.ts";
+import { announce, drain } from "./WorkRunner.ts";
 
 it.effect("recovers queued dispatch after capacity clears and does not relaunch sent jobs", () =>
   Effect.gen(function* () {
@@ -343,4 +343,48 @@ it.effect(
       expect(yield* store.context(projectId, caller)).toContain(receipt.jobId);
       expect(yield* store.context(destination, task.threadId)).not.toContain("Improve the project");
     }).pipe(Effect.provide(fixture)),
+);
+
+it.effect("tells the routing chat once when a job's latest run finishes", () =>
+  Effect.gen(function* () {
+    yield* seed;
+    const sql = yield* SqlClient.SqlClient;
+    const receipt = yield* reserve(caller, input, model);
+    const job = ThreadId.make(`t3po-task:${receipt.jobId}`);
+    const finish = (ordinal: number, status: string, text: string) =>
+      Effect.gen(function* () {
+        const runId = `run:${ordinal}`;
+        yield* sql`INSERT INTO orchestration_v2_projection_runs (run_id, thread_id, ordinal, provider, status, requested_at, payload_json) VALUES (${runId}, ${job}, ${ordinal}, 'codex', ${status}, 'now', '{}')`;
+        yield* sql`INSERT INTO t3po_task_executions (run_id, task_id, revision, result_json) VALUES (${runId}, ${receipt.jobId}, 1, json_object('status', ${status}, 'text', ${text}))`;
+      });
+    const sent: Array<{
+      threadId: string;
+      senderThreadId?: string;
+      commandId: string;
+      text: string;
+    }> = [];
+    const threads = {
+      getThreadShell: (id: ThreadId) =>
+        Effect.succeed(id === caller ? { id: caller, deletedAt: null, archivedAt: null } : null),
+      sendToThread: (send: (typeof sent)[number]) =>
+        Effect.gen(function* () {
+          sent.push(send);
+          yield* sql`INSERT INTO orchestration_command_receipts (command_id, aggregate_kind, aggregate_id, command_type, accepted_at, result_sequence, status, error) VALUES (${send.commandId}, 'thread', ${caller}, 'thread.message-send', 'now', 0, 'accepted', NULL)`;
+        }),
+    } as unknown as Threads.ThreadManagementService["Service"];
+    const tick = announce().pipe(Effect.provideService(Threads.ThreadManagementService, threads));
+    yield* finish(1, "cancelled", "Stopped early");
+    yield* tick;
+    expect(sent).toEqual([]);
+    yield* finish(2, "completed", "Plan written to plan.md");
+    yield* tick;
+    yield* tick;
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({ threadId: caller, senderThreadId: job });
+    expect(sent[0]?.text).toContain("Plan written to plan.md");
+    // An older run that finishes late does not report once a newer run exists.
+    yield* sql`UPDATE t3po_task_executions SET result_json = json_object('status', 'completed', 'text', 'old') WHERE run_id = 'run:1'`;
+    yield* tick;
+    expect(sent).toHaveLength(1);
+  }).pipe(Effect.provide(fixture)),
 );
