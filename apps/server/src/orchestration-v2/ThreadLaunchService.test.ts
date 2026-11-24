@@ -3535,10 +3535,10 @@ it.effect(
         modelSelection,
         runtimeMode: "approval-required" as const,
       };
-      expect(yield* service.launch(launch).pipe(Effect.isFailure)).toBe(true);
-      yield* service.mutate({ type: "save_budget", projectId, maxRuns: 10, maxConcurrent: 2 });
+      // A project without saved work settings still runs jobs, up to the default number at once.
       const first = yield* service.launch(launch);
       yield* preparationSettled(first.threadId);
+      yield* service.mutate({ type: "save_budget", projectId, maxConcurrent: 2 });
       yield* service.mutate({
         type: "edit_task",
         projectId,

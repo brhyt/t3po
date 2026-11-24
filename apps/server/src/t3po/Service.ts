@@ -185,7 +185,6 @@ const make = Effect.gen(function* () {
           ? undefined
           : yield* store.getTask(input.taskId, input.projectId);
       if (!lead || task?.archived) return yield* new T3poError({ operation: "invalid" });
-      if (task && !lead.budget) return yield* new T3poError({ operation: "budget" });
       if (input.taskId !== undefined && input.channelId !== undefined)
         return yield* new T3poError({ operation: "invalid" });
       const channel =
