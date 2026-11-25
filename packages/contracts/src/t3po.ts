@@ -23,6 +23,8 @@ export type T3poWorkspace = typeof T3poWorkspace.Type;
 export const T3poQuery = Schema.Struct({
   projectId: Schema.optional(ProjectId),
   channelId: Schema.optional(TrimmedNonEmptyString),
+  /** Only the job that runs in this thread, archived or not. */
+  threadId: Schema.optional(ThreadId),
   view: Schema.optional(
     Schema.Literals(["all", "open", "active", "up_next", "completed", "archived", "outputs"]),
   ),

@@ -302,15 +302,25 @@ const make = Effect.gen(function* () {
       const channels = yield* sql<{
         data: string;
       }>`SELECT data FROM t3po_channels WHERE ${projectFilter} ORDER BY rowid`;
-      const filters = [
-        projectFilter,
-        sql`COALESCE(json_extract(data, '$.archived'), 0) = ${input.view === "archived" ? 1 : 0}`,
-      ];
-      if (input.view !== "archived" && input.view !== "outputs" && input.view !== "all")
+      const filters = [projectFilter];
+      if (input.threadId) filters.push(sql`json_extract(data, '$.threadId') = ${input.threadId}`);
+      else
+        filters.push(
+          sql`COALESCE(json_extract(data, '$.archived'), 0) = ${input.view === "archived" ? 1 : 0}`,
+        );
+      if (
+        !input.threadId &&
+        input.view !== "archived" &&
+        input.view !== "outputs" &&
+        input.view !== "all"
+      )
         filters.push(
           sql`json_extract(data, '$.completed') = ${input.view === "completed" ? 1 : 0}`,
         );
-      if (input.view === "active" || input.view === "up_next" || input.view === "outputs") {
+      if (
+        !input.threadId &&
+        (input.view === "active" || input.view === "up_next" || input.view === "outputs")
+      ) {
         const exists = sql`EXISTS (SELECT 1 FROM orchestration_v2_projection_threads WHERE thread_id = json_extract(t3po_tasks.data, '$.threadId'))`;
         filters.push(input.view === "up_next" ? sql`NOT ${exists}` : exists);
       }

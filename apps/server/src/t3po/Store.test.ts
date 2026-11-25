@@ -287,6 +287,26 @@ it.effect("records a lead delegation atomically and preserves review state on re
   }).pipe(Effect.provide(Store.layer.pipe(Layer.provideMerge(Sqlite.layerMemory)))),
 );
 
+it.effect("finds the job that runs in a thread, even archived", () =>
+  Effect.gen(function* () {
+    const store = yield* Store.Store;
+    yield* store.mutate({ type: "save_lead", projectId, name: "Lead", brief: "Context" });
+    yield* store.mutate({ type: "create_channel", projectId, id: "marketing", name: "Marketing" });
+    yield* store.mutate({ ...task, channelId: "marketing" });
+    yield* store.mutate({ ...task, id: "task-b", title: "Other job" });
+    yield* store.mutate({ type: "archive_task", projectId, id: task.id, archived: true });
+    const page = yield* store.list({
+      projectId,
+      threadId: ThreadId.make("t3po-task:task-a"),
+      view: "all",
+    });
+    expect(page.tasks.map((found) => [found.id, found.channelId])).toEqual([
+      [task.id, "marketing"],
+    ]);
+    expect(page.channels.map((channel) => channel.name)).toEqual(["Marketing"]);
+  }).pipe(Effect.provide(Store.layer.pipe(Layer.provideMerge(Sqlite.layerMemory)))),
+);
+
 it.effect("reloads saved project work after closing and reopening the database", () =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;

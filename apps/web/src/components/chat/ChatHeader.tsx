@@ -32,7 +32,6 @@ import { canShareWithGuestAtom } from "./guestShareAvailability";
 import { useAtomValue } from "@effect/atom-react";
 import { useOrchestrationCommand } from "../../state/use-orchestration-command";
 import { readEnvironmentScope, useEnvironmentScope } from "../../state/session";
-import { ProjectFavicon } from "../ProjectFavicon";
 import {
   WorkspaceBreadcrumb,
   WorkspaceBreadcrumbItem,
@@ -53,6 +52,8 @@ interface ChatHeaderProps {
   isServerThread: boolean;
   activeProject: EnvironmentProject | null;
   parentThreadLink: { threadId: ThreadId; title: string } | null;
+  /** The t3po space the project belongs to, shown ahead of the project. */
+  spaceName?: string | null | undefined;
   onOpenThread: (threadId: ThreadId) => void;
   rightPanelOpen: boolean;
   onNewThreadInProject: () => void;
@@ -78,6 +79,7 @@ export const ChatHeader = memo(function ChatHeader({
   isServerThread,
   activeProject,
   parentThreadLink,
+  spaceName,
   onOpenThread,
   rightPanelOpen,
   onNewThreadInProject,
@@ -156,6 +158,7 @@ export const ChatHeader = memo(function ChatHeader({
     activeProjectName,
     activeThreadTitle,
     parentThreadLink,
+    spaceName,
     interfaceFont,
     isRenamingTitle,
   ]);
@@ -263,6 +266,17 @@ export const ChatHeader = memo(function ChatHeader({
       >
         {activeProject ? (
           <>
+            {spaceName ? (
+              <WorkspaceBreadcrumbItem className="shrink-0">
+                <Badge
+                  variant="outline"
+                  size="sm"
+                  aria-label={gt("Space: {space}", { space: spaceName })}
+                >
+                  {spaceName}
+                </Badge>
+              </WorkspaceBreadcrumbItem>
+            ) : null}
             <WorkspaceBreadcrumbItem className="shrink">
               <Tooltip>
                 <TooltipTrigger
@@ -271,11 +285,10 @@ export const ChatHeader = memo(function ChatHeader({
                       type="button"
                       aria-label={gt("New thread in {project}", { project: activeProjectName })}
                       onClick={onNewThreadInProject}
-                      className="inline-flex min-w-0 max-w-full cursor-pointer items-center gap-1.5 rounded-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                      className="inline-flex min-w-0 max-w-full cursor-pointer items-center rounded-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
                     />
                   }
                 >
-                  <ProjectFavicon project={activeProject} className="size-3.5" />
                   <MiddleTruncate
                     data-slot="workspace-breadcrumb-text"
                     value={activeProjectName ?? ""}

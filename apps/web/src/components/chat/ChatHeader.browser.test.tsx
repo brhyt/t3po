@@ -1,4 +1,4 @@
-import { EnvironmentId, ThreadId } from "@t3tools/contracts";
+import { EnvironmentId, ProjectId, ThreadId } from "@t3tools/contracts";
 import { expect, it, vi } from "vite-plus/test";
 import { userEvent } from "vite-plus/test/browser";
 
@@ -102,4 +102,41 @@ it("keeps the Escape that cancels a rename from also reaching window shortcuts",
   await expect.element(input).not.toBeInTheDocument();
   expect(persisted.title).toBe("New thread");
   expect(windowEscapes).toEqual([true]);
+});
+
+it("shows a job's space, project and chat ahead of its title", async () => {
+  const opened: ThreadId[] = [];
+  await using screen = await render(
+    <div style={{ width: 720 }}>
+      <ChatHeader
+        activeThreadEnvironmentId={EnvironmentId.make("environment")}
+        activeThreadId={ThreadId.make("t3po-task:positioning")}
+        activeThreadTitle="brega.si positioning + site-map plan"
+        isServerThread
+        activeProject={{
+          id: ProjectId.make("studio"),
+          environmentId: EnvironmentId.make("environment"),
+          title: "brhyt-studio",
+          workspaceRoot: "/work/brhyt-studio",
+          repositoryIdentity: null,
+          defaultModelSelection: null,
+          createdAt: "2026-03-01T00:00:00.000Z",
+          updatedAt: "2026-03-01T00:00:00.000Z",
+          scripts: [],
+        }}
+        spaceName="brhyt"
+        parentThreadLink={{
+          threadId: ThreadId.make("t3po-channel:marketing"),
+          title: "# Marketing",
+        }}
+        onOpenThread={(threadId) => opened.push(threadId)}
+        rightPanelOpen={false}
+        onNewThreadInProject={() => {}}
+      />
+    </div>,
+  );
+  const breadcrumb = screen.getByRole("navigation", { name: "Thread breadcrumb" });
+  await expect.element(breadcrumb.getByLabelText("Space: brhyt")).toBeVisible();
+  await screen.getByRole("button", { name: "Open parent thread: # Marketing" }).click();
+  expect(opened).toEqual(["t3po-channel:marketing"]);
 });

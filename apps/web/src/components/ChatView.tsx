@@ -1,4 +1,5 @@
 import { ChatNavigation } from "./t3po/ChatNavigation";
+import { useT3poBreadcrumb } from "./t3po/jobConversation";
 import { ProjectBoard } from "./t3po/ProjectHome";
 import { m } from "../i18n/messages";
 import { thrownErrorMessage } from "@t3tools/client-runtime/errors";
@@ -974,10 +975,15 @@ export default function ChatView(props: ChatViewProps) {
           }),
     };
   })();
+  const t3poBreadcrumb = useT3poBreadcrumb(
+    environmentId,
+    threadId,
+    activeThread?.projectId ?? null,
+  );
   // The header's breadcrumb opens a parent in this environment only.
   const headerParentThreadLink =
     parentSubagentThreadRef === null
-      ? null
+      ? t3poBreadcrumb.conversation
       : {
           threadId: parentSubagentThreadRef.threadId,
           title: parentSubagentThread?.title ?? gt("Parent thread"),
@@ -3421,6 +3427,7 @@ export default function ChatView(props: ChatViewProps) {
               activeThreadLinkOrigin={activeThreadShell?.linkOrigin?.label ?? null}
               activeProject={activeProject ?? null}
               parentThreadLink={headerParentThreadLink}
+              spaceName={t3poBreadcrumb.spaceName}
               onOpenThread={onOpenRelatedThreadStable}
               rightPanelOpen={inlineRightPanelOwnsTitleBar}
               onNewThreadInProject={handleNewThreadInActiveProjectStable}
