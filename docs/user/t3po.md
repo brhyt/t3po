@@ -78,6 +78,12 @@ The **Work** panel groups jobs under workstreams and links to their conversation
 
 Routed jobs use isolated worktrees on the current environment and wait for the project allowance, a concurrency slot, or machine capacity. Queued requests survive server restarts. Follow-ups reuse the job's conversation. Routine successful jobs finish without acceptance; explicitly requested reviews, failures, and approval requests still need attention. The lead should include verification criteria in each brief; a completed provider run is not independent proof that its claims are correct. This routing currently supports local execution, not automatic cross-machine dispatch. Web and desktop show the Work panel; native mobile retains the existing interface.
 
+## Notifications when T3 Code is closed
+
+In **Settings → General → Notifications when closed**, turn on **Notifications on this device** to get a system notification when a job finishes or fails, or when a job, lead or channel waits for your approval or answer. It works in a browser or the installed web app even with no T3 Code window open; on iPhone and iPad, add T3 Code to your Home Screen first. The desktop app notifies only while it runs. Each connected environment is turned on separately. Clicking a notification opens its conversation. **Send test** checks delivery, and the device list lets you remove devices you no longer use.
+
+To silence one project's lead and jobs, or one channel, turn off **Notify my devices when jobs here finish or need me** in its **Work** panel. This applies to every device. Each job outcome or request notifies once, also across server restarts; the lead's follow-up message does not notify separately.
+
 ## Inspect and correct local memory
 
 Open **Project memory** in a project to inspect captured records, twenty at a time. Receipt acceptance confirms that the gateway accepted a record; Honcho delivery and processing are not yet verified in this view.

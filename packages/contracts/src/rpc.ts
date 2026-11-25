@@ -22,6 +22,7 @@ import {
   ArtifactError,
 } from "./t3poArtifacts.ts";
 import { AttentionQuery, AttentionPage } from "./t3poAttention.ts";
+import { T3poPushChange, T3poPushState } from "./t3poPush.ts";
 import {
   T3poSnapshot,
   T3poResultsQuery,
@@ -498,6 +499,8 @@ export const WS_METHODS = {
   t3poSubscribe: "t3po.subscribe",
   t3poMutate: "t3po.mutate",
   t3poLaunch: "t3po.launch",
+  t3poPush: "t3po.push",
+  t3poPushChange: "t3po.pushChange",
   projectsEnsureScratch: "projects.ensureScratch",
   projectsCreateNew: "projects.createNew",
   projectsCreateFromThread: "projects.createFromThread",
@@ -1690,6 +1693,16 @@ const WsT3poLaunchRpc = Rpc.make(WS_METHODS.t3poLaunch, {
   success: T3poLaunchResult,
   error: Schema.Union([T3poError, EnvironmentAuthorizationError]),
 });
+const WsT3poPushRpc = Rpc.make(WS_METHODS.t3poPush, {
+  payload: Schema.Struct({}),
+  success: T3poPushState,
+  error: Schema.Union([T3poError, EnvironmentAuthorizationError]),
+});
+const WsT3poPushChangeRpc = Rpc.make(WS_METHODS.t3poPushChange, {
+  payload: T3poPushChange,
+  success: Schema.Void,
+  error: Schema.Union([T3poError, EnvironmentAuthorizationError]),
+});
 
 const WsProjectsMutateRpc = Rpc.make(WS_METHODS.projectsMutate, {
   payload: ProjectMutation,
@@ -2556,6 +2569,8 @@ export const WsRpcGroup = RpcGroup.make(
   WsT3poSubscribeRpc,
   WsT3poMutateRpc,
   WsT3poLaunchRpc,
+  WsT3poPushRpc,
+  WsT3poPushChangeRpc,
   WsShellOpenInEditorRpc,
   WsFilesystemBrowseRpc,
   WsFilesystemGetMetadataRpc,

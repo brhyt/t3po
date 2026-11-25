@@ -5,7 +5,11 @@ import { WorkPanel } from "./WorkPanel";
 
 const state = vi.hoisted(() => ({ data: undefined as typeof T3poSnapshot.Type | undefined }));
 vi.mock(import("../../state/query"), () => ({
-  useEnvironmentQuery: (() => ({ data: state.data, isPending: false, error: null })) as never,
+  useEnvironmentQuery: ((atom: unknown) => ({
+    data: atom === "push" ? null : state.data,
+    isPending: false,
+    error: null,
+  })) as never,
 }));
 vi.mock(import("../../state/use-atom-command"), () => ({
   useAtomCommand: (() => vi.fn()) as never,
@@ -13,7 +17,12 @@ vi.mock(import("../../state/use-atom-command"), () => ({
 vi.mock(import("../../state/t3po"), async () => {
   const { Atom } = await import("effect/reactivity");
   return {
-    t3po: { snapshot: () => undefined, mutate: { permissionAtom: () => Atom.make(true) } } as never,
+    t3po: {
+      snapshot: () => undefined,
+      mutate: { permissionAtom: () => Atom.make(true) },
+      push: () => "push",
+      pushChange: { permissionAtom: () => Atom.make(true) },
+    } as never,
   };
 });
 const projectId = ProjectId.make("project");

@@ -81,5 +81,6 @@ export * from "./privacySources.ts";
 
 export * from "./t3poArtifacts.ts";
 export * from "./t3poAttention.ts";
+export * from "./t3poPush.ts";
 
 export * from "./t3poMemory.ts";

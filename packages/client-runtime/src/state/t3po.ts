@@ -99,5 +99,13 @@ export function createT3poAtoms<R, E>(
       label: "t3po:launch",
       tag: WS_METHODS.t3poLaunch,
     }),
+    push: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "t3po:push",
+      tag: WS_METHODS.t3poPush,
+    }),
+    pushChange: createEnvironmentRpcCommand(runtime, {
+      label: "t3po:pushChange",
+      tag: WS_METHODS.t3poPushChange,
+    }),
   };
 }
