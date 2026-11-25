@@ -22,8 +22,8 @@ import * as HttpClientRequest from "effect/http/HttpClientRequest";
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 
 const VAPID_SECRET = "t3po-push-vapid-key";
-// Apple rejects VAPID tokens without a mailto: or https: subject.
-const VAPID_SUBJECT = "mailto:push@t3po.invalid";
+// Apple rejects VAPID tokens without a mailto: or https: subject; push services contact this page.
+const VAPID_SUBJECT = "https://t3po.ro.computer";
 const RECORD_SIZE = 4096;
 
 const b64u = (bytes: Uint8Array) => Buffer.from(bytes).toString("base64url");

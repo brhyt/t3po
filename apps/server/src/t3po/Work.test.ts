@@ -407,7 +407,7 @@ it.effect("saves notes for the calling chat and hands them to the jobs it routes
       ).toBe("invalid");
     const job = yield* reserve(caller, input, model);
     const context = JSON.parse(
-      yield* store.context(projectId, ThreadId.make(`t3po-task:${job.jobId}`)),
+      (yield* store.context(projectId, ThreadId.make(`t3po-task:${job.jobId}`))).context,
     );
     expect(context.routingNotes).toBe("Preference: report p99, not averages.");
     expect(context.notes).toBeUndefined();

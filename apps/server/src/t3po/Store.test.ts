@@ -1092,14 +1092,14 @@ it.effect("keeps capped, revisioned notes per conversation and journals each rev
     expect(journal[2]!.text).toContain("channel #Research");
 
     const context = JSON.parse(
-      yield* store.context(projectId, ThreadId.make(`t3po-lead:${projectId}`)),
+      (yield* store.context(projectId, ThreadId.make(`t3po-lead:${projectId}`))).context,
     );
     expect(context.notes).toMatchObject({ text: "Decisions: use Postgres", updatedBy: "lead" });
     expect(
       context.memory.recentRecords.map((record: { kind: string }) => record.kind),
     ).not.toContain("conversation_notes");
     const channelContext = JSON.parse(
-      yield* store.context(projectId, ThreadId.make("t3po-channel:research")),
+      (yield* store.context(projectId, ThreadId.make("t3po-channel:research"))).context,
     );
     expect(channelContext.notes.text).toBe("Open question: which region?");
 
