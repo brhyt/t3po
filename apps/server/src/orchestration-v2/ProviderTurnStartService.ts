@@ -985,6 +985,7 @@ export const layer: Layer.Layer<
         t3poContext.context !== "" && !nativeResume && isT3poLeadConversation(input.threadId)
           ? (yield* T3poProjectIcon.leadIconRequest(
               projection.thread.projectId,
+              input.runId,
               t3poStore,
               projects,
             )).trim()

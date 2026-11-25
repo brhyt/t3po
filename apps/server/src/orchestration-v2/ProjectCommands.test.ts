@@ -139,6 +139,30 @@ describe("planProjectCommand", () => {
     );
   });
 
+  it("never lets a drawn icon replace one the user chose meanwhile", () => {
+    const drawn = (project: ReturnType<typeof row>) =>
+      plan(
+        {
+          type: "project.meta.update",
+          commandId: CommandId.make("cmd-drawn"),
+          projectId,
+          projectIcon: { kind: "generated", svg: '<svg viewBox="0 0 16 16"><circle r="4"/></svg>' },
+        },
+        { project },
+      );
+    for (const chosen of [
+      row({ projectIcon: { kind: "emoji", emoji: "🌱" } }),
+      row({ faviconPath: "/tmp/project/favicon.svg" }),
+    ])
+      assert.equal(failureOf(drawn(chosen))._tag, "ProjectCommandInvariantError");
+    // Redrawing over the lead's own earlier icon is allowed.
+    const earlier = row({ projectIcon: { kind: "generated", svg: "<svg/>" } });
+    assert.deepEqual(payloadOf(drawn(earlier)).projectIcon, {
+      kind: "generated",
+      svg: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><circle r="4"/></svg>',
+    });
+  });
+
   it("rejects a workspace root held by another active project", () => {
     const owner = row({
       projectId: ProjectId.make("project-existing"),

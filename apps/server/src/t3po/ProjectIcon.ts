@@ -4,6 +4,7 @@ import {
   CommandId,
   ProjectId,
   type Project,
+  type RunId,
   type T3poProjectIconResult,
   type ThreadId,
 } from "@t3tools/contracts";
@@ -40,12 +41,15 @@ const leadMayDrawIcon = (project: Pick<Project, "projectIcon" | "faviconPath">) 
 export const leadIconRequest = Effect.fn("T3poProjectIcon.leadIconRequest")(
   function* (
     projectId: ProjectId,
+    runId: RunId,
     store: Store.Store["Service"],
     projects: ProjectService.ProjectService["Service"],
   ) {
     const project = yield* projects.getById(projectId);
     if (Option.isNone(project) || !leadMayDrawIcon(project.value)) return "";
-    return (yield* store.requestProjectIcon(projectId)) ? `${projectIconInstructions}\n\n` : "";
+    return (yield* store.requestProjectIcon(projectId, runId))
+      ? `${projectIconInstructions}\n\n`
+      : "";
   },
   Effect.catch((cause) =>
     Effect.logWarning("T3PO project icon request failed", { cause }).pipe(Effect.as("")),
@@ -90,15 +94,29 @@ const make = Effect.gen(function* () {
         return yield* refuse("This project already shows its own favicon. No icon is needed.");
       const sanitized = sanitizeProjectIconSvg(svg);
       if (!sanitized.ok) return yield* refuse(`The SVG was rejected: ${sanitized.reason}`);
-      yield* projects.update({
-        commandId: CommandId.make(
-          `t3po-project-icon:${NodeCrypto.createHash("sha256")
-            .update(`${projectId}\0${project.updatedAt}\0${sanitized.svg}`)
-            .digest("hex")}`,
-        ),
-        projectId,
-        projectIcon: { kind: "generated", svg: sanitized.svg },
-      });
+      yield* projects
+        .update({
+          commandId: CommandId.make(
+            `t3po-project-icon:${NodeCrypto.createHash("sha256")
+              .update(`${projectId}\0${project.updatedAt}\0${sanitized.svg}`)
+              .digest("hex")}`,
+          ),
+          projectId,
+          projectIcon: { kind: "generated", svg: sanitized.svg },
+        })
+        .pipe(
+          // The command refuses a drawn icon if the user picked one after the check above.
+          Effect.catch((cause) =>
+            Effect.gen(function* () {
+              const latest = yield* projects
+                .getById(projectId)
+                .pipe(Effect.orElseSucceed(() => Option.none<Project>()));
+              if (Option.isSome(latest) && !leadMayDrawIcon(latest.value))
+                return yield* refuse("The user just chose this project's icon. Leave it as it is.");
+              return yield* cause;
+            }),
+          ),
+        );
       return { projectId };
     },
     Effect.tapError((cause) =>

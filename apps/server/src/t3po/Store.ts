@@ -169,7 +169,10 @@ export class Store extends Context.Service<
     readonly controlMemory: (input: T3poMemoryControl) => Effect.Effect<void, T3poError>;
     readonly mutate: (input: T3poMutation, reviewedRunId?: RunId) => Effect.Effect<void, T3poError>;
     /** Marks the lead as asked to draw the project icon; true only for the call that marked it. */
-    readonly requestProjectIcon: (projectId: ProjectId) => Effect.Effect<boolean, T3poError>;
+    readonly requestProjectIcon: (
+      projectId: ProjectId,
+      runId: RunId,
+    ) => Effect.Effect<boolean, T3poError>;
     readonly reserveLaunch: (
       taskId: string,
       projectId: ProjectId,
@@ -711,7 +714,11 @@ const make = Effect.gen(function* () {
           data: string;
         }>`SELECT data FROM t3po_leads WHERE project_id = ${input.projectId}`;
         if (!rows[0]) return yield* new T3poError({ operation: "invalid" });
-        const { iconRequested: _previous, ...lead } = yield* decodeT3poLeadJson(rows[0].data);
+        const {
+          iconRequested: _previous,
+          iconRequestRunId: _previousRun,
+          ...lead
+        } = yield* decodeT3poLeadJson(rows[0].data);
         yield* sql`UPDATE t3po_leads SET data = ${yield* encodeT3poLeadJson(lead)} WHERE project_id = ${input.projectId}`;
       } else if (input.type === "save_work_access") {
         const rows = yield* sql<{
@@ -750,6 +757,7 @@ const make = Effect.gen(function* () {
           ...(prior?.workModel ? { workModel: prior.workModel } : {}),
           ...(prior?.workAccess ? { workAccess: prior.workAccess } : {}),
           ...(prior?.iconRequested ? { iconRequested: true } : {}),
+          ...(prior?.iconRequestRunId ? { iconRequestRunId: prior.iconRequestRunId } : {}),
         };
         yield* sql`INSERT INTO t3po_leads (project_id, data) VALUES (${input.projectId}, ${yield* encodeT3poLeadJson(data)}) ON CONFLICT(project_id) DO UPDATE SET data = excluded.data`;
       } else if (input.type === "create_channel") {
@@ -1199,10 +1207,17 @@ const make = Effect.gen(function* () {
     getTaskProject,
     mutate,
     requestProjectIcon: Effect.fn("T3poStore.requestProjectIcon")(
-      function* (projectId: ProjectId) {
+      function* (projectId: ProjectId, runId: RunId) {
+        // Asked once, unless the run that carried the request never reached its provider.
         const marked = yield* sql<{
           projectId: string;
-        }>`UPDATE t3po_leads SET data = json_set(data, '$.iconRequested', json('true')) WHERE project_id = ${projectId} AND COALESCE(json_extract(data, '$.iconRequested'), 0) = 0 RETURNING project_id AS projectId`;
+        }>`UPDATE t3po_leads SET data = json_set(data, '$.iconRequested', json('true'), '$.iconRequestRunId', ${runId})
+          WHERE project_id = ${projectId} AND (
+            COALESCE(json_extract(data, '$.iconRequested'), 0) = 0
+            OR (json_extract(data, '$.iconRequestRunId') IS NOT NULL AND (
+              json_extract(data, '$.iconRequestRunId') = ${runId}
+              OR NOT EXISTS (SELECT 1 FROM orchestration_v2_projection_run_attempts a JOIN orchestration_v2_projection_runs r ON r.run_id = a.run_id WHERE a.run_id = json_extract(t3po_leads.data, '$.iconRequestRunId') AND a.provider_turn_id IS NOT NULL AND r.status != 'rolled_back')))
+          ) RETURNING project_id AS projectId`;
         return marked.length > 0;
       },
       Effect.mapError((cause) => new T3poError({ operation: "save", cause })),

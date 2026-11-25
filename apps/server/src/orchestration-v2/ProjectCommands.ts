@@ -181,6 +181,12 @@ export function planProjectCommand(input: {
       }
       let projectIcon = command.projectIcon;
       if (projectIcon?.kind === "generated") {
+        // Commands apply in order, so this closes the gap after a lead checked for a user icon.
+        if (
+          (project.projectIcon != null && project.projectIcon.kind !== "generated") ||
+          project.faviconPath != null
+        )
+          return invariant("A drawn project icon never replaces the user's icon or favicon.");
         const sanitized = sanitizeProjectIconSvg(projectIcon.svg);
         if (!sanitized.ok) return invariant(`Project icon SVG rejected: ${sanitized.reason}`);
         projectIcon = { kind: "generated", svg: sanitized.svg };

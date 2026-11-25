@@ -64,6 +64,8 @@ export const T3poLead = Schema.Struct({
   workAccess: Schema.optional(RuntimeMode),
   /** The lead was asked to draw the project's icon; cleared to ask again. */
   iconRequested: Schema.optional(Schema.Boolean),
+  /** The run whose prompt carried the icon request; re-asked if it never reached the provider. */
+  iconRequestRunId: Schema.optional(RunId),
 });
 export type T3poLead = typeof T3poLead.Type;
 export const T3poChannel = Schema.Struct({

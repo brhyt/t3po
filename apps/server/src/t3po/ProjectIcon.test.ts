@@ -1,7 +1,8 @@
 import { expect, it } from "@effect/vitest";
-import { ProjectId, ThreadId, type Project } from "@t3tools/contracts";
+import { ProjectId, RunId, ThreadId, type Project } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as SqlClient from "effect/sql/SqlClient";
 
 import * as Sqlite from "../persistence/Sqlite.ts";
 import * as ProjectFaviconResolver from "../project/ProjectFaviconResolver.ts";
@@ -103,17 +104,30 @@ it.effect("asks the lead once, again after a redraw, and never over a user's ico
   return Effect.gen(function* () {
     const { store } = yield* setup;
     const projects = yield* ProjectService.ProjectService;
-    const request = ProjectIcon.leadIconRequest(projectId, store, projects);
-    expect(yield* request).toContain("t3_project_icon_set");
-    expect(yield* request).toBe("");
+    const sql = yield* SqlClient.SqlClient;
+    const request = (run: string) =>
+      ProjectIcon.leadIconRequest(projectId, RunId.make(run), store, projects);
+    // The run's prompt, carrying the request, reached its provider.
+    const reached = (run: string) =>
+      sql`INSERT INTO orchestration_v2_projection_runs (run_id, thread_id, ordinal, provider, status, requested_at, payload_json) VALUES (${run}, 'lead', ${Number(run.split("-")[1])}, 'codex', 'completed', 'now', '{}')`.pipe(
+        Effect.andThen(
+          sql`INSERT INTO orchestration_v2_projection_run_attempts (attempt_id, thread_id, run_id, attempt_ordinal, root_node_id, provider, provider_instance_id, provider_thread_id, provider_turn_id, status, payload_json) VALUES (${`${run}:attempt`}, 'lead', ${run}, 1, 'root', 'codex', 'codex', 'provider-thread', 'provider-turn', 'completed', '{}')`,
+        ),
+      );
+    expect(yield* request("run-1")).toContain("t3_project_icon_set");
+    // That turn failed before reaching its provider, so the next one asks again.
+    expect(yield* request("run-2")).toContain("t3_project_icon_set");
+    yield* reached("run-2");
+    expect(yield* request("run-3")).toBe("");
     // Renaming the lead keeps the request it already made.
     yield* store.mutate({ type: "save_lead", projectId, name: "Renamed", brief: "" });
-    expect(yield* request).toBe("");
+    expect(yield* request("run-4")).toBe("");
     state.project = { ...state.project, projectIcon: drawn };
     yield* store.mutate({ type: "redraw_project_icon", projectId });
-    expect(yield* request).toContain("t3_project_icon_set");
+    expect(yield* request("run-5")).toContain("t3_project_icon_set");
+    yield* reached("run-5");
     state.project = { ...state.project, projectIcon: { kind: "emoji", emoji: "🌱" } };
     yield* store.mutate({ type: "redraw_project_icon", projectId });
-    expect(yield* request).toBe("");
+    expect(yield* request("run-6")).toBe("");
   }).pipe(Effect.provide(layer));
 });
