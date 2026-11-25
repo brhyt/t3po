@@ -162,6 +162,7 @@ const make = Effect.gen(function* () {
           input.type === "save_work_model" ||
           input.type === "save_work_access" ||
           input.type === "save_notes" ||
+          input.type === "redraw_project_icon" ||
           input.type.endsWith("channel"),
       });
     },

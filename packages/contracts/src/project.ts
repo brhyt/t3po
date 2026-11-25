@@ -95,6 +95,11 @@ const ProjectMonogramIcon = Schema.Struct({
   text: ProjectMonogramText,
   color: ProjectIconColor,
 });
+/** An icon the project's lead drew. The server sanitizes it; clients render it only through <img>. */
+const ProjectGeneratedIcon = Schema.Struct({
+  kind: Schema.Literal("generated"),
+  svg: TrimmedNonEmptyString.check(Schema.isMaxLength(8192)),
+});
 export const ProjectFaviconPath = TrimmedNonEmptyString.check(
   Schema.isMaxLength(1024),
   Schema.isPattern(/\.(?:avif|gif|icns|ico|jpe?g|png|svg|webp)$/i),
@@ -105,6 +110,7 @@ export const ProjectIconOverride = Schema.Union([
   ProjectLucideIcon,
   ProjectEmojiIcon,
   ProjectMonogramIcon,
+  ProjectGeneratedIcon,
 ]);
 export type ProjectIconOverride = typeof ProjectIconOverride.Type;
 
@@ -117,6 +123,7 @@ const projectIconMembers = [
   ProjectLucideIconWithLegacyMonogram,
   ProjectEmojiIcon,
   ProjectMonogramIcon,
+  ProjectGeneratedIcon,
 ] as const;
 type ProjectIconMember = (typeof projectIconMembers)[number]["Type"];
 

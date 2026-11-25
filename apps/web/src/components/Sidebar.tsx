@@ -131,7 +131,8 @@ import {
 } from "../hooks/useThreadActions";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { useOrderWhileOpen } from "../hooks/useOrderWhileOpen";
-import { useProjectPin } from "../hooks/useProjectGroupUpdate";
+import { useProjectGroupUpdate, useProjectPin } from "../hooks/useProjectGroupUpdate";
+import { useProjectIconRedraw } from "../hooks/useProjectIconRedraw";
 import { useSidebarProjectGroups } from "../hooks/useSidebarProjectGroups";
 import { isCommandPaletteOpen, openCommandPalette } from "../commandPaletteBus";
 import { registerSettleAndAdvance } from "../settleAndAdvance";
@@ -1244,6 +1245,8 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     setProjectGroupPinned,
     toggleProjectGroupPin,
   } = useProjectPin();
+  const { updateProjectGroup } = useProjectGroupUpdate();
+  const redrawProjectIcon = useProjectIconRedraw();
   const handleProjectSettings = useStableCallback(
     (
       event: ReactMouseEvent<HTMLElement> | ReactKeyboardEvent<HTMLInputElement>,
@@ -1281,6 +1284,12 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                       : { id: "pin", label: gt("Pin project"), icon: "pin" },
                   ]
                 : []),
+              ...(group.memberProjects.some((member) => member.projectIcon?.kind === "generated")
+                ? [
+                    { id: "redraw-icon", label: gt("Redraw icon") },
+                    { id: "remove-icon", label: gt("Remove icon") },
+                  ]
+                : []),
               { id: "project-settings", label: gt("Project settings"), icon: "settings" },
             ],
             position,
@@ -1298,6 +1307,16 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
           case "pin":
           case "unpin":
             setProjectGroupPinned(group, clicked.value === "pin");
+            return;
+          case "redraw-icon":
+            void redrawProjectIcon(group.memberProjects);
+            return;
+          case "remove-icon":
+            void updateProjectGroup(
+              group.memberProjects.filter((member) => member.projectIcon?.kind === "generated"),
+              { projectIcon: null },
+              gt("Failed to update project icon"),
+            );
             return;
           case "project-settings":
             openProjectSettings(group);

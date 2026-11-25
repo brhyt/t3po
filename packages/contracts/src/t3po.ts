@@ -62,6 +62,8 @@ export const T3poLead = Schema.Struct({
   workModel: Schema.optional(ModelSelection),
   /** Most permissive mode jobs, and agents a lead or job starts, may run in. Unset: T3PO_DEFAULT_WORK_ACCESS. */
   workAccess: Schema.optional(RuntimeMode),
+  /** The lead was asked to draw the project's icon; cleared to ask again. */
+  iconRequested: Schema.optional(Schema.Boolean),
 });
 export type T3poLead = typeof T3poLead.Type;
 export const T3poChannel = Schema.Struct({
@@ -129,6 +131,12 @@ export const T3poWorkReceipt = Schema.Struct({
   reason: Schema.String,
 });
 export type T3poWorkReceipt = typeof T3poWorkReceipt.Type;
+export const T3poProjectIconInput = Schema.Struct({
+  svg: TrimmedNonEmptyString.check(Schema.isMaxLength(8192)),
+});
+export type T3poProjectIconInput = typeof T3poProjectIconInput.Type;
+export const T3poProjectIconResult = Schema.Struct({ projectId: ProjectId });
+export type T3poProjectIconResult = typeof T3poProjectIconResult.Type;
 const TaskIntentFields = {
   origin: Schema.optional(Schema.Struct({ threadId: ThreadId, messageId: MessageId })),
   desiredOutcome: Schema.optional(TrimmedNonEmptyString.check(Schema.isMaxLength(12000))),
@@ -402,6 +410,8 @@ export const T3poMutation = Schema.Union([
     projectId: ProjectId,
     runtimeMode: RuntimeMode,
   }),
+  /** Asks the lead to draw a new project icon on its next turn. */
+  Schema.Struct({ type: Schema.Literal("redraw_project_icon"), projectId: ProjectId }),
   Schema.Struct({
     type: Schema.Literal("save_lead"),
     projectId: ProjectId,

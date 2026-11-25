@@ -303,6 +303,51 @@ describe("sidebar thread menu", () => {
   });
 });
 
+describe("sidebar project folder", () => {
+  it("shows the icon a lead drew, with ways to redraw or remove it", async () => {
+    using stack = new DisposableStack();
+    const previousSettings = getClientSettings();
+    stack.defer(() => __setClientSettingsForTests(previousSettings));
+    __setClientSettingsForTests({ ...DEFAULT_CLIENT_SETTINGS, boringSidebarEnabled: true });
+    const svg =
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><circle cx="8" cy="8" r="7" fill="#0ea5e9"/></svg>';
+    const studio = { ...project("brhyt-studio"), projectIcon: { kind: "generated", svg } as const };
+    const thread = threadShell(studio.id, 0);
+    const show = vi.fn().mockResolvedValue(null);
+    vi.mocked(readLocalApi).mockReturnValue({ contextMenu: { show } } as unknown as LocalApi);
+    vi.mocked(useProjects).mockReturnValue([studio]);
+    vi.mocked(useQuietThreadShells).mockReturnValue([thread]);
+    vi.mocked(useThreadRouteTarget).mockReturnValue(null);
+    vi.mocked(useHandleNewThread).mockReturnValue({
+      activeDraftThread: null,
+      activeThread: null,
+      defaultProjectRef: { environmentId: studio.environmentId, projectId: studio.id },
+      defaultProjectFallbackReady: true,
+      handleNewThread: vi.fn().mockResolvedValue(null),
+      routeDraftId: null,
+      routeThreadRef: null,
+    });
+    await using screen = await render(
+      <SidebarProvider>
+        <Sidebar routeReveal={{ observedKey: null, pendingKey: null }} />
+      </SidebarProvider>,
+    );
+    const folder = screen.getByTestId("sidebar-project-folder").getByRole("button").first();
+    await expect.element(folder).toHaveTextContent("brhyt-studio");
+    const icon = folder.element().querySelector("img");
+    expect(icon?.getAttribute("src")).toBe(
+      `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`,
+    );
+    await vi.waitFor(() => expect(icon?.naturalWidth).toBeGreaterThan(0));
+    expect(folder.element().textContent).not.toContain("BS");
+    await userEvent.click(folder, { button: "right" });
+    await vi.waitFor(() => expect(show).toHaveBeenCalledTimes(1));
+    expect(show.mock.lastCall?.[0].map((item: { id: string }) => item.id)).toEqual(
+      expect.arrayContaining(["redraw-icon", "remove-icon"]),
+    );
+  });
+});
+
 describe("sidebar settled pagination", () => {
   it("keeps the viewport in place when showing more settled threads", async () => {
     using stack = new DisposableStack();

@@ -36,6 +36,16 @@ describe("resolveProjectChipIcon", () => {
         favicon,
       ),
     ).toEqual({ kind: "monogram", text: "LP", color: "emerald" });
+    expect(
+      resolveProjectChipIcon(
+        project("drawn", { kind: "generated", svg: '<svg viewBox="0 0 1 1"/>' }),
+        null,
+        favicon,
+      ),
+    ).toEqual({
+      kind: "favicon",
+      uri: "data:image/svg+xml;charset=utf-8,%3Csvg%20viewBox%3D%220%200%201%201%22%2F%3E",
+    });
   });
 
   it("uses the favicon, then a monogram of the title", () => {

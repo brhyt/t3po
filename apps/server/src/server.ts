@@ -3,6 +3,7 @@ import * as TurnItemPositionStore from "./orchestration-v2/TurnItemPositionStore
 import * as ExternalActionService from "./t3po/ExternalActionService.ts";
 import * as SpacePolicy from "./t3po/SpacePolicy.ts";
 import * as T3poSchedules from "./t3po/Schedules.ts";
+import * as T3poProjectIcon from "./t3po/ProjectIcon.ts";
 import * as T3poWork from "./t3po/Work.ts";
 import * as T3poWorkRunner from "./t3po/WorkRunner.ts";
 import * as T3poPush from "./t3po/Push.ts";
@@ -753,6 +754,7 @@ const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
     ),
     Layer.effectDiscard(T3poPush.run.pipe(Effect.forkScoped)),
   ),
+  T3poProjectIcon.layer.pipe(Layer.provide(RuntimeLayer.layerProjectService)),
   ProviderUsageLimitsIngestion.layer,
   layerProviderInstallationRefresh,
   ProviderInstallation.layer,

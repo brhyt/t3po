@@ -10,6 +10,7 @@ import {
   getProjectFaviconResourceKey,
   isProjectFaviconFallbackUrl,
 } from "@t3tools/shared/projectFavicon";
+import { projectIconSvgDataUrl } from "@t3tools/shared/projectIconSvg";
 import { useAtomValue } from "@effect/atom-react";
 import { Atom } from "effect/reactivity";
 import { useAppearancePreferences } from "../features/settings/appearance/AppearancePreferencesProvider";
@@ -46,8 +47,10 @@ export const ProjectFavicon = memo(function ProjectFavicon(props: {
   const size = props.size ?? 42;
   const symbol = resolveProjectIconSymbol(props.projectIcon);
   const glyph = resolveProjectIconGlyph(props.projectIcon, props.projectTitle);
+  const generatedUrl =
+    props.projectIcon?.kind === "generated" ? projectIconSvgDataUrl(props.projectIcon.svg) : null;
   const faviconUrl = useAtomValue(
-    props.workspaceRoot == null || glyph !== null
+    props.workspaceRoot == null || glyph !== null || generatedUrl !== null
       ? EMPTY_FAVICON_URL
       : projectFaviconUrlAtom({
           environmentId: props.environmentId,
@@ -55,14 +58,25 @@ export const ProjectFavicon = memo(function ProjectFavicon(props: {
           faviconPath: props.faviconPath,
         }),
   );
-  const renderableFaviconUrl = isProjectFaviconFallbackUrl(faviconUrl) ? null : faviconUrl;
+  const renderableFaviconUrl =
+    generatedUrl ?? (isProjectFaviconFallbackUrl(faviconUrl) ? null : faviconUrl);
   // Key remote images by revision so token rotation reuses the cache while changed icons reload.
   const cacheKey =
-    renderableFaviconUrl && props.workspaceRoot
-      ? renderableFaviconUrl.startsWith("data:")
-        ? getProjectFaviconResourceKey(props.environmentId, props.workspaceRoot, props.faviconPath)
-        : getProjectFaviconCacheKey(props.environmentId, props.workspaceRoot, renderableFaviconUrl)
-      : null;
+    generatedUrl !== null
+      ? getProjectFaviconResourceKey(props.environmentId, props.workspaceRoot ?? "", "generated")
+      : renderableFaviconUrl && props.workspaceRoot
+        ? renderableFaviconUrl.startsWith("data:")
+          ? getProjectFaviconResourceKey(
+              props.environmentId,
+              props.workspaceRoot,
+              props.faviconPath,
+            )
+          : getProjectFaviconCacheKey(
+              props.environmentId,
+              props.workspaceRoot,
+              renderableFaviconUrl,
+            )
+        : null;
 
   if (symbol !== null) {
     return (

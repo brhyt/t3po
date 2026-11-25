@@ -1,6 +1,9 @@
+import * as T3poProjectIcon from "../../../t3po/ProjectIcon.ts";
 import * as T3poSchedules from "../../../t3po/Schedules.ts";
 import * as T3poWork from "../../../t3po/Work.ts";
 import {
+  T3poProjectIconInput,
+  T3poProjectIconResult,
   T3poScheduleRequest,
   T3poScheduleResult,
   T3poWorkRoute,
@@ -104,6 +107,20 @@ const NotesUpdateTool = Tool.make("t3_notes_update", {
   dependencies: [...dependencies, T3poWork.Work],
 })
   .annotate(Tool.Title, "Update conversation notes")
+  .annotate(Tool.Destructive, false)
+  .annotate(Tool.Idempotent, true)
+  .annotate(McpSchema.EnabledWhen, McpInvocationContext.hiddenFromOutsideClients);
+
+const ProjectIconTool = Tool.make("t3_project_icon_set", {
+  description:
+    "T3PO leads: set this project's sidebar icon from an SVG you write, only when asked to draw one. Never replaces the user's icon or favicon. A simple, distinctive mark of the project's subject, not initials: viewBox 0 0 16 16, one bold shape on a filled rounded tile, two or three solid colors, legible at 14px on light and dark. Plain shapes only: no text, scripts, styles, images, links or external url(). Max 8 KB.",
+  parameters: T3poProjectIconInput,
+  success: T3poProjectIconResult,
+  failure: OrchestratorMcpFailure,
+  failureMode: "return",
+  dependencies: [...dependencies, T3poProjectIcon.ProjectIcon],
+})
+  .annotate(Tool.Title, "Set project icon")
   .annotate(Tool.Destructive, false)
   .annotate(Tool.Idempotent, true)
   .annotate(McpSchema.EnabledWhen, McpInvocationContext.hiddenFromOutsideClients);
@@ -415,6 +432,7 @@ export const OrchestratorToolkit = Toolkit.make(
   WorkRouteTool,
   NotesUpdateTool,
   WorkScheduleTool,
+  ProjectIconTool,
   OrchestratorCapabilitiesTool,
   DelegateTaskTool,
   TaskStatusTool,

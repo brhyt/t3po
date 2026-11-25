@@ -1,4 +1,5 @@
 import * as T3poSchedules from "../../../t3po/Schedules.ts";
+import * as T3poProjectIcon from "../../../t3po/ProjectIcon.ts";
 import * as T3poWork from "../../../t3po/Work.ts";
 import { OrchestratorMcpFailure } from "@t3tools/contracts";
 import { OrchestratorToolkit } from "./tools.ts";
@@ -85,6 +86,21 @@ const handlers = {
           Effect.mapError(
             (error) =>
               new OrchestratorMcpFailure({ code: "invalid_request", message: error.message }),
+          ),
+        );
+    }),
+  ),
+  t3_project_icon_set: McpToolAccess.actsAsCaller((input) =>
+    Effect.gen(function* () {
+      const scope = yield* McpInvocationContext.McpInvocationContext;
+      const caller = yield* McpInvocationContext.requireThreadScope(scope, "t3_project_icon_set");
+      const service = yield* T3poProjectIcon.ProjectIcon;
+      return yield* service
+        .set(caller.thread.threadId, input.svg)
+        .pipe(
+          Effect.mapError(
+            (error) =>
+              new OrchestratorMcpFailure({ code: "invalid_request", message: error.reason }),
           ),
         );
     }),
