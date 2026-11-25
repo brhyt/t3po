@@ -112,6 +112,33 @@ describe("planProjectCommand", () => {
     assert.notProperty(untouched, "archivedAt");
   });
 
+  it("stores generated icons only as sanitized SVG", () => {
+    const update = (svg: string) =>
+      plan(
+        {
+          type: "project.meta.update",
+          commandId: CommandId.make("cmd-icon"),
+          projectId,
+          projectIcon: { kind: "generated", svg },
+        },
+        { project: row() },
+      );
+    assert.deepEqual(
+      payloadOf(update('<svg viewBox="0 0 16 16"><rect width="16" height="16"/></svg>'))
+        .projectIcon,
+      {
+        kind: "generated",
+        svg: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><rect width="16" height="16"/></svg>',
+      },
+    );
+    assert.equal(
+      failureOf(
+        update('<svg viewBox="0 0 16 16"><rect width="16" height="16" onload="alert(1)"/></svg>'),
+      )._tag,
+      "ProjectCommandInvariantError",
+    );
+  });
+
   it("rejects a workspace root held by another active project", () => {
     const owner = row({
       projectId: ProjectId.make("project-existing"),

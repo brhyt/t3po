@@ -115,6 +115,8 @@ export class Store extends Context.Service<
     readonly getTaskProject: (threadId: ThreadId) => Effect.Effect<ProjectId | null, T3poError>;
     readonly controlMemory: (input: T3poMemoryControl) => Effect.Effect<void, T3poError>;
     readonly mutate: (input: T3poMutation, reviewedRunId?: RunId) => Effect.Effect<void, T3poError>;
+    /** Marks the lead as asked to draw the project icon; true only for the call that marked it. */
+    readonly requestProjectIcon: (projectId: ProjectId) => Effect.Effect<boolean, T3poError>;
     readonly reserveLaunch: (
       taskId: string,
       projectId: ProjectId,
@@ -599,6 +601,13 @@ const make = Effect.gen(function* () {
       } else if (input.type === "save_budget") {
         // max_runs is no longer enforced; only how many jobs run at once is.
         yield* sql`INSERT INTO t3po_budgets (project_id, max_runs, max_concurrent) VALUES (${input.projectId}, 0, ${input.maxConcurrent}) ON CONFLICT(project_id) DO UPDATE SET max_concurrent = excluded.max_concurrent`;
+      } else if (input.type === "redraw_project_icon") {
+        const rows = yield* sql<{
+          data: string;
+        }>`SELECT data FROM t3po_leads WHERE project_id = ${input.projectId}`;
+        if (!rows[0]) return yield* new T3poError({ operation: "invalid" });
+        const { iconRequested: _previous, ...lead } = yield* decodeT3poLeadJson(rows[0].data);
+        yield* sql`UPDATE t3po_leads SET data = ${yield* encodeT3poLeadJson(lead)} WHERE project_id = ${input.projectId}`;
       } else if (input.type === "save_work_access") {
         const rows = yield* sql<{
           data: string;
@@ -635,6 +644,7 @@ const make = Effect.gen(function* () {
           ...(input.name === undefined ? { autoName: true } : {}),
           ...(prior?.workModel ? { workModel: prior.workModel } : {}),
           ...(prior?.workAccess ? { workAccess: prior.workAccess } : {}),
+          ...(prior?.iconRequested ? { iconRequested: true } : {}),
         };
         yield* sql`INSERT INTO t3po_leads (project_id, data) VALUES (${input.projectId}, ${yield* encodeT3poLeadJson(data)}) ON CONFLICT(project_id) DO UPDATE SET data = excluded.data`;
       } else if (input.type === "create_channel") {
@@ -1006,6 +1016,15 @@ const make = Effect.gen(function* () {
     getTask,
     getTaskProject,
     mutate,
+    requestProjectIcon: Effect.fn("T3poStore.requestProjectIcon")(
+      function* (projectId: ProjectId) {
+        const marked = yield* sql<{
+          projectId: string;
+        }>`UPDATE t3po_leads SET data = json_set(data, '$.iconRequested', json('true')) WHERE project_id = ${projectId} AND COALESCE(json_extract(data, '$.iconRequested'), 0) = 0 RETURNING project_id AS projectId`;
+        return marked.length > 0;
+      },
+      Effect.mapError((cause) => new T3poError({ operation: "save", cause })),
+    ),
     reserveLaunch,
     context,
   });

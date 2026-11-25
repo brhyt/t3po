@@ -1,6 +1,7 @@
 import { isScratchProject } from "@t3tools/client-runtime/state/projects";
 import { ProjectIconColor, type ProjectIconOverride } from "@t3tools/contracts";
 import { isProjectFaviconFallbackUrl } from "@t3tools/shared/projectFavicon";
+import { projectIconSvgDataUrl } from "@t3tools/shared/projectIconSvg";
 import type { AppSymbolName } from "../components/ui/AppSymbol";
 
 export type ProjectIconGlyph =
@@ -59,6 +60,7 @@ export function resolveProjectIconGlyph(
       return { kind: "monogram", text: projectIcon.text, color: projectIcon.color };
     case "lucide":
       return { kind: "monogram", text: projectMonogram(projectTitle), color: projectIcon.color };
+    case "generated":
     case undefined:
       return null;
   }
@@ -88,6 +90,8 @@ export function resolveProjectChipIcon(
   faviconUrl: () => string | null,
 ): ProjectChipIcon | null {
   if (!project || isScratchProject(project, scratchWorkspaceRoot)) return null;
+  if (project.projectIcon?.kind === "generated")
+    return { kind: "favicon", uri: projectIconSvgDataUrl(project.projectIcon.svg) };
   const glyph = resolveProjectIconGlyph(project.projectIcon, project.title);
   if (glyph) return glyph;
   const url = faviconUrl();

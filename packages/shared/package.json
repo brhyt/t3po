@@ -51,6 +51,10 @@
       "types": "./src/textDirection.ts",
       "import": "./src/textDirection.ts"
     },
+    "./projectIconSvg": {
+      "types": "./src/projectIconSvg.ts",
+      "import": "./src/projectIconSvg.ts"
+    },
     "./projectFavicon": {
       "types": "./src/projectFavicon.ts",
       "import": "./src/projectFavicon.ts"

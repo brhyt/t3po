@@ -88,12 +88,14 @@ function ProjectIconPickerBody({
   const gt = useGT();
   const m = useMessages();
   const automatic = deriveProjectIdentity(projectName);
-  const [mode, setMode] = useState<ProjectIconOverride["kind"]>(current?.kind ?? "lucide");
+  const [mode, setMode] = useState<Exclude<ProjectIconOverride["kind"], "generated">>(
+    current && current.kind !== "generated" ? current.kind : "lucide",
+  );
   const [iconName, setIconName] = useState<string>(
     current?.kind === "lucide" ? current.name : DEFAULT_ICON,
   );
   const [color, setColor] = useState<ProjectIconColor>(
-    current && current.kind !== "emoji" ? current.color : automatic.color,
+    current && "color" in current ? current.color : automatic.color,
   );
   const [letters, setLetters] = useState(
     current?.kind === "monogram" ? current.text : automatic.monogram,

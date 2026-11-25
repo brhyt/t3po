@@ -14,6 +14,7 @@ import {
   useProjectGroupUpdate,
   type ProjectGroupUpdate,
 } from "../../hooks/useProjectGroupUpdate";
+import { useProjectIconRedraw } from "../../hooks/useProjectIconRedraw";
 import { Navigate, useLocation, useNavigate } from "@tanstack/react-router";
 import { InfoIcon, Trash2Icon } from "lucide-react";
 import { lazy, Suspense, useRef, useState, type ReactNode } from "react";
@@ -302,6 +303,7 @@ function ProjectDetail({
       : undefined;
 
   const { updateProjectGroup, canOrganizeProjectGroup } = useProjectGroupUpdate();
+  const redrawProjectIcon = useProjectIconRedraw();
   const updateAllMembers = (
     input: ProjectGroupUpdate | ((member: SidebarProjectGroupMember) => ProjectGroupUpdate),
     failureTitle: string,
@@ -604,7 +606,9 @@ function ProjectDetail({
                   ? `${projectIcon.text} · ${projectIcon.color}`
                   : projectIcon?.kind === "emoji"
                     ? projectIcon.emoji
-                    : (faviconPath ?? gt("Automatic"))
+                    : projectIcon?.kind === "generated"
+                      ? gt("Drawn by the project lead")
+                      : (faviconPath ?? gt("Automatic"))
             }
             resetAction={
               group.memberProjects.some((member) => !hasDefaultProjectIcon(member)) ? (
@@ -618,6 +622,17 @@ function ProjectDetail({
             control={
               <div className="flex items-center gap-2">
                 <ProjectFavicon project={group} className="size-6" />
+                {projectIcon?.kind === "generated" ? (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    type="button"
+                    disabled={isSavingFavicon || !canEditGroup}
+                    onClick={() => void redrawProjectIcon(group.memberProjects)}
+                  >
+                    <T>Redraw</T>
+                  </Button>
+                ) : null}
                 <Button
                   size="sm"
                   variant="outline"

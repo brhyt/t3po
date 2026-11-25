@@ -3,6 +3,7 @@ import {
   getProjectFaviconResourceKey,
   isProjectFaviconFallbackUrl,
 } from "@t3tools/shared/projectFavicon";
+import { projectIconSvgDataUrl } from "@t3tools/shared/projectIconSvg";
 import { FolderCodeIcon } from "lucide-react";
 import type { ComponentType } from "react";
 import { createElement, lazy, Suspense, useState } from "react";
@@ -53,6 +54,15 @@ export function ProjectFavicon(input: {
         className={input.className}
         icon={FolderCodeIcon}
         emoji={project.projectIcon.emoji}
+      />
+    );
+  }
+  if (project.projectIcon?.kind === "generated") {
+    return (
+      <img
+        src={projectIconSvgDataUrl(project.projectIcon.svg)}
+        alt=""
+        className={cn("size-3.5 shrink-0 object-contain", input.className)}
       />
     );
   }
