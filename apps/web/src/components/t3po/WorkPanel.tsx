@@ -83,6 +83,11 @@ export function WorkPanel({
         <T>Work</T>
       </h3>
       <WorkSettings environmentId={environmentId} projectId={projectId} />
+      <PushMuteToggle
+        environmentId={environmentId}
+        projectId={projectId}
+        channelId={channelId ?? null}
+      />
       <ConversationNotes
         environmentId={environmentId}
         projectId={projectId}
@@ -278,6 +283,61 @@ function JobSupervision({
       {failed ? (
         <p role="alert" className="text-destructive">
           <T>Could not change supervision.</T>
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+function PushMuteToggle({
+  environmentId,
+  projectId,
+  channelId,
+}: {
+  environmentId: EnvironmentId;
+  projectId: ProjectId;
+  channelId: string | null;
+}) {
+  const gt = useGT();
+  const query = useEnvironmentQuery(t3po.push({ environmentId, input: {} }));
+  const change = useAtomCommand(t3po.pushChange);
+  const canChange = useAtomValue(t3po.pushChange.permissionAtom(environmentId));
+  const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState(false);
+  if (!query.data) return null;
+  const muted = query.data.mutes.some(
+    (mute) => mute.projectId === projectId && mute.channelId === channelId,
+  );
+  async function toggle(notify: boolean) {
+    setBusy(true);
+    setFailed(false);
+    try {
+      const result = await change({
+        environmentId,
+        input: { type: "mute", projectId, channelId, muted: !notify },
+      });
+      setFailed(result._tag !== "Success");
+    } catch {
+      setFailed(true);
+    }
+    setBusy(false);
+    query.refresh();
+  }
+  return (
+    <div className="text-xs text-muted-foreground">
+      <label className="flex items-center gap-2">
+        <Switch
+          size="sm"
+          checked={!muted}
+          disabled={busy || !canChange}
+          aria-label={gt("Push notifications for this work")}
+          onCheckedChange={(checked) => void toggle(Boolean(checked))}
+        />
+        <T>Notify my devices when jobs here finish or need me</T>
+      </label>
+      {failed ? (
+        <p role="alert" className="text-destructive">
+          <T>Could not change notifications.</T>
         </p>
       ) : null}
     </div>

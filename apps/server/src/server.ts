@@ -5,6 +5,7 @@ import * as SpacePolicy from "./t3po/SpacePolicy.ts";
 import * as T3poSchedules from "./t3po/Schedules.ts";
 import * as T3poWork from "./t3po/Work.ts";
 import * as T3poWorkRunner from "./t3po/WorkRunner.ts";
+import * as T3poPush from "./t3po/Push.ts";
 import * as T3poLeadNaming from "./t3po/LeadNaming.ts";
 import * as T3poService from "./t3po/Service.ts";
 import * as T3poStore from "./t3po/Store.ts";
@@ -746,8 +747,11 @@ const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
   Layer.effectDiscard(T3poWorkRunner.run.pipe(Effect.forkScoped)).pipe(
     Layer.provide(T3poService.layer),
   ),
-  Layer.effectDiscard(T3poLeadNaming.run.pipe(Effect.forkScoped)).pipe(
-    Layer.provide(T3poService.layer),
+  Layer.mergeAll(
+    Layer.effectDiscard(T3poLeadNaming.run.pipe(Effect.forkScoped)).pipe(
+      Layer.provide(T3poService.layer),
+    ),
+    Layer.effectDiscard(T3poPush.run.pipe(Effect.forkScoped)),
   ),
   ProviderUsageLimitsIngestion.layer,
   layerProviderInstallationRefresh,
@@ -756,7 +760,9 @@ const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
   Layer.effectDiscard(ProjectSettingsOverrideSweep.sweep),
 ).pipe(
   Layer.provideMerge(layerOrchestrationApplication),
-  Layer.provideMerge(T3poWork.layer.pipe(Layer.provideMerge(T3poStore.layer))),
+  Layer.provideMerge(
+    Layer.merge(T3poWork.layer.pipe(Layer.provideMerge(T3poStore.layer)), T3poPush.layer),
+  ),
   Layer.provideMerge(RuntimeLayer.layerEventInfrastructure),
   Layer.provideMerge(T3poChanges.layer),
   Layer.provideMerge(Layer.merge(ProjectStore.layer, ThreadSearch.layer)),

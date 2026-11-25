@@ -27,6 +27,7 @@ export const CLIENT_GUARDED_RPC_SCOPES = {
   [WS_METHODS.t3poMemoryCorrect]: AuthOrchestrationOperateScope,
   [WS_METHODS.t3poMutate]: AuthOrchestrationOperateScope,
   [WS_METHODS.t3poLaunch]: AuthOrchestrationOperateScope,
+  [WS_METHODS.t3poPushChange]: AuthOrchestrationOperateScope,
   [WS_METHODS.providerAuthRemoveMethod]: AuthProvidersManageScope,
   [WS_METHODS.previewClose]: AuthPreviewOperateScope,
   // Stopping a server signals its processes, as closing a terminal does.

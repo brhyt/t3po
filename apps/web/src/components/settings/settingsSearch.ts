@@ -727,6 +727,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: [msg("notification sound alert completion input approval desktop")],
   },
   {
+    id: "push-notifications",
+    title: msg("Notifications when closed"),
+    to: "/settings/general",
+    searchTerms: [msg("push notification background job finished failed approval phone device")],
+  },
+  {
     id: "in-app-notifications",
     title: msg("In-app notifications"),
     to: "/settings/general",

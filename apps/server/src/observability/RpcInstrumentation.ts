@@ -53,6 +53,8 @@ const RPC_AGGREGATES = {
   [WS_METHODS.t3poSubscribe]: "t3po",
   [WS_METHODS.t3poMutate]: "t3po",
   [WS_METHODS.t3poLaunch]: "t3po",
+  [WS_METHODS.t3poPush]: "t3po",
+  [WS_METHODS.t3poPushChange]: "t3po",
   [WS_METHODS.projectsMutate]: "orchestration",
   [WS_METHODS.serverProbe]: "server",
   [WS_METHODS.serverGetConfig]: "server",

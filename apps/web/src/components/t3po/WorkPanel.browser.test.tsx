@@ -23,7 +23,7 @@ vi.mock(import("../../state/query"), async (importOriginal) => ({
   useEnvironmentQuery: ((atom: unknown) =>
     atom === "scheduled-tasks"
       ? { data: { tasks: state.scheduled, timeZone: "UTC" }, isPending: false, error: null }
-      : { data: state.data, isPending: false, error: null }) as never,
+      : { data: atom === "push" ? null : state.data, isPending: false, error: null }) as never,
 }));
 vi.mock(import("../../state/use-atom-command"), async (importOriginal) => ({
   ...(await importOriginal()),
@@ -41,7 +41,12 @@ vi.mock(import("../../confirmDialog"), async (importOriginal) => ({
 vi.mock(import("../../state/t3po"), async () => {
   const { Atom } = await import("effect/reactivity");
   return {
-    t3po: { snapshot: () => undefined, mutate: { permissionAtom: () => Atom.make(true) } } as never,
+    t3po: {
+      snapshot: () => undefined,
+      mutate: { permissionAtom: () => Atom.make(true) },
+      push: () => "push",
+      pushChange: { permissionAtom: () => Atom.make(true) },
+    } as never,
   };
 });
 vi.mock(import("../../state/server"), async (importOriginal) => {

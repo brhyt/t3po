@@ -6,6 +6,7 @@ import * as T3poMemoryAccess from "./t3po/MemoryAccess.ts";
 import * as T3poStore from "./t3po/Store.ts";
 import * as T3poArtifacts from "./t3po/Artifacts.ts";
 import * as T3poAttention from "./t3po/Attention.ts";
+import * as T3poPush from "./t3po/Push.ts";
 import { T3poError, isT3poError } from "@t3tools/contracts";
 import * as T3poService from "./t3po/Service.ts";
 import { OrchestrationDispatchCommandError } from "@t3tools/contracts";
@@ -1510,6 +1511,8 @@ export const layerWsRpc = (
         Effect.provide(T3poArtifacts.layer.pipe(Layer.provide(T3poArtifacts.sourceLayer))),
         Effect.provideService(T3poStore.Store, t3poStore),
       );
+      const push = yield* Effect.serviceOption(T3poPush.Push);
+      const pushUnavailable = Effect.fail(new T3poError({ operation: "read" }));
       const attention = yield* T3poAttention.Attention.pipe(
         Effect.provide(T3poAttention.layer),
         Effect.provideService(T3poStore.Store, t3poStore),
@@ -3101,6 +3104,9 @@ export const layerWsRpc = (
         [WS_METHODS.t3poSnapshot]: (input) => t3po.snapshot(input),
         [WS_METHODS.t3poSubscribe]: (input) => t3po.subscribe(input),
         [WS_METHODS.t3poMutate]: (input) => t3po.mutate(input),
+        [WS_METHODS.t3poPush]: () => (Option.isSome(push) ? push.value.state : pushUnavailable),
+        [WS_METHODS.t3poPushChange]: (input) =>
+          Option.isSome(push) ? push.value.change(input) : pushUnavailable,
         [WS_METHODS.t3poLaunch]: (input) =>
           startup
             .enqueueCommand(t3po.launch(input))

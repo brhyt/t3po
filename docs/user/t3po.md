@@ -88,6 +88,12 @@ Ask a lead or channel for something on a schedule, such as "every Monday at 9 su
 
 The **Scheduled** section of the Work panel lists the chat's schedules with their next and last run, and lets you pause, resume, or delete them. Daily and weekly times use the server's time zone; the panel shows the zone when it differs from yours. Schedules run only while the server is running. If it was asleep or stopped at the scheduled time, a one-time reminder or an every-N-minutes schedule runs once when it is back; a daily or weekly run more than 10 minutes late is skipped until its next time.
 
+## Notifications when T3 Code is closed
+
+In **Settings → General → Notifications when closed**, turn on **Notifications on this device** to get a system notification when a job finishes or fails, or when a job, lead or channel waits for your approval or answer. It works in a browser or the installed web app even with no T3 Code window open; on iPhone and iPad, add T3 Code to your Home Screen first. The desktop app notifies only while it runs. Each connected environment is turned on separately. Clicking a notification opens its conversation. **Send test** checks delivery, and the device list lets you remove devices you no longer use.
+
+To silence one project's lead and jobs, or one channel, turn off **Notify my devices when jobs here finish or need me** in its **Work** panel. This applies to every device. Each job outcome or request notifies once, also across server restarts; the lead's follow-up message does not notify separately.
+
 ## Inspect and correct local memory
 
 Open **Project memory** in a project to inspect captured records, twenty at a time. Receipt acceptance confirms that the gateway accepted a record; Honcho delivery and processing are not yet verified in this view.

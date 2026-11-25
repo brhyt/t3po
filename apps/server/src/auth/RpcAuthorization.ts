@@ -79,6 +79,8 @@ export const RPC_REQUIRED_SCOPES = {
   [WS_METHODS.t3poMemoryCorrect]: AuthOrchestrationOperateScope,
   [WS_METHODS.t3poMutate]: AuthOrchestrationOperateScope,
   [WS_METHODS.t3poLaunch]: AuthOrchestrationOperateScope,
+  [WS_METHODS.t3poPush]: AuthOrchestrationReadScope,
+  [WS_METHODS.t3poPushChange]: AuthOrchestrationOperateScope,
   [WS_METHODS.serverProbe]: AuthOrchestrationReadScope,
   [WS_METHODS.serverGetConfig]: AuthOrchestrationReadScope,
   [WS_METHODS.serverGetNpmRelease]: AuthOrchestrationReadScope,
