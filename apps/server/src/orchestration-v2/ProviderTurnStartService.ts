@@ -955,11 +955,22 @@ export const layer: Layer.Layer<
             .pipe(
               Effect.mapError((cause) => new ProviderTurnStartError({ runId: input.runId, cause })),
             );
-      const routingContext =
+      const routingChat =
         projectContext !== "" &&
-        (input.threadId.startsWith("t3po-lead:") || input.threadId.startsWith("t3po-channel:"))
-          ? `${workRoutingInstructions}\n\n`
+        (input.threadId.startsWith("t3po-lead:") || input.threadId.startsWith("t3po-channel:"));
+      const scheduledNote =
+        routingChat && providerMessage.scheduledTaskId !== undefined
+          ? yield* t3poStore
+              .scheduledTurnNote(providerMessage.scheduledTaskId)
+              .pipe(
+                Effect.mapError(
+                  (cause) => new ProviderTurnStartError({ runId: input.runId, cause }),
+                ),
+              )
           : "";
+      const routingContext = routingChat
+        ? `${workRoutingInstructions}\n\n${scheduledNote === "" ? "" : `${scheduledNote}\n\n`}`
+        : "";
       const userText =
         projectContext === ""
           ? composerText

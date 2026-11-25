@@ -19,6 +19,7 @@ import { useAtomCommand } from "../../state/use-atom-command";
 import { useOrchestrationCommand } from "../../state/use-orchestration-command";
 import { Button } from "../ui/button";
 import { Switch } from "../ui/switch";
+import { ScheduledWork } from "./ScheduledWork";
 import { WorkSettings } from "./WorkSettings";
 
 export function WorkPanel({
@@ -81,6 +82,7 @@ export function WorkPanel({
         <T>Work</T>
       </h3>
       <WorkSettings environmentId={environmentId} projectId={projectId} />
+      <ScheduledWork environmentId={environmentId} threadId={threadId} />
       {query.error ? <p className="text-xs text-destructive">{query.error}</p> : null}
       {error ? (
         <p role="alert" className="text-xs text-destructive">

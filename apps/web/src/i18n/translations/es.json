@@ -12094,6 +12094,16 @@
   "cb20a79325c1f145": "Canales archivados",
   "8ede93b4b85b5676": "Conversaciones",
   "58a56cb3f0905132": "Show more",
+  "9dad6db998848e83": "Programado",
+  "94490c7706243363": "Programado",
+  "0b049c634e72a6f7": "Pide a este chat trabajo recurrente o un recordatorio y aparecerá aquí.",
+  "4cb546c7fcd2ea84": [
+    "Última ejecución ",
+    {
+      "t": "ScheduledRelativeLabel",
+      "i": 1
+    }
+  ],
   "aa39c195592a94aa": "Reglas del espacio",
   "8ac9eef081af2cab": "Nombre del recurso",
   "c1a179c743f0cb05": "Ruta de carpeta o dirección HTTPS",

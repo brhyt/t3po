@@ -1,3 +1,4 @@
+import * as T3poSchedules from "../../../t3po/Schedules.ts";
 import * as T3poWork from "../../../t3po/Work.ts";
 import { OrchestratorMcpFailure } from "@t3tools/contracts";
 import { OrchestratorToolkit } from "./tools.ts";
@@ -39,6 +40,36 @@ const handlers = {
             }),
         ),
       );
+    }),
+  ),
+  // Runs carry no link origin, so a linked caller may not schedule them.
+  t3_work_schedule: McpToolAccess.writes((input) =>
+    Effect.gen(function* () {
+      const { scope, caller: shell } = yield* readCaller();
+      const caller = yield* McpInvocationContext.requireThreadScope(scope, "t3_work_schedule");
+      if (!shell || shell.deletedAt)
+        return yield* new OrchestratorMcpFailure({
+          code: "invalid_request",
+          message: "A live project lead or channel is required.",
+        });
+      const schedules = yield* T3poSchedules.Schedules;
+      return yield* schedules
+        .handle(
+          {
+            threadId: caller.thread.threadId,
+            projectId: shell.projectId,
+            modelSelection: shell.modelSelection,
+            runtimeMode: shell.runtimeMode,
+            interactionMode: shell.interactionMode,
+          },
+          input,
+        )
+        .pipe(
+          Effect.mapError(
+            (error) =>
+              new OrchestratorMcpFailure({ code: "invalid_request", message: error.message }),
+          ),
+        );
     }),
   ),
   orchestrator_capabilities: McpToolAccess.reads((input) =>

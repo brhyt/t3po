@@ -12107,6 +12107,16 @@
   "cb20a79325c1f145": "Arkiverade kanaler",
   "8ede93b4b85b5676": "Konversationer",
   "58a56cb3f0905132": "Show more",
+  "9dad6db998848e83": "Schemalagt",
+  "94490c7706243363": "Schemalagt",
+  "0b049c634e72a6f7": "Be den här chatten om återkommande arbete eller en påminnelse så visas det här.",
+  "4cb546c7fcd2ea84": [
+    "Senaste körning ",
+    {
+      "t": "ScheduledRelativeLabel",
+      "i": 1
+    }
+  ],
   "aa39c195592a94aa": "Utrymmets regler",
   "8ac9eef081af2cab": "Resursnamn",
   "c1a179c743f0cb05": "Mappsökväg eller HTTPS-adress",

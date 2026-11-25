@@ -78,6 +78,12 @@ The **Work** panel groups jobs under workstreams and links to their conversation
 
 Routed jobs use isolated worktrees on the current environment and wait for the project allowance, a concurrency slot, or machine capacity. Queued requests survive server restarts. Follow-ups reuse the job's conversation. Routine successful jobs finish without acceptance; explicitly requested reviews, failures, and approval requests still need attention. The lead should include verification criteria in each brief; a completed provider run is not independent proof that its claims are correct. This routing currently supports local execution, not automatic cross-machine dispatch. Web and desktop show the Work panel; native mobile retains the existing interface.
 
+## Recurring work and reminders
+
+Ask a lead or channel for something on a schedule, such as "every Monday at 9 summarize last week's signups" or "remind me Friday to send the invoice". It saves a schedule for that chat and confirms the time. When the schedule fires, its prompt arrives in the same chat as a scheduled message, and the lead answers or routes a job from there.
+
+The **Scheduled** section of the Work panel lists the chat's schedules with their next and last run, and lets you pause, resume, or delete them. Daily and weekly times use the server's time zone; the panel shows the zone when it differs from yours. Schedules run only while the server is running. If it was asleep or stopped at the scheduled time, a one-time reminder or an every-N-minutes schedule runs once when it is back; a daily or weekly run more than 10 minutes late is skipped until its next time.
+
 ## Inspect and correct local memory
 
 Open **Project memory** in a project to inspect captured records, twenty at a time. Receipt acceptance confirms that the gateway accepted a record; Honcho delivery and processing are not yet verified in this view.

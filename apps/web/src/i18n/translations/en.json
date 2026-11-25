@@ -12109,6 +12109,16 @@
   "cb20a79325c1f145": "Archived channels",
   "8ede93b4b85b5676": "Conversations",
   "58a56cb3f0905132": "Show more",
+  "9dad6db998848e83": "Scheduled",
+  "94490c7706243363": "Scheduled",
+  "0b049c634e72a6f7": "Ask this chat for recurring work or a reminder and it appears here.",
+  "4cb546c7fcd2ea84": [
+    "Last run ",
+    {
+      "t": "ScheduledRelativeLabel",
+      "i": 1
+    }
+  ],
   "aa39c195592a94aa": "Space rules",
   "8ac9eef081af2cab": "Resource name",
   "c1a179c743f0cb05": "Folder path or HTTPS address",

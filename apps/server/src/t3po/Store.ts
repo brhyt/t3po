@@ -2,6 +2,7 @@ import * as ExternalActionStore from "./ExternalActionStore.ts";
 import * as Authority from "./Authority.ts";
 import { finalAnswers } from "./Result.ts";
 import * as Changes from "./Changes.ts";
+import * as ScheduledTurn from "./ScheduledTurn.ts";
 import * as PubSub from "effect/PubSub";
 import * as Queue from "effect/Queue";
 import * as Semaphore from "effect/Semaphore";
@@ -20,6 +21,7 @@ import {
   type T3poResultsQuery,
   type T3poResultsPage,
   type RunId,
+  type ScheduledTaskId,
   ThreadId,
   MessageId,
   T3poLead,
@@ -113,6 +115,7 @@ export class Store extends Context.Service<
     ) => Effect.Effect<void, T3poError>;
     readonly getTask: (id: string, projectId: ProjectId) => Effect.Effect<TaskRecord, T3poError>;
     readonly getTaskProject: (threadId: ThreadId) => Effect.Effect<ProjectId | null, T3poError>;
+    readonly scheduledTurnNote: (taskId: ScheduledTaskId) => Effect.Effect<string, T3poError>;
     readonly controlMemory: (input: T3poMemoryControl) => Effect.Effect<void, T3poError>;
     readonly mutate: (input: T3poMutation, reviewedRunId?: RunId) => Effect.Effect<void, T3poError>;
     readonly reserveLaunch: (
@@ -1008,6 +1011,12 @@ const make = Effect.gen(function* () {
     mutate,
     reserveLaunch,
     context,
+    scheduledTurnNote: Effect.fn("T3poStore.scheduledTurnNote")((taskId: ScheduledTaskId) =>
+      ScheduledTurn.note(taskId).pipe(
+        Effect.provideService(SqlClient.SqlClient, sql),
+        Effect.mapError((cause) => new T3poError({ operation: "read", cause })),
+      ),
+    ),
   });
 });
 export const layer = Layer.effect(Store, make).pipe(

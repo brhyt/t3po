@@ -1,3 +1,4 @@
+import * as T3poSchedules from "../../apps/server/src/t3po/Schedules.ts";
 import * as T3poWork from "../../apps/server/src/t3po/Work.ts";
 // @effect-diagnostics nodeBuiltinImport:off
 /**
@@ -103,6 +104,7 @@ export const makeBackgroundWait = Effect.fn("evaluateMcpToolUse.makeBackgroundWa
       Layer.provide(Layer.mock(OrchestratorMcpService.OrchestratorMcpService)({})),
       Layer.provide(Layer.mock(ThreadMetadataMcpService.ThreadMetadataMcpService)({})),
       Layer.provide(T3poWork.optionalLayer),
+      Layer.provide(T3poSchedules.optionalLayer),
       Layer.provide(threads),
       Layer.provide(Layer.mock(PeerForwarding.PeerForwarding)({})),
       Layer.provide(Layer.mock(PeerLinkRequests.PeerLinkRequests)({})),

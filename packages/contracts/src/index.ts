@@ -76,6 +76,7 @@ export * from "./settingsSecretValue.ts";
 export * from "./clientRpcPermissions.ts";
 
 export * from "./t3po.ts";
+export * from "./t3poSchedule.ts";
 export * from "./privacy.ts";
 export * from "./privacySources.ts";
 

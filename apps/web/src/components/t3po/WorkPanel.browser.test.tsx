@@ -1,14 +1,40 @@
 import { expect, it, vi } from "vite-plus/test";
-import { EnvironmentId, ProjectId, ThreadId, type T3poSnapshot } from "@t3tools/contracts";
+import {
+  EnvironmentId,
+  ProjectId,
+  ScheduledTaskId,
+  ThreadId,
+  type ScheduledTask,
+  type T3poSnapshot,
+} from "@t3tools/contracts";
 import { render } from "../../../test/render";
 import { WorkPanel } from "./WorkPanel";
 
-const state = vi.hoisted(() => ({ data: undefined as typeof T3poSnapshot.Type | undefined }));
-vi.mock(import("../../state/query"), () => ({
-  useEnvironmentQuery: (() => ({ data: state.data, isPending: false, error: null })) as never,
+const state = vi.hoisted(() => ({
+  data: undefined as typeof T3poSnapshot.Type | undefined,
+  scheduled: [] as ReadonlyArray<ScheduledTask>,
+  toggle: vi.fn(),
+  remove: vi.fn(),
 }));
-vi.mock(import("../../state/use-atom-command"), () => ({
-  useAtomCommand: (() => vi.fn()) as never,
+vi.mock(import("../../state/query"), async (importOriginal) => ({
+  ...(await importOriginal()),
+  useEnvironmentQuery: ((atom: unknown) =>
+    atom === "scheduled-tasks"
+      ? { data: { tasks: state.scheduled, timeZone: "UTC" }, isPending: false, error: null }
+      : { data: state.data, isPending: false, error: null }) as never,
+}));
+vi.mock(import("../../state/use-atom-command"), async (importOriginal) => ({
+  ...(await importOriginal()),
+  useAtomCommand: ((command: { name?: string }) =>
+    command.name === "toggle"
+      ? state.toggle
+      : command.name === "remove"
+        ? state.remove
+        : vi.fn()) as never,
+}));
+vi.mock(import("../../confirmDialog"), async (importOriginal) => ({
+  ...(await importOriginal()),
+  requestConfirmDialog: (async () => true) as never,
 }));
 vi.mock(import("../../state/t3po"), async () => {
   const { Atom } = await import("effect/reactivity");
@@ -16,9 +42,25 @@ vi.mock(import("../../state/t3po"), async () => {
     t3po: { snapshot: () => undefined, mutate: { permissionAtom: () => Atom.make(true) } } as never,
   };
 });
+vi.mock(import("../../state/server"), async (importOriginal) => {
+  const { Atom } = await import("effect/reactivity");
+  const original = await importOriginal();
+  return {
+    ...original,
+    serverEnvironment: {
+      ...original.serverEnvironment,
+      scheduledTasksLive: () => "scheduled-tasks",
+      setScheduledTaskEnabled: { name: "toggle", permissionAtom: () => Atom.make(true) },
+      deleteScheduledTask: { name: "remove" },
+    } as never,
+  };
+});
 const projectId = ProjectId.make("project");
 const environmentId = EnvironmentId.make("environment");
 function setup() {
+  state.scheduled = [];
+  state.toggle.mockReset().mockResolvedValue({ _tag: "Success" });
+  state.remove.mockReset().mockResolvedValue({ _tag: "Success" });
   state.data = {
     memory: [],
     leads: [],
@@ -112,4 +154,49 @@ it("keeps a workstream active when its routine job is complete", async () => {
     .element(screen.getByRole("combobox", { name: "Workstream status" }))
     .toHaveValue("active");
   await expect.element(screen.getByRole("button", { name: "Accept" })).not.toBeInTheDocument();
+});
+it("lists this chat's schedules with pause and delete", async () => {
+  setup();
+  const scheduled = (id: string, threadId: string, title: string): ScheduledTask =>
+    ({
+      id: ScheduledTaskId.make(id),
+      threadId: ThreadId.make(threadId),
+      projectId,
+      title,
+      prompt: title,
+      enabled: true,
+      schedule: { type: "fixed_time", timeOfDay: "09:00", weekdays: [1] },
+      nextRunAt: "2999-01-07T09:00:00.000Z",
+      lastRunAt: "2026-11-23T09:00:00.000Z",
+      lastRunStatus: "succeeded",
+      lastRunError: null,
+    }) as unknown as ScheduledTask;
+  state.scheduled = [
+    scheduled("signups", "t3po-channel:research", "Weekly signups"),
+    scheduled("elsewhere", "t3po-channel:other", "Other chat schedule"),
+  ];
+  await using screen = await render(
+    <WorkPanel
+      environmentId={environmentId}
+      projectId={projectId}
+      threadId={ThreadId.make("t3po-channel:research")}
+    />,
+  );
+  const section = screen.getByRole("region", { name: "Scheduled" });
+  await expect.element(section.getByText("Weekly signups")).toBeVisible();
+  await expect.element(section.getByText(/at 09:00/)).toBeVisible();
+  await expect.element(section.getByText(/Succeeded/)).toBeVisible();
+  await expect.element(screen.getByText("Other chat schedule")).not.toBeInTheDocument();
+  // The small switch has no layout box here, so click it through the DOM.
+  (screen.getByRole("switch", { name: "Pause Weekly signups" }).element() as HTMLElement).click();
+  await vi.waitFor(() =>
+    expect(state.toggle).toHaveBeenCalledWith({
+      environmentId,
+      input: { id: "signups", enabled: false },
+    }),
+  );
+  await screen.getByRole("button", { name: "Delete Weekly signups" }).click();
+  await vi.waitFor(() =>
+    expect(state.remove).toHaveBeenCalledWith({ environmentId, input: { id: "signups" } }),
+  );
 });
