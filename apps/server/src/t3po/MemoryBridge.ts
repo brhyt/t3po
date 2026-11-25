@@ -16,7 +16,7 @@ import * as HttpClientResponse from "effect/http/HttpClientResponse";
 
 export type MemoryEvent = {
   id: string;
-  kind: "project_brief" | "accepted_result" | "review_reopened";
+  kind: "project_brief" | "accepted_result" | "review_reopened" | "conversation_notes";
   text: string;
   occurredAt: string;
 };

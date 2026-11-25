@@ -79,6 +79,33 @@ export const T3poWorkstream = Schema.Struct({
   state: Schema.Literals(["active", "waiting", "completed", "archived"]),
 });
 export type T3poWorkstream = typeof T3poWorkstream.Type;
+/** Longest working record one lead or channel conversation keeps. */
+export const T3PO_NOTES_MAX_LENGTH = 8000;
+const T3poNotesText = Schema.String.check(Schema.isMaxLength(T3PO_NOTES_MAX_LENGTH));
+/** A conversation's working record: decisions, open questions, preferences and key facts. */
+export const T3poNotes = Schema.Struct({
+  projectId: ProjectId,
+  /** Null: the project's lead chat. */
+  channelId: Schema.NullOr(TrimmedNonEmptyString),
+  text: T3poNotesText,
+  revision: NonNegativeInt,
+  updatedAt: Schema.String,
+  updatedBy: Schema.Literals(["lead", "user"]),
+});
+export type T3poNotes = typeof T3poNotes.Type;
+/** Exactly one of `text` (replace) or `edits` (patch the current notes). */
+export const T3poNotesUpdate = Schema.Struct({
+  text: Schema.optional(T3poNotesText),
+  edits: Schema.optional(
+    Schema.Array(
+      Schema.Struct({
+        oldText: Schema.String.check(Schema.isMinLength(1)),
+        newText: Schema.String,
+      }),
+    ).check(Schema.isMinLength(1), Schema.isMaxLength(20)),
+  ),
+});
+export type T3poNotesUpdate = typeof T3poNotesUpdate.Type;
 export const T3poWorkRoute = Schema.Struct({
   reportToOrigin: Schema.optional(Schema.Boolean),
   destinationProjectId: Schema.optional(ProjectId),
@@ -265,6 +292,7 @@ export const T3poSnapshot = Schema.Struct({
   projectSpaces: Schema.optional(Schema.Array(T3poProjectSpace)),
   conversations: Schema.optional(Schema.Array(T3poConversation)),
   workstreams: Schema.optional(Schema.Array(T3poWorkstream)),
+  notes: Schema.optional(Schema.Array(T3poNotes)),
   memory: Schema.Array(T3poMemoryStatus),
   nextCursor: Schema.NullOr(NonNegativeInt),
   leads: Schema.Array(T3poLead),
@@ -337,6 +365,14 @@ export const T3poMutation = Schema.Union([
     threadId: ThreadId,
     channelId: Schema.NullOr(TrimmedNonEmptyString),
     newChannelName: Schema.optional(TrimmedNonEmptyString.check(Schema.isMaxLength(200))),
+  }),
+  Schema.Struct({
+    type: Schema.Literal("save_notes"),
+    projectId: ProjectId,
+    channelId: Schema.NullOr(TrimmedNonEmptyString),
+    text: T3poNotesText,
+    /** Revision the edit started from; a newer save fails with notes_stale. */
+    expectedRevision: NonNegativeInt,
   }),
   Schema.Struct({
     type: Schema.Literal("move_job"),
@@ -441,6 +477,7 @@ export class T3poError extends Schema.TaggedError<T3poError>()("T3poError", {
     "workspace",
     "budget",
     "approval",
+    "notes_stale",
     "grant_invalid",
     "grant_stale",
     "grant_revoked",
@@ -469,6 +506,8 @@ export class T3poError extends Schema.TaggedError<T3poError>()("T3poError", {
       return "Every agent slot in this project is in use or set to zero. Wait for a job to finish or raise how many run at once.";
     if (this.operation === "approval")
       return "This project's job permissions don't allow that mode. Change Job permissions in the Work panel.";
+    if (this.operation === "notes_stale")
+      return "These notes changed while you were editing. Review the latest notes and save again.";
     if (this.operation === "busy") return "Stop the running task before archiving it.";
     if (this.operation === "workspace")
       return "Choose an existing Git base branch for the worktree, or use the project folder.";

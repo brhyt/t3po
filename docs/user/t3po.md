@@ -54,7 +54,7 @@ Managed task workers and delegated-completion runs require approval-required mod
 
 The lead card shows local continuity, a connected memory service, or a recall unavailable/not-yet-checked state. Pending counts refer to records not yet acknowledged by apps/memory; Honcho reasoning may still be processing acknowledged records. Delivery wakes after local edits and recovers pending records on server startup. Requests contain at most 20 records, rotate across eligible projects, and retry unacknowledged records with delays capped at one minute. Delivery status updates reach the board automatically. Sending a message to the lead still retrieves recall.
 
-The journal captures saved lead briefs and user-reviewed task results. Reopening a task, or editing a completed task's brief, appends a correction. Existing briefs are backfilled on migration; previous conversations and old accepted results are not bulk imported. Raw tool output and failed executions are not automatically promoted into memory. Decisions, blockers, and next actions carry forward when included in the brief or reviewed result; automatic structured extraction from every conversation is future work.
+The journal captures saved lead briefs, user-reviewed task results, and each saved revision of a conversation's notes (a newer revision replaces a pending older one). Reopening a task, or editing a completed task's brief, appends a correction. Existing briefs are backfilled on migration; previous conversations and old accepted results are not bulk imported. Raw tool output and failed executions are not automatically promoted into memory. Decisions, blockers, and next actions carry forward when included in the brief or reviewed result; automatic structured extraction from every conversation is future work.
 
 Recall is limited to the current project. Workers receive local project context but do not call Honcho independently. Recalled text is reference data, and current task state remains authoritative. Each gateway request has a ten-second budget; a lead turn may first wait for an in-flight delivery request. Forgetting/deleting memory and cross-project sharing are not exposed yet.
 
@@ -77,6 +77,10 @@ Ask the lead to take on work in the normal chat composer. It can continue an exi
 The **Work** panel groups jobs under workstreams and links to their conversations. **Move** corrects a grouping without replacing the job. Workstream completion is independent of job completion; completed and archived streams can be reopened. Archiving pauses undispatched work but does not stop a running job—stop that job explicitly if needed.
 
 Routed jobs use isolated worktrees on the current environment and wait for the project allowance, a concurrency slot, or machine capacity. Queued requests survive server restarts. Follow-ups reuse the job's conversation. Routine successful jobs finish without acceptance; explicitly requested reviews, failures, and approval requests still need attention. The lead should include verification criteria in each brief; a completed provider run is not independent proof that its claims are correct. This routing currently supports local execution, not automatic cross-machine dispatch. Web and desktop show the Work panel; native mobile retains the existing interface.
+
+## Conversation notes
+
+Each channel and the lead chat keep short notes: decisions, preferences, open questions and key facts from that conversation. The lead updates them as the conversation goes, and they reach it on later turns, so they survive when a long conversation is compacted. Jobs a chat routes also see that chat's notes. Edit them under **Notes** in the Work panel; it shows when they last changed and whether you or the lead changed them. If the lead saves while you are editing, your save is refused instead of overwriting its change: cancel, then edit the latest notes. Notes hold up to 8000 characters.
 
 ## Inspect and correct local memory
 

@@ -11,6 +11,7 @@ const scopedTools = new Set([
   "orchestrator_capabilities",
   "tool_search",
   "t3_work_route",
+  "t3_notes_update",
   "delegate_task",
   "task_status",
   "task_cancel",
