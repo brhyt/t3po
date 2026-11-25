@@ -13,7 +13,7 @@ import * as Store from "./Store.ts";
 import * as Changes from "./Changes.ts";
 import * as Sqlite from "../persistence/Sqlite.ts";
 import * as SpaceConnections from "./SpaceConnections.ts";
-import { reserve } from "./Work.ts";
+import { reserve, saveNotes } from "./Work.ts";
 
 const projectId = ProjectId.make("project");
 const caller = ThreadId.make("t3po-channel:research");
@@ -386,5 +386,28 @@ it.effect("tells the routing chat once when a job's latest run finishes", () =>
     yield* sql`UPDATE t3po_task_executions SET result_json = json_object('status', 'completed', 'text', 'old') WHERE run_id = 'run:1'`;
     yield* tick;
     expect(sent).toHaveLength(1);
+  }).pipe(Effect.provide(fixture)),
+);
+
+it.effect("saves notes for the calling chat and hands them to the jobs it routes", () =>
+  Effect.gen(function* () {
+    yield* seed;
+    const store = yield* Store.Store;
+    yield* saveNotes(caller, { text: "Preference: report p95, not averages." });
+    const saved = yield* saveNotes(caller, {
+      edits: [{ oldText: "p95", newText: "p99" }],
+    });
+    expect(saved).toMatchObject({ channelId: "research", revision: 2, updatedBy: "lead" });
+    expect(yield* store.notes(projectId, null)).toBeNull();
+    for (const thread of ["t3po-task:other", "ordinary-thread"])
+      expect(
+        (yield* saveNotes(ThreadId.make(thread), { text: "x" }).pipe(Effect.flip)).operation,
+      ).toBe("invalid");
+    const job = yield* reserve(caller, input, model);
+    const context = JSON.parse(
+      yield* store.context(projectId, ThreadId.make(`t3po-task:${job.jobId}`)),
+    );
+    expect(context.routingNotes).toBe("Preference: report p99, not averages.");
+    expect(context.notes).toBeUndefined();
   }).pipe(Effect.provide(fixture)),
 );

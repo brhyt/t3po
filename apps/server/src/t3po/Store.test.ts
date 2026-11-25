@@ -958,3 +958,87 @@ it.effect("retains a disabled-environment backlog when the server is re-enabled"
     }),
   );
 });
+
+it.effect("keeps capped, revisioned notes per conversation and journals each revision once", () =>
+  Effect.gen(function* () {
+    const store = yield* Store.Store;
+    const sql = yield* SqlClient.SqlClient;
+    yield* store.mutate({ type: "save_lead", projectId, name: "Lead", brief: "Ship it" });
+    yield* store.mutate({ type: "create_channel", projectId, id: "research", name: "Research" });
+    const lead = { type: "save_notes" as const, projectId, channelId: null };
+    yield* store.mutate({ ...lead, text: "Decisions: use SQLite", expectedRevision: 0 });
+    const patched = yield* store.saveNotes({
+      projectId,
+      channelId: null,
+      updatedBy: "lead",
+      edits: [{ oldText: "SQLite", newText: "Postgres" }],
+    });
+    expect(patched).toMatchObject({
+      text: "Decisions: use Postgres",
+      revision: 2,
+      updatedBy: "lead",
+    });
+    // A user edit that started before the lead's save must not overwrite it.
+    const stale = yield* store
+      .mutate({ ...lead, text: "Decisions: none", expectedRevision: 1 })
+      .pipe(Effect.flip);
+    expect(stale.operation).toBe("notes_stale");
+    for (const invalid of [
+      { text: "x".repeat(8001) },
+      { edits: [{ oldText: "missing", newText: "" }] },
+      { edits: [{ oldText: "e", newText: "" }] },
+      { text: "both", edits: [{ oldText: "Postgres", newText: "MySQL" }] },
+    ])
+      expect(
+        (yield* store
+          .saveNotes({ projectId, channelId: null, updatedBy: "lead", ...invalid })
+          .pipe(Effect.flip)).operation,
+      ).toBe("invalid");
+    yield* store.saveNotes({
+      projectId,
+      channelId: "research",
+      updatedBy: "lead",
+      text: "Open question: which region?",
+    });
+    // Saving unchanged notes is not a new revision.
+    yield* store.mutate({ ...lead, text: "Decisions: use Postgres", expectedRevision: 2 });
+    expect((yield* store.list({ projectId })).notes.map((notes) => notes.text)).toEqual([
+      "Decisions: use Postgres",
+      "Open question: which region?",
+    ]);
+    expect(
+      (yield* store.list({ projectId, channelId: "research" })).notes.map((n) => n.channelId),
+    ).toEqual(["research"]);
+    const journal = yield* sql<{
+      id: string;
+      supersededBy: string | null;
+      text: string;
+    }>`SELECT event_id AS id, superseded_by AS supersededBy, text FROM t3po_memory_events_v2 WHERE kind = 'conversation_notes' ORDER BY sequence`;
+    expect(journal).toHaveLength(3);
+    expect(journal[0]!.supersededBy).toBe(journal[1]!.id);
+    expect(journal[1]!.supersededBy).toBeNull();
+    expect(journal[1]!.text).toContain("Decisions: use Postgres");
+    expect(journal[2]!.text).toContain("channel #Research");
+
+    const context = JSON.parse(
+      yield* store.context(projectId, ThreadId.make(`t3po-lead:${projectId}`)),
+    );
+    expect(context.notes).toMatchObject({ text: "Decisions: use Postgres", updatedBy: "lead" });
+    expect(
+      context.memory.recentRecords.map((record: { kind: string }) => record.kind),
+    ).not.toContain("conversation_notes");
+    const channelContext = JSON.parse(
+      yield* store.context(projectId, ThreadId.make("t3po-channel:research")),
+    );
+    expect(channelContext.notes.text).toBe("Open question: which region?");
+
+    yield* store.mutate({ type: "archive_channel", projectId, id: "research", archived: true });
+    expect(
+      (yield* store
+        .saveNotes({ projectId, channelId: "research", updatedBy: "user", text: "Later" })
+        .pipe(Effect.flip)).operation,
+    ).toBe("invalid");
+    const restarted = yield* Store.Store.pipe(Effect.provide(Layer.fresh(Store.layer)));
+    expect((yield* restarted.notes(projectId, null))?.revision).toBe(2);
+  }).pipe(Effect.provide(Store.layer.pipe(Layer.provideMerge(Sqlite.layerMemory)))),
+);

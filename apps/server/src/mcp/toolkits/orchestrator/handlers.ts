@@ -41,6 +41,23 @@ const handlers = {
       );
     }),
   ),
+  t3_notes_update: McpToolAccess.actsAsCaller((input) =>
+    Effect.gen(function* () {
+      const scope = yield* McpInvocationContext.McpInvocationContext;
+      const caller = yield* McpInvocationContext.requireThreadScope(scope, "t3_notes_update");
+      return yield* (yield* T3poWork.Work).saveNotes(caller.thread.threadId, input).pipe(
+        Effect.mapError((error) =>
+          error.operation === "invalid"
+            ? new OrchestratorMcpFailure({
+                code: "invalid_request",
+                message:
+                  "Notes belong to a live project lead or channel chat. Pass text or edits, not both; each oldText must appear exactly once in the current notes, and the result must fit in 8000 characters.",
+              })
+            : new OrchestratorMcpFailure({ code: "orchestration_error", message: error.message }),
+        ),
+      );
+    }),
+  ),
   orchestrator_capabilities: McpToolAccess.reads((input) =>
     Effect.gen(function* () {
       const scope = yield* McpInvocationContext.McpInvocationContext;

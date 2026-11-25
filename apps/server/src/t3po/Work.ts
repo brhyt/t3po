@@ -11,6 +11,8 @@ import {
   ModelSelection,
   RuntimeMode,
   T3PO_DEFAULT_WORK_ACCESS,
+  type T3poNotes,
+  type T3poNotesUpdate,
   type T3poWorkReceipt,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
@@ -183,6 +185,31 @@ export const reserve = Effect.fn("T3poWork.reserve")(
   ),
 );
 
+/** Saves the notes of the lead or channel chat that calls. */
+export const saveNotes = Effect.fn("T3poWork.saveNotes")(
+  function* (callerThreadId: ThreadId, input: T3poNotesUpdate) {
+    const sql = yield* SqlClient.SqlClient;
+    const store = yield* Store.Store;
+    const changes = yield* Changes.Changes;
+    const owners = yield* sql<{ projectId: string; channelId: string | null }>`
+      SELECT project_id AS projectId, NULL AS channelId FROM t3po_leads WHERE json_extract(data, '$.threadId') = ${callerThreadId}
+      UNION SELECT project_id AS projectId, id AS channelId FROM t3po_channels WHERE 't3po-channel:' || id = ${callerThreadId} LIMIT 1`;
+    if (!owners[0]) return yield* new T3poError({ operation: "invalid" });
+    const projectId = ProjectId.make(owners[0].projectId);
+    const notes = yield* store.saveNotes({
+      ...input,
+      projectId,
+      channelId: owners[0].channelId,
+      updatedBy: "lead",
+    });
+    yield* PubSub.publish(changes, { projectId, metadata: true });
+    return notes;
+  },
+  Effect.mapError((cause) =>
+    isT3poError(cause) ? cause : new T3poError({ operation: "save", cause }),
+  ),
+);
+
 export class Work extends Context.Service<
   Work,
   {
@@ -191,6 +218,10 @@ export class Work extends Context.Service<
       input: T3poWorkRoute,
       model: ModelSelection,
     ) => Effect.Effect<T3poWorkReceipt, T3poError>;
+    readonly saveNotes: (
+      caller: ThreadId,
+      input: T3poNotesUpdate,
+    ) => Effect.Effect<T3poNotes, T3poError>;
   }
 >()("t3/t3po/Work") {}
 export const layer = Layer.effect(
@@ -201,6 +232,9 @@ export const layer = Layer.effect(
       reserve: Effect.fn("Work.reserve")(
         (caller: ThreadId, input: T3poWorkRoute, model: ModelSelection) =>
           reserve(caller, input, model).pipe(Effect.provide(context)),
+      ),
+      saveNotes: Effect.fn("Work.saveNotes")((caller: ThreadId, input: T3poNotesUpdate) =>
+        saveNotes(caller, input).pipe(Effect.provide(context)),
       ),
     });
   }),
@@ -215,6 +249,9 @@ export const optionalLayer = Layer.unwrap(
           ? service.value
           : Work.of({
               reserve: Effect.fn("Work.unavailable")(() =>
+                Effect.fail(new T3poError({ operation: "invalid" })),
+              ),
+              saveNotes: Effect.fn("Work.notesUnavailable")(() =>
                 Effect.fail(new T3poError({ operation: "invalid" })),
               ),
             }),

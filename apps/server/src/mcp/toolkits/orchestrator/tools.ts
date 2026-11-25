@@ -2,6 +2,8 @@ import * as T3poWork from "../../../t3po/Work.ts";
 import {
   T3poWorkRoute,
   T3poWorkReceipt,
+  T3poNotes,
+  T3poNotesUpdate,
   OrchestratorMcpCapabilitiesInput,
   OrchestratorMcpCapabilitiesResult,
   OrchestrationV2StopWorkflowInput,
@@ -86,6 +88,20 @@ const WorkRouteTool = Tool.make("t3_work_route", {
 })
   .annotate(Tool.Title, "Route project work")
   .annotate(Tool.Destructive, true)
+  .annotate(Tool.Idempotent, true)
+  .annotate(McpSchema.EnabledWhen, McpInvocationContext.hiddenFromOutsideClients);
+
+const NotesUpdateTool = Tool.make("t3_notes_update", {
+  description:
+    "Save this T3PO lead/channel conversation's notes: the working record that survives context compaction and is shown to the user, who may edit it too. Pass `text` to replace the notes, or `edits` to change the current notes (each oldText must appear exactly once). At most 8000 characters. Returns the saved notes.",
+  parameters: T3poNotesUpdate,
+  success: T3poNotes,
+  failure: OrchestratorMcpFailure,
+  failureMode: "return",
+  dependencies: [...dependencies, T3poWork.Work],
+})
+  .annotate(Tool.Title, "Update conversation notes")
+  .annotate(Tool.Destructive, false)
   .annotate(Tool.Idempotent, true)
   .annotate(McpSchema.EnabledWhen, McpInvocationContext.hiddenFromOutsideClients);
 
@@ -381,6 +397,7 @@ const EnvironmentUnlinkTool = Tool.make("t3_environment_unlink", {
 
 export const OrchestratorToolkit = Toolkit.make(
   WorkRouteTool,
+  NotesUpdateTool,
   OrchestratorCapabilitiesTool,
   DelegateTaskTool,
   TaskStatusTool,

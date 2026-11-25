@@ -24,6 +24,9 @@ import {
   MessageId,
   T3poLead,
   T3poWorkstream,
+  type T3poNotes,
+  type T3poNotesUpdate,
+  T3PO_NOTES_MAX_LENGTH,
   type T3poWorkReceipt,
   T3poChannel,
   T3poTask,
@@ -75,6 +78,7 @@ type Page = {
   projectSpaces: readonly (typeof T3poProjectSpace.Type)[];
   conversations: readonly (typeof T3poConversation.Type)[];
   workstreams: readonly T3poWorkstream[];
+  notes: readonly T3poNotes[];
   memory: readonly (typeof T3poMemoryStatus.Type)[];
   leads: readonly T3poLead[];
   channels: readonly (typeof T3poChannel.Type)[];
@@ -82,6 +86,35 @@ type Page = {
   nextCursor: number | null;
 };
 const encodeUnknownJson = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));
+type NotesRow = Omit<T3poNotes, "projectId"> & {
+  readonly projectId: string;
+  readonly memoryEventId: string | null;
+};
+type NotesWrite = T3poNotesUpdate & {
+  readonly projectId: ProjectId;
+  readonly channelId: string | null;
+  readonly updatedBy: T3poNotes["updatedBy"];
+  readonly expectedRevision?: number;
+};
+const notesThread = (projectId: ProjectId, channelId: string | null) =>
+  channelId === null ? `t3po-lead:${projectId}` : `t3po-channel:${channelId}`;
+const toNotes = ({ memoryEventId: _event, ...row }: NotesRow): T3poNotes => ({
+  ...row,
+  projectId: ProjectId.make(row.projectId),
+});
+/** Replaces the one place each oldText appears; null when one is missing or ambiguous. */
+const applyNotesEdits = (
+  text: string,
+  edits: NonNullable<T3poNotesUpdate["edits"]>,
+): string | null => {
+  let next = text;
+  for (const edit of edits) {
+    const at = next.indexOf(edit.oldText);
+    if (at === -1 || next.includes(edit.oldText, at + 1)) return null;
+    next = next.slice(0, at) + edit.newText + next.slice(at + edit.oldText.length);
+  }
+  return next;
+};
 const decodeResults = Schema.decodeEffect(Schema.Array(T3poResult));
 
 export class Store extends Context.Service<
@@ -97,6 +130,11 @@ export class Store extends Context.Service<
       runId?: RunId,
     ) => Effect.Effect<string, T3poError>;
     readonly read: Effect.Effect<Page, T3poError>;
+    readonly notes: (
+      projectId: ProjectId,
+      channelId: string | null,
+    ) => Effect.Effect<T3poNotes | null, T3poError>;
+    readonly saveNotes: (input: NotesWrite) => Effect.Effect<T3poNotes, T3poError>;
     readonly list: (input: T3poQuery) => Effect.Effect<Page, T3poError>;
     readonly results: (
       input: T3poResultsQuery,
@@ -130,6 +168,7 @@ const make = Effect.gen(function* () {
   const changes = yield* Changes.Changes;
   const sends = yield* Semaphore.make(1);
   const wake = yield* Queue.make<void>({ capacity: 1, strategy: "dropping" });
+  const notesColumns = sql`project_id AS projectId, channel_id AS channelId, text, revision, updated_at AS updatedAt, updated_by AS updatedBy, memory_event_id AS memoryEventId`;
   // Persist holds before any worker can send records captured while exchange was disabled.
   const queuedProjects = yield* sql<{
     projectId: string;
@@ -214,7 +253,10 @@ const make = Effect.gen(function* () {
     text: string,
   ) {
     const now = DateTime.formatIso(yield* DateTime.now);
-    yield* sql`INSERT INTO t3po_memory_events_v2 (event_id, project_id, kind, text, occurred_at, delivery_held) VALUES (lower(hex(randomblob(16))), ${projectId}, ${kind}, ${text.slice(0, 12000)}, ${now}, CASE WHEN ${memory.exchangeAllowed(projectId) ? 1 : 0} = 0 OR EXISTS (SELECT 1 FROM t3po_memory_delivery_policy WHERE project_id = ${projectId} AND enabled = 0) THEN 1 ELSE 0 END)`;
+    const rows = yield* sql<{
+      id: string;
+    }>`INSERT INTO t3po_memory_events_v2 (event_id, project_id, kind, text, occurred_at, delivery_held) VALUES (lower(hex(randomblob(16))), ${projectId}, ${kind}, ${text.slice(0, 12000)}, ${now}, CASE WHEN ${memory.exchangeAllowed(projectId) ? 1 : 0} = 0 OR EXISTS (SELECT 1 FROM t3po_memory_delivery_policy WHERE project_id = ${projectId} AND enabled = 0) THEN 1 ELSE 0 END) RETURNING event_id AS id`;
+    return rows[0]!.id;
   });
   const getTask = Effect.fn("T3poStore.getTask")(
     function* (id: string, projectId: ProjectId) {
@@ -302,6 +344,9 @@ const make = Effect.gen(function* () {
       const channels = yield* sql<{
         data: string;
       }>`SELECT data FROM t3po_channels WHERE ${projectFilter} ORDER BY rowid`;
+      const notes = input.projectId
+        ? yield* sql<NotesRow>`SELECT ${notesColumns} FROM t3po_notes WHERE project_id = ${input.projectId} AND ${input.channelId ? sql`channel_id = ${input.channelId}` : sql`1 = 1`} ORDER BY rowid LIMIT 100`
+        : [];
       const filters = [projectFilter];
       if (input.threadId) filters.push(sql`json_extract(data, '$.threadId') = ${input.threadId}`);
       else
@@ -373,6 +418,7 @@ const make = Effect.gen(function* () {
           typeof T3poConversation.Type
         >`SELECT project_id AS projectId, thread_id AS threadId, channel_id AS channelId FROM t3po_conversations WHERE ${projectFilter}`,
         workstreams: yield* Effect.forEach(workstreams, (row) => decodeWorkstream(row.data)),
+        notes: notes.map(toNotes),
         memory: memoryRows.map((row) => ({
           ...row,
           projectId: ProjectId.make(row.projectId),
@@ -431,6 +477,48 @@ const make = Effect.gen(function* () {
     const rows =
       yield* sql`SELECT id FROM t3po_channels WHERE id = ${id} AND project_id = ${projectId} AND COALESCE(json_extract(data, '$.archived'), 0) = 0`;
     if (rows.length === 0) return yield* new T3poError({ operation: "invalid" });
+  });
+  const readNotes = (projectId: ProjectId, channelId: string | null) =>
+    sql<NotesRow>`SELECT ${notesColumns} FROM t3po_notes WHERE thread_id = ${notesThread(projectId, channelId)} AND project_id = ${projectId}`.pipe(
+      Effect.map((rows) => rows[0] ?? null),
+    );
+  const writeNotes = Effect.fn("T3poStore.writeNotes")(function* (input: NotesWrite) {
+    const owner =
+      input.channelId === null
+        ? yield* sql<{
+            name: string;
+          }>`SELECT 'lead chat' AS name FROM t3po_leads WHERE project_id = ${input.projectId}`
+        : yield* sql<{
+            name: string;
+          }>`SELECT 'channel #' || json_extract(data, '$.name') AS name FROM t3po_channels WHERE id = ${input.channelId} AND project_id = ${input.projectId} AND COALESCE(json_extract(data, '$.archived'), 0) = 0`;
+    if (!owner[0] || (input.text === undefined) === (input.edits === undefined))
+      return yield* new T3poError({ operation: "invalid" });
+    const current = yield* readNotes(input.projectId, input.channelId);
+    if (input.expectedRevision !== undefined && input.expectedRevision !== (current?.revision ?? 0))
+      return yield* new T3poError({ operation: "notes_stale" });
+    const text = input.edits ? applyNotesEdits(current?.text ?? "", input.edits) : input.text;
+    if (text == null || text.length > T3PO_NOTES_MAX_LENGTH)
+      return yield* new T3poError({ operation: "invalid" });
+    const now = DateTime.formatIso(yield* DateTime.now);
+    const saved = {
+      projectId: input.projectId,
+      channelId: input.channelId,
+      text,
+      revision: (current?.revision ?? 0) + 1,
+      updatedAt: now,
+      updatedBy: input.updatedBy,
+    } satisfies T3poNotes;
+    if (text === (current?.text ?? ""))
+      return current ? toNotes(current) : { ...saved, revision: 0 };
+    const eventId = yield* enqueueMemory(
+      input.projectId,
+      "conversation_notes",
+      `Working notes for the ${owner[0].name}, saved by the ${input.updatedBy}. They replace earlier notes for this conversation.\n\n${text}`,
+    );
+    if (current?.memoryEventId)
+      yield* sql`UPDATE t3po_memory_events_v2 SET superseded_by = ${eventId}, revision = revision + 1 WHERE project_id = ${input.projectId} AND event_id = ${current.memoryEventId} AND superseded_by IS NULL`;
+    yield* sql`INSERT INTO t3po_notes (thread_id, project_id, channel_id, text, revision, updated_at, updated_by, memory_event_id) VALUES (${notesThread(input.projectId, input.channelId)}, ${input.projectId}, ${input.channelId}, ${text}, ${saved.revision}, ${now}, ${input.updatedBy}, ${eventId}) ON CONFLICT(thread_id) DO UPDATE SET text = excluded.text, revision = excluded.revision, updated_at = excluded.updated_at, updated_by = excluded.updated_by, memory_event_id = excluded.memory_event_id`;
+    return saved;
   });
   const mutate = Effect.fn("T3poStore.mutate")(
     function* (input: T3poMutation, reviewedRunId?: RunId) {
@@ -589,6 +677,8 @@ const make = Effect.gen(function* () {
         if (previous.channelId !== input.channelId)
           return yield* new T3poError({ operation: "invalid" });
         yield* sql`UPDATE t3po_workstreams SET data = ${yield* encodeUnknownJson({ ...previous, title: input.title, goal: input.goal, state: input.state })} WHERE id = ${input.id}`;
+      } else if (input.type === "save_notes") {
+        yield* writeNotes({ ...input, updatedBy: "user" });
       } else if (input.type === "move_job") {
         const task = yield* getTask(input.id, input.projectId);
         const rows =
@@ -878,7 +968,17 @@ const make = Effect.gen(function* () {
       const recentRecords = yield* sql<{
         kind: string;
         text: string;
-      }>`SELECT kind, substr(text, 1, 2000) AS text FROM t3po_memory_events_v2 WHERE project_id = ${projectId} AND superseded_by IS NULL ORDER BY sequence DESC LIMIT 5`;
+      }>`SELECT kind, substr(text, 1, 2000) AS text FROM t3po_memory_events_v2 WHERE project_id = ${projectId} AND superseded_by IS NULL AND kind != 'conversation_notes' ORDER BY sequence DESC LIMIT 5`;
+      const notes =
+        threadId === lead.threadId || channel
+          ? yield* readNotes(projectId, channel?.id ?? null)
+          : null;
+      // Jobs see the notes of the chat that routed them, never another project's.
+      const routingNotes = assignment
+        ? yield* sql<{
+            text: string;
+          }>`SELECT n.text FROM t3po_work_routes r JOIN t3po_notes n ON n.thread_id = r.caller_thread_id AND n.project_id = ${projectId} WHERE r.job_id = ${assignment.id} ORDER BY r.sequence LIMIT 1`
+        : [];
       return yield* encodeUnknownJson({
         spaceRules:
           yield* sql`SELECT s.name, s.rules FROM t3po_spaces s JOIN t3po_project_spaces p ON p.space_id = s.id WHERE p.project_id = ${projectId}`,
@@ -915,6 +1015,13 @@ const make = Effect.gen(function* () {
         lead: lead.name,
         projectBrief: lead.brief,
         channel: channel ? { id: channel.id, name: channel.name } : null,
+        ...(threadId === lead.threadId || channel
+          ? {
+              notes: notes
+                ? { text: notes.text, updatedAt: notes.updatedAt, updatedBy: notes.updatedBy }
+                : null,
+            }
+          : { routingNotes: routingNotes[0]?.text ?? null }),
         assignment: assignment?.brief ?? null,
         briefRevision: assignment ? (assignment.briefRevision ?? 1) : null,
         desiredOutcome: assignment?.desiredOutcome ?? null,
@@ -1002,6 +1109,21 @@ const make = Effect.gen(function* () {
     ),
     read,
     list,
+    notes: Effect.fn("T3poStore.notes")(
+      function* (projectId: ProjectId, channelId: string | null) {
+        const row = yield* readNotes(projectId, channelId);
+        return row ? toNotes(row) : null;
+      },
+      Effect.mapError((cause) => new T3poError({ operation: "read", cause })),
+    ),
+    saveNotes: Effect.fn("T3poStore.saveNotes")(
+      writeNotes,
+      sql.withTransaction,
+      Effect.tap(() => Queue.offer(wake, undefined)),
+      Effect.mapError((cause) =>
+        isT3poError(cause) ? cause : new T3poError({ operation: "save", cause }),
+      ),
+    ),
     results,
     getTask,
     getTaskProject,
