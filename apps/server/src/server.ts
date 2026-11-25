@@ -2,6 +2,7 @@ import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import * as TurnItemPositionStore from "./orchestration-v2/TurnItemPositionStore.ts";
 import * as ExternalActionService from "./t3po/ExternalActionService.ts";
 import * as SpacePolicy from "./t3po/SpacePolicy.ts";
+import * as T3poSchedules from "./t3po/Schedules.ts";
 import * as T3poWork from "./t3po/Work.ts";
 import * as T3poWorkRunner from "./t3po/WorkRunner.ts";
 import * as T3poLeadNaming from "./t3po/LeadNaming.ts";
@@ -885,7 +886,7 @@ const layerMakeRoutes = Layer.mergeAll(
     speechStreamRouteLayer,
   ),
   McpHttpServer.layer.pipe(
-    Layer.provide(SpacePolicy.layer),
+    Layer.provide(Layer.merge(SpacePolicy.layer, T3poSchedules.layer)),
     Layer.provide(ProviderAdapterRegistry.layerFromProviderInstanceRegistry),
     Layer.provide(McpOAuth.layerMcpClientAuthenticator),
   ),

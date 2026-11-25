@@ -12105,6 +12105,16 @@
   "cb20a79325c1f145": "Canais arquivados",
   "8ede93b4b85b5676": "Conversas",
   "58a56cb3f0905132": "Show more",
+  "9dad6db998848e83": "Agendado",
+  "94490c7706243363": "Agendado",
+  "0b049c634e72a6f7": "Peça a este chat um trabalho recorrente ou um lembrete e ele aparecerá aqui.",
+  "4cb546c7fcd2ea84": [
+    "Última execução ",
+    {
+      "t": "ScheduledRelativeLabel",
+      "i": 1
+    }
+  ],
   "aa39c195592a94aa": "Regras do espaço",
   "8ac9eef081af2cab": "Nome do recurso",
   "c1a179c743f0cb05": "Caminho da pasta ou endereço HTTPS",

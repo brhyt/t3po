@@ -12108,6 +12108,16 @@
   "cb20a79325c1f145": "Archivierte Kanäle",
   "8ede93b4b85b5676": "Gespräche",
   "58a56cb3f0905132": "Show more",
+  "9dad6db998848e83": "Geplant",
+  "94490c7706243363": "Geplant",
+  "0b049c634e72a6f7": "Bitte diesen Chat um wiederkehrende Arbeit oder eine Erinnerung, dann erscheint sie hier.",
+  "4cb546c7fcd2ea84": [
+    "Letzte Ausführung ",
+    {
+      "t": "ScheduledRelativeLabel",
+      "i": 1
+    }
+  ],
   "aa39c195592a94aa": "Bereichsregeln",
   "8ac9eef081af2cab": "Ressourcenname",
   "c1a179c743f0cb05": "Ordnerpfad oder HTTPS-Adresse",

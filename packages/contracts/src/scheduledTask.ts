@@ -199,15 +199,25 @@ export const ScheduledTaskSchedule = Schema.Union([
 ]);
 export type ScheduledTaskSchedule = typeof ScheduledTaskSchedule.Type;
 
-export const ScheduledTaskUpsertSchedule = Schema.Union([
-  Schema.Struct({
-    type: Schema.Literal("interval"),
-    everyMs: ScheduledTaskIntervalMs.check(
-      Schema.isGreaterThanOrEqualTo(MIN_SCHEDULED_TASK_INTERVAL_MS),
-    ).annotate({
-      description: "Min 60000.",
-    }),
+const ScheduledTaskUpsertIntervalSchedule = Schema.Struct({
+  type: Schema.Literal("interval"),
+  everyMs: ScheduledTaskIntervalMs.check(
+    Schema.isGreaterThanOrEqualTo(MIN_SCHEDULED_TASK_INTERVAL_MS),
+  ).annotate({
+    description: "Min 60000.",
   }),
+});
+
+/** Clock-driven schedules only, for callers that may not create webhooks. */
+export const ScheduledTaskTimedSchedule = Schema.Union([
+  ScheduledTaskUpsertIntervalSchedule,
+  ScheduledTaskFixedTimeSchedule,
+  ScheduledTaskOnceSchedule,
+]);
+export type ScheduledTaskTimedSchedule = typeof ScheduledTaskTimedSchedule.Type;
+
+export const ScheduledTaskUpsertSchedule = Schema.Union([
+  ScheduledTaskUpsertIntervalSchedule,
   ScheduledTaskFixedTimeSchedule,
   ScheduledTaskOnceSchedule,
   ScheduledTaskUpsertWebhookSchedule,

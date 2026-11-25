@@ -12106,6 +12106,16 @@
   "cb20a79325c1f145": "Canaux archivés",
   "8ede93b4b85b5676": "Conversations",
   "58a56cb3f0905132": "Show more",
+  "9dad6db998848e83": "Planifié",
+  "94490c7706243363": "Planifié",
+  "0b049c634e72a6f7": "Demandez à ce chat un travail récurrent ou un rappel et il apparaîtra ici.",
+  "4cb546c7fcd2ea84": [
+    "Dernière exécution ",
+    {
+      "t": "ScheduledRelativeLabel",
+      "i": 1
+    }
+  ],
   "aa39c195592a94aa": "Règles de l’espace",
   "8ac9eef081af2cab": "Nom de la ressource",
   "c1a179c743f0cb05": "Chemin du dossier ou adresse HTTPS",

@@ -1,6 +1,7 @@
 import * as ExternalActionHandlers from "./toolkits/externalActions/handlers.ts";
 import { ExternalActionsToolkit } from "./toolkits/externalActions/tools.ts";
 import * as SpacePolicy from "../t3po/SpacePolicy.ts";
+import * as T3poSchedules from "../t3po/Schedules.ts";
 import * as T3poWork from "../t3po/Work.ts";
 import * as Cause from "effect/Cause";
 import * as Clock from "effect/Clock";
@@ -1321,6 +1322,7 @@ export const layerOrchestratorToolkit = toolkitRegistration(
   Layer.provide(OrchestratorMcpService.layer),
   Layer.provide(ThreadMetadataMcpService.layer),
   Layer.provide(T3poWork.optionalLayer),
+  Layer.provide(T3poSchedules.optionalLayer),
 );
 
 export const layerThreadToolkit = toolkitRegistration(ThreadToolkit, ThreadHandlers.layer);

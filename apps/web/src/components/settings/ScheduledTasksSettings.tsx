@@ -388,7 +388,7 @@ function deliveryOutcomeVariant(outcome: string) {
   return "outline";
 }
 
-const RUN_STATUS_LABELS: Record<ScheduledTask["lastRunStatus"], string> = {
+export const RUN_STATUS_LABELS: Record<ScheduledTask["lastRunStatus"], string> = {
   never: msg("Never run"),
   running: msg("Running", { $context: "scheduled task run status" }),
   succeeded: msg("Succeeded"),

@@ -20,6 +20,7 @@ import { useOrchestrationCommand } from "../../state/use-orchestration-command";
 import { Button } from "../ui/button";
 import { Switch } from "../ui/switch";
 import { ConversationNotes } from "./ConversationNotes";
+import { ScheduledWork } from "./ScheduledWork";
 import { WorkSettings } from "./WorkSettings";
 
 export function WorkPanel({
@@ -87,6 +88,7 @@ export function WorkPanel({
         projectId={projectId}
         channelId={channelId ?? null}
       />
+      <ScheduledWork environmentId={environmentId} threadId={threadId} />
       {query.error ? <p className="text-xs text-destructive">{query.error}</p> : null}
       {error ? (
         <p role="alert" className="text-xs text-destructive">

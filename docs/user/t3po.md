@@ -82,6 +82,12 @@ Routed jobs use isolated worktrees on the current environment and wait for the p
 
 Each channel and the lead chat keep short notes: decisions, preferences, open questions and key facts from that conversation. The lead updates them as the conversation goes, and they reach it on later turns, so they survive when a long conversation is compacted. Jobs a chat routes also see that chat's notes. Edit them under **Notes** in the Work panel; it shows when they last changed and whether you or the lead changed them. If the lead saves while you are editing, your save is refused instead of overwriting its change: cancel, then edit the latest notes. Notes hold up to 8000 characters.
 
+## Recurring work and reminders
+
+Ask a lead or channel for something on a schedule, such as "every Monday at 9 summarize last week's signups" or "remind me Friday to send the invoice". It saves a schedule for that chat and confirms the time. When the schedule fires, its prompt arrives in the same chat as a scheduled message, and the lead answers or routes a job from there.
+
+The **Scheduled** section of the Work panel lists the chat's schedules with their next and last run, and lets you pause, resume, or delete them. Daily and weekly times use the server's time zone; the panel shows the zone when it differs from yours. Schedules run only while the server is running. If it was asleep or stopped at the scheduled time, a one-time reminder or an every-N-minutes schedule runs once when it is back; a daily or weekly run more than 10 minutes late is skipped until its next time.
+
 ## Inspect and correct local memory
 
 Open **Project memory** in a project to inspect captured records, twenty at a time. Receipt acceptance confirms that the gateway accepted a record; Honcho delivery and processing are not yet verified in this view.

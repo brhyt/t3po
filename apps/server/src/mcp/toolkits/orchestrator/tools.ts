@@ -1,5 +1,8 @@
+import * as T3poSchedules from "../../../t3po/Schedules.ts";
 import * as T3poWork from "../../../t3po/Work.ts";
 import {
+  T3poScheduleRequest,
+  T3poScheduleResult,
   T3poWorkRoute,
   T3poWorkReceipt,
   T3poNotes,
@@ -103,6 +106,19 @@ const NotesUpdateTool = Tool.make("t3_notes_update", {
   .annotate(Tool.Title, "Update conversation notes")
   .annotate(Tool.Destructive, false)
   .annotate(Tool.Idempotent, true)
+  .annotate(McpSchema.EnabledWhen, McpInvocationContext.hiddenFromOutsideClients);
+
+const WorkScheduleTool = Tool.make("t3_work_schedule", {
+  description:
+    "Keep schedules for this T3PO lead/channel chat: list, create, update (enabled=false pauses, true resumes), delete. Each run sends its prompt back into this chat at the scheduled time; you then act on it. Use for recurring work and reminders. List before creating to avoid duplicates. Results give the server timeZone and now.",
+  parameters: T3poScheduleRequest,
+  success: T3poScheduleResult,
+  failure: OrchestratorMcpFailure,
+  failureMode: "return",
+  dependencies: [...dependencies, T3poSchedules.Schedules],
+})
+  .annotate(Tool.Title, "Schedule chat work")
+  .annotate(Tool.Destructive, true)
   .annotate(McpSchema.EnabledWhen, McpInvocationContext.hiddenFromOutsideClients);
 
 const OrchestratorCapabilitiesTool = Tool.make("orchestrator_capabilities", {
@@ -398,6 +414,7 @@ const EnvironmentUnlinkTool = Tool.make("t3_environment_unlink", {
 export const OrchestratorToolkit = Toolkit.make(
   WorkRouteTool,
   NotesUpdateTool,
+  WorkScheduleTool,
   OrchestratorCapabilitiesTool,
   DelegateTaskTool,
   TaskStatusTool,

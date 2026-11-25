@@ -12,6 +12,7 @@ const scopedTools = new Set([
   "tool_search",
   "t3_work_route",
   "t3_notes_update",
+  "t3_work_schedule",
   "delegate_task",
   "task_status",
   "task_cancel",
