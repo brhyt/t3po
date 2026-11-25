@@ -98,6 +98,8 @@ export type T3poNotes = typeof T3poNotes.Type;
 /** Exactly one of `text` (replace) or `edits` (patch the current notes). */
 export const T3poNotesUpdate = Schema.Struct({
   text: Schema.optional(T3poNotesText),
+  /** Required with `text`: the revision the replacement is based on (0 before any notes). */
+  expectedRevision: Schema.optional(NonNegativeInt),
   edits: Schema.optional(
     Schema.Array(
       Schema.Struct({

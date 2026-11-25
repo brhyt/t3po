@@ -99,7 +99,7 @@ const WorkRouteTool = Tool.make("t3_work_route", {
 
 const NotesUpdateTool = Tool.make("t3_notes_update", {
   description:
-    "Save this T3PO lead/channel conversation's notes: the working record that survives context compaction and is shown to the user, who may edit it too. Pass `text` to replace the notes, or `edits` to change the current notes (each oldText must appear exactly once). At most 8000 characters. Returns the saved notes.",
+    "Save this T3PO lead/channel conversation's notes: the working record that survives context compaction and is shown to the user, who may edit it too. Pass `text` with `expectedRevision` (the notes revision in your context, 0 if none) to replace the notes, or `edits` to change the current notes (each oldText must appear exactly once). At most 8000 characters. Returns the saved notes.",
   parameters: T3poNotesUpdate,
   success: T3poNotes,
   failure: OrchestratorMcpFailure,

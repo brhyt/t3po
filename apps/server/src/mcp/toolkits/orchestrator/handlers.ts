@@ -53,9 +53,15 @@ const handlers = {
             ? new OrchestratorMcpFailure({
                 code: "invalid_request",
                 message:
-                  "Notes belong to a live project lead or channel chat. Pass text or edits, not both; each oldText must appear exactly once in the current notes, and the result must fit in 8000 characters.",
+                  "Notes belong to a live project lead or channel chat. Pass text with expectedRevision, or edits, not both; each oldText must appear exactly once in the current notes, and the result must fit in 8000 characters.",
               })
-            : new OrchestratorMcpFailure({ code: "orchestration_error", message: error.message }),
+            : error.operation === "notes_stale"
+              ? new OrchestratorMcpFailure({
+                  code: "invalid_request",
+                  message:
+                    "The notes changed since that revision, likely edited by the user. Keep their changes: use edits against the current notes, or ask the user before replacing them.",
+                })
+              : new OrchestratorMcpFailure({ code: "orchestration_error", message: error.message }),
         ),
       );
     }),

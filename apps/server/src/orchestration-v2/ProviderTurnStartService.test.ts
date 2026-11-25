@@ -464,6 +464,8 @@ function makeLocalCommandHarness(input: {
     readonly send: boolean;
   };
   readonly ordinaryTurn?: boolean;
+  readonly threadId?: string;
+  readonly onContextClaim?: () => void;
   readonly proposals?: boolean;
   readonly text: string;
   readonly manualContinuation?: boolean;
@@ -518,7 +520,7 @@ function makeLocalCommandHarness(input: {
 }) {
   const settledRuns: Array<string> = [];
   const now = DateTime.makeUnsafe("2026-09-04T12:00:00Z");
-  const threadId = ThreadId.make("thread-native-account-command");
+  const threadId = ThreadId.make(input.threadId ?? "thread-native-account-command");
   const runId = RunId.make("run-native-account-command");
   const rootNodeId = NodeId.make("root-native-account-command");
   const attemptId = RunAttemptId.make("attempt-native-account-command");
@@ -1325,7 +1327,12 @@ function makeLocalCommandHarness(input: {
               ? { context: "", recall: "" }
               : { context: input.t3poContext.context, recall: input.t3poContext.recall },
           ),
-        claimContextDelivery: () => Effect.succeed(input.t3poContext?.send ?? true),
+        claimContextDelivery: () =>
+          Effect.sync(() => {
+            input.onContextClaim?.();
+            return input.t3poContext?.send ?? true;
+          }),
+        requestProjectIcon: () => Effect.succeed(false),
         checkStart: input.checkStart ?? (() => Effect.void),
         proposalEnabled: () => Effect.succeed(input.proposals === true),
       }),
@@ -3250,6 +3257,43 @@ effectIt.effect.each([
     if (scenario.expected.length === 0) expect(text).toBe("Continue");
     for (const part of scenario.expected) expect(text).toContain(part);
     if (!scenario.send) expect(text).not.toContain("Project context");
+  }),
+);
+
+effectIt.effect("gives a lead chat this message's id even when the project block is skipped", () =>
+  Effect.gen(function* () {
+    const harness = makeLocalCommandHarness({
+      text: "Start the audit job",
+      ordinaryTurn: true,
+      threadId: "t3po-channel:research",
+      t3poContext: { context: '{"brief":"Ship"}', recall: "", send: false },
+    });
+    yield* harness.startWithRetry;
+    const call = harness.startRootRun.mock.calls[0]![0];
+    expect(call.message.text).not.toContain("Project context");
+    expect(call.message.text).toContain(
+      `This message's id (sourceMessageId for t3_work_route): ${call.message.messageId}`,
+    );
+    expect(call.message.text.endsWith("Start the audit job")).toBe(true);
+  }),
+);
+
+effectIt.effect("does not record the project block as delivered on a native resume", () =>
+  Effect.gen(function* () {
+    let claims = 0;
+    const harness = makeLocalCommandHarness({
+      text: "",
+      ordinaryTurn: true,
+      manualContinuation: true,
+      threadId: "t3po-channel:research",
+      t3poContext: { context: '{"brief":"Ship"}', recall: "", send: true },
+      onContextClaim: () => {
+        claims += 1;
+      },
+    });
+    yield* harness.start;
+    expect(harness.startRootRun.mock.calls[0]?.[0].resume).toBe(true);
+    expect(claims).toBe(0);
   }),
 );
 

@@ -1039,7 +1039,12 @@ const make = Effect.gen(function* () {
         ...(threadId === lead.threadId || channel
           ? {
               notes: notes
-                ? { text: notes.text, updatedAt: notes.updatedAt, updatedBy: notes.updatedBy }
+                ? {
+                    text: notes.text,
+                    revision: notes.revision,
+                    updatedAt: notes.updatedAt,
+                    updatedBy: notes.updatedBy,
+                  }
                 : null,
             }
           : { routingNotes: routingNotes[0]?.text ?? null }),

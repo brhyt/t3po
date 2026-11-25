@@ -68,6 +68,21 @@ export function vapidAuthorization(endpoint: string, keys: VapidKeys, nowSeconds
   return `vapid t=${unsigned}.${b64u(signature)}, k=${keys.publicKey}`;
 }
 
+/** Whether a browser's keys can encrypt a message: a P-256 point and a 16-byte auth secret. */
+function validSubscriptionKeys(p256dh: string, auth: string): boolean {
+  try {
+    const receiver = Buffer.from(p256dh, "base64url");
+    if (receiver.length !== 65 || receiver[0] !== 4) return false;
+    if (Buffer.from(auth, "base64url").length !== 16) return false;
+    const ecdh = NodeCrypto.createECDH("prime256v1");
+    ecdh.generateKeys();
+    ecdh.computeSecret(receiver);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** RFC 8291 `aes128gcm` message encryption for a browser's subscription keys. */
 export function encryptPayload(plaintext: Uint8Array, p256dh: string, auth: string): Buffer {
   const receiver = Buffer.from(p256dh, "base64url");
@@ -186,7 +201,16 @@ export const make = Effect.gen(function* () {
     const payload = { ...content, title: titleFor(device, kind) };
     const now = DateTime.toEpochMillis(yield* DateTime.now);
     const authorization = vapidAuthorization(device.endpoint, yield* keys, Math.floor(now / 1000));
-    const body = encryptPayload(Buffer.from(encodePayload(payload)), device.p256dh, device.auth);
+    // A throw here would end the scan for every device, so an unusable subscription is dropped instead.
+    const body = yield* Effect.try({
+      try: () => encryptPayload(Buffer.from(encodePayload(payload)), device.p256dh, device.auth),
+      catch: (cause) => new T3poError({ operation: "invalid", cause }),
+    }).pipe(Effect.option);
+    if (Option.isNone(body)) {
+      yield* sql`DELETE FROM t3po_push_subscriptions WHERE endpoint = ${device.endpoint}`;
+      yield* Effect.logWarning("Dropped a push subscription whose keys cannot encrypt");
+      return false;
+    }
     const response = yield* client.execute(
       HttpClientRequest.post(device.endpoint).pipe(
         HttpClientRequest.setHeaders({
@@ -195,7 +219,7 @@ export const make = Effect.gen(function* () {
           "Content-Encoding": "aes128gcm",
           Authorization: authorization,
         }),
-        HttpClientRequest.bodyUint8Array(body, "application/octet-stream"),
+        HttpClientRequest.bodyUint8Array(body.value, "application/octet-stream"),
       ),
     );
     // The browser dropped this subscription; stop sending to it.
@@ -232,7 +256,11 @@ export const make = Effect.gen(function* () {
     function* (input: T3poPushChange) {
       switch (input.type) {
         case "subscribe": {
-          if (new URL(input.endpoint).protocol !== "https:")
+          if (
+            !URL.canParse(input.endpoint) ||
+            new URL(input.endpoint).protocol !== "https:" ||
+            !validSubscriptionKeys(input.p256dh, input.auth)
+          )
             return yield* new T3poError({ operation: "invalid" });
           const createdAt = DateTime.formatIso(yield* DateTime.now);
           const titles = yield* encodeTitles(input.titles);

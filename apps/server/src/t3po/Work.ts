@@ -195,9 +195,14 @@ export const saveNotes = Effect.fn("T3poWork.saveNotes")(
       SELECT project_id AS projectId, NULL AS channelId FROM t3po_leads WHERE json_extract(data, '$.threadId') = ${callerThreadId}
       UNION SELECT project_id AS projectId, id AS channelId FROM t3po_channels WHERE 't3po-channel:' || id = ${callerThreadId} LIMIT 1`;
     if (!owners[0]) return yield* new T3poError({ operation: "invalid" });
+    // A whole-text replacement must not silently undo an edit the user saved meanwhile.
+    if (input.text !== undefined && input.expectedRevision === undefined)
+      return yield* new T3poError({ operation: "invalid" });
     const projectId = ProjectId.make(owners[0].projectId);
+    const { expectedRevision, ...update } = input;
     const notes = yield* store.saveNotes({
-      ...input,
+      ...update,
+      ...(expectedRevision === undefined ? {} : { expectedRevision }),
       projectId,
       channelId: owners[0].channelId,
       updatedBy: "lead",

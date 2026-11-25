@@ -125,6 +125,36 @@ it.effect(
           enabled: true,
         });
 
+        // A fresh-session choice made in Settings survives the lead renaming the schedule.
+        yield* scheduler.upsert({
+          id: stored.id,
+          requireExisting: true,
+          title: stored.title,
+          prompt: stored.prompt,
+          enabled: stored.enabled,
+          schedule: { type: "fixed_time", timeOfDay: "09:00", weekdays: [1] },
+          projectId: stored.projectId,
+          threadId: channel,
+          threadMode: "fresh_session",
+          workspaceStrategy: stored.workspaceStrategy,
+          modelSelection: stored.modelSelection,
+          runtimeMode: stored.runtimeMode,
+          interactionMode: stored.interactionMode,
+          createdBy: stored.createdBy,
+          creationSource: stored.creationSource,
+        });
+        yield* run(callerOf(channel, projectA), {
+          action: "update",
+          scheduleId,
+          title: "Monday signups",
+        });
+        expect(
+          (yield* scheduler.list()).tasks.find((task) => task.id === scheduleId),
+        ).toMatchObject({
+          title: "Monday signups",
+          threadMode: "fresh_session",
+        });
+
         const other = yield* run(callerOf(leadB, projectB), {
           action: "create",
           prompt: "Remind the user to send the invoice.",

@@ -395,15 +395,29 @@ it.effect("saves notes for the calling chat and hands them to the jobs it routes
   Effect.gen(function* () {
     yield* seed;
     const store = yield* Store.Store;
-    yield* saveNotes(caller, { text: "Preference: report p95, not averages." });
+    // A replacement must name the revision it was based on.
+    expect(
+      (yield* saveNotes(caller, { text: "Preference: report p95." }).pipe(Effect.flip)).operation,
+    ).toBe("invalid");
+    yield* saveNotes(caller, {
+      text: "Preference: report p95, not averages.",
+      expectedRevision: 0,
+    });
     const saved = yield* saveNotes(caller, {
       edits: [{ oldText: "p95", newText: "p99" }],
     });
     expect(saved).toMatchObject({ channelId: "research", revision: 2, updatedBy: "lead" });
+    // Replacing from an older revision, after someone else saved, is refused.
+    expect(
+      (yield* saveNotes(caller, { text: "Overwrite", expectedRevision: 1 }).pipe(Effect.flip))
+        .operation,
+    ).toBe("notes_stale");
     expect(yield* store.notes(projectId, null)).toBeNull();
     for (const thread of ["t3po-task:other", "ordinary-thread"])
       expect(
-        (yield* saveNotes(ThreadId.make(thread), { text: "x" }).pipe(Effect.flip)).operation,
+        (yield* saveNotes(ThreadId.make(thread), { text: "x", expectedRevision: 0 }).pipe(
+          Effect.flip,
+        )).operation,
       ).toBe("invalid");
     const job = yield* reserve(caller, input, model);
     const context = JSON.parse(

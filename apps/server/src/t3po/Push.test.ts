@@ -196,6 +196,31 @@ it.effect("stores devices and mutes, and refuses non-https endpoints", () =>
   }).pipe(Effect.provide(fixture)),
 );
 
+it.effect(
+  "refuses unusable keys and keeps notifying when a stored subscription cannot encrypt",
+  () =>
+    Effect.gen(function* () {
+      yield* seed;
+      const sent: Sent[] = [];
+      const push = yield* Push.Push.pipe(Effect.provide(pushLayer(sent)));
+      const good = browser("https://push.example/good");
+      const refused = yield* push
+        .change({ ...good.subscribe, endpoint: "https://push.example/bad", p256dh: "not-a-point" })
+        .pipe(Effect.flip);
+      expect(refused.operation).toBe("invalid");
+      yield* push.change(good.subscribe);
+      // A subscription stored before keys were checked.
+      const sql = yield* SqlClient.SqlClient;
+      yield* sql`INSERT INTO t3po_push_subscriptions (endpoint, p256dh, auth, label, titles, created_at) VALUES ('https://push.example/broken', ${"A".repeat(87)}, ${good.subscribe.auth}, 'Old', '{}', '0')`;
+      yield* finish("done", 1, "completed");
+      yield* push.scan;
+      expect(sent.map((entry) => entry.url)).toEqual(["https://push.example/good"]);
+      expect((yield* push.state).devices.map((device) => device.endpoint)).toEqual([
+        "https://push.example/good",
+      ]);
+    }).pipe(Effect.provide(fixture)),
+);
+
 it.effect("notifies once per job outcome and pending request, across restarts", () =>
   Effect.gen(function* () {
     yield* seed;

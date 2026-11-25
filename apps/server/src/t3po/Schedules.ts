@@ -10,6 +10,7 @@ import {
   type T3poSchedule,
   type T3poScheduleRequest,
   type T3poScheduleResult,
+  scheduledTaskThreadMode,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
@@ -125,7 +126,8 @@ const handle = Effect.fn("T3poSchedules.handle")(function* (
         schedule,
         projectId: existing.projectId,
         threadId: caller.threadId,
-        threadMode: "continue",
+        // Keep a fresh-session choice made in Settings.
+        threadMode: scheduledTaskThreadMode(existing),
         workspaceStrategy: existing.workspaceStrategy,
         modelSelection: existing.modelSelection,
         runtimeMode: existing.runtimeMode,
