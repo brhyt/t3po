@@ -205,8 +205,12 @@ describe("IdleCompactionService", () => {
     { mode: "beforeCacheExpires", driver: "codex", instance: "custom-codex", reads: 0 },
     { mode: "beforeCacheExpires", driver: "claudeAgent", instance: "custom-claude", reads: 1 },
     { mode: "beforeCacheExpires", unconfigured: true, reads: 1 },
+    // Lead conversations compact before the cache expires under any global mode.
+    { mode: "default", thread: "t3po-lead:project", reads: 1 },
+    { mode: "off", thread: "t3po-channel:research", reads: 1 },
+    { mode: "default", thread: "t3po-task:job", reads: 0 },
   ] as const)(
-    "loads history only for eligible idle compaction: $mode/$override/$enabled/$projectDisabled/$instance/$unconfigured",
+    "loads history only for eligible idle compaction: $mode/$override/$enabled/$projectDisabled/$instance/$unconfigured/$thread",
     (scenario) => {
       const test = {
         override: "default",
@@ -269,7 +273,7 @@ describe("IdleCompactionService", () => {
             streamDomainEvents: Stream.make({
               id: EventId.make("idle-completed"),
               type: "run.updated",
-              threadId,
+              threadId: "thread" in test ? ThreadId.make(test.thread) : threadId,
               runId,
               occurredAt: at(),
               payload: data.runs[0]!,
@@ -291,7 +295,7 @@ describe("IdleCompactionService", () => {
           Layer.mock(ServerSettings.ServerSettingsService)({
             getSettings: Effect.succeed({
               ...DEFAULT_SERVER_SETTINGS,
-              idleCompaction: test.mode,
+              ...(test.mode === "default" ? {} : { idleCompaction: test.mode }),
               providerInstances:
                 "unconfigured" in test
                   ? {}

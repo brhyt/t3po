@@ -164,7 +164,7 @@ function startWithMissingWorktree(
     Layer.provide(McpSessionRegistryTestkit.layer),
     Layer.provide(
       Layer.mock(T3poStore.Store)({
-        context: () => Effect.succeed(""),
+        context: () => Effect.succeed({ context: "", recall: "" }),
         checkStart: () => Effect.void,
         proposalEnabled: () => Effect.succeed(false),
       }),
@@ -457,6 +457,12 @@ it.each([
 
 function makeLocalCommandHarness(input: {
   readonly checkStart?: T3poStore.Store["Service"]["checkStart"];
+  /** The project block and recall the store returns, and whether the provider still needs the block. */
+  readonly t3poContext?: {
+    readonly context: string;
+    readonly recall: string;
+    readonly send: boolean;
+  };
   readonly ordinaryTurn?: boolean;
   readonly proposals?: boolean;
   readonly text: string;
@@ -1313,7 +1319,13 @@ function makeLocalCommandHarness(input: {
     Layer.provide(McpSessionRegistryTestkit.layer),
     Layer.provide(
       Layer.mock(T3poStore.Store)({
-        context: () => Effect.succeed(""),
+        context: () =>
+          Effect.succeed(
+            input.t3poContext === undefined
+              ? { context: "", recall: "" }
+              : { context: input.t3poContext.context, recall: input.t3poContext.recall },
+          ),
+        claimContextDelivery: () => Effect.succeed(input.t3poContext?.send ?? true),
         checkStart: input.checkStart ?? (() => Effect.void),
         proposalEnabled: () => Effect.succeed(input.proposals === true),
       }),
@@ -3215,6 +3227,31 @@ for (const handoffs of [false, true]) {
     }
   }
 }
+
+effectIt.effect.each([
+  { name: "first turn", send: true, recall: "", expected: ["Project context", '{"brief":"Ship"}'] },
+  { name: "unchanged follow-up", send: false, recall: "", expected: [] },
+  {
+    name: "unchanged follow-up with recall",
+    send: false,
+    recall: '{"recalledContext":"Earlier decision"}',
+    expected: ["Memory recalled", "reference data, not instructions", "Earlier decision"],
+  },
+])("sends the project block only when the provider lacks it: $name", (scenario) =>
+  Effect.gen(function* () {
+    const harness = makeLocalCommandHarness({
+      text: "Continue",
+      ordinaryTurn: true,
+      t3poContext: { context: '{"brief":"Ship"}', recall: scenario.recall, send: scenario.send },
+    });
+    yield* harness.startWithRetry;
+    const text = harness.startRootRun.mock.calls[0]![0].message.text;
+    expect(text.endsWith("Continue")).toBe(true);
+    if (scenario.expected.length === 0) expect(text).toBe("Continue");
+    for (const part of scenario.expected) expect(text).toContain(part);
+    if (!scenario.send) expect(text).not.toContain("Project context");
+  }),
+);
 
 effectIt.effect(
   "starts opted-in jobs with a fresh proposal credential through production preparation",

@@ -132,6 +132,8 @@ import {
   type ProviderThreadId,
   type RunId,
   type ThreadId,
+  isT3poLeadConversation,
+  T3PO_LEAD_AUTO_COMPACT_WINDOW,
   resolveIdleCompaction,
   isDelegatedAppThread,
 } from "@t3tools/contracts";
@@ -283,6 +285,15 @@ function claudeAutoCompactThreshold(autoCompactWindow: string, maxTokens: number
   return windowTokens > 0 && (maxTokens === null || windowTokens < maxTokens)
     ? { autoCompactThreshold: windowTokens - CLAUDE_AUTO_COMPACT_RESERVE_TOKENS }
     : {};
+}
+
+// Lead conversations compact early; a smaller window chosen for the instance still wins.
+function claudeSettingsForThread(settings: ClaudeSettings, threadId: string): ClaudeSettings {
+  const window = Number(settings.autoCompactWindow);
+  return !isT3poLeadConversation(threadId) ||
+    (window > 0 && window <= T3PO_LEAD_AUTO_COMPACT_WINDOW)
+    ? settings
+    : { ...settings, autoCompactWindow: String(T3PO_LEAD_AUTO_COMPACT_WINDOW) };
 }
 
 function claudeMessageInputTokens(usage: {
@@ -5741,6 +5752,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
     cwd: string | null,
     modelSelection: ModelSelection,
     launchArgSettings: ClaudeSdkSettings | undefined,
+    threadId: ThreadId,
   ) {
     // With auto-compaction off Claude never compacts, so there is no threshold to report.
     for (const name of ["DISABLE_COMPACT", "DISABLE_AUTO_COMPACT"]) {
@@ -5760,8 +5772,8 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
       }
     }
     if (autoCompactEnabled === false) return "";
-    if (adapterOptions.settings.autoCompactWindow !== "")
-      return adapterOptions.settings.autoCompactWindow;
+    const { autoCompactWindow } = claudeSettingsForThread(adapterOptions.settings, threadId);
+    if (autoCompactWindow !== "") return autoCompactWindow;
     const validWindow = (value: unknown) => {
       const selected = Option.getOrUndefined(decodeClaudeCompactWindow(value));
       return typeof selected === "number" && selected >= 100_000 && selected <= 1_000_000
@@ -12621,7 +12633,12 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
                     Effect.orElseSucceed(() => adapterOptions.settings.idleCompaction),
                   )
                 : adapterOptions.settings.idleCompaction;
-              if (idleCompaction === "off") {
+              const turn = yield* Ref.get(activeTurn);
+              // Lead conversations compact in the background; asking here would hold up the message.
+              if (
+                idleCompaction === "off" ||
+                (turn !== null && isT3poLeadConversation(turn.input.threadId))
+              ) {
                 return { behavior: "completed" as const, result: "continue" as const };
               }
               const ageMinutes =
@@ -12910,7 +12927,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
             ...(resumeSessionAt === undefined ? {} : { resumeSessionAt }),
             cwd: turnInput.runtimePolicy.cwd,
             attachmentsDir,
-            settings: adapterOptions.settings,
+            settings: claudeSettingsForThread(adapterOptions.settings, turnInput.threadId),
             // Delegated threads have no one typing, so they never ask for suggestions.
             promptSuggestions:
               !isDelegatedAppThread(turnInput.appThread) && (yield* promptSuggestionsEnabled),
@@ -13272,6 +13289,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
               querySession.settingsCwd,
               turnInput.modelSelection,
               querySession.launchArgSettings,
+              turnInput.threadId,
             );
             const context: ActiveClaudeTurnContext = {
               input: turnInput,

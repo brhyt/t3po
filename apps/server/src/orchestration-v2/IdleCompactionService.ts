@@ -1,6 +1,7 @@
 import {
   CommandId,
   IDLE_COMPACTION_TEXT,
+  isT3poLeadConversation,
   MessageId,
   resolveIdleCompaction,
   resolveProjectProviderInstanceEnabled,
@@ -33,6 +34,13 @@ export const make = Effect.gen(function* () {
   const compactWhenDue = Effect.fn("IdleCompactionService.compactWhenDue")(
     function* (threadId: ThreadId, completedRunId: RunId) {
       let runId = completedRunId;
+      // Lead conversations run all day, so they always compact in the background.
+      const compactsBeforeCacheExpires = (
+        current: Parameters<typeof resolveIdleCompaction>[0],
+        instanceId: Parameters<typeof resolveIdleCompaction>[1],
+      ) =>
+        isT3poLeadConversation(threadId) ||
+        resolveIdleCompaction(current, instanceId) === "beforeCacheExpires";
       // Loops after the wait or a retarget: the thread may have moved on.
       while (true) {
         const current = yield* settings.getSettings;
@@ -42,7 +50,7 @@ export const make = Effect.gen(function* () {
           : thread.providerInstanceId === "claudeAgent";
         if (
           !claudeInstance ||
-          resolveIdleCompaction(current, thread.providerInstanceId) !== "beforeCacheExpires" ||
+          !compactsBeforeCacheExpires(current, thread.providerInstanceId) ||
           !resolveProjectProviderInstanceEnabled(
             current,
             thread.projectId,
@@ -79,8 +87,7 @@ export const make = Effect.gen(function* () {
           },
         );
         if (
-          resolveIdleCompaction(current, records.thread.providerInstanceId) !==
-            "beforeCacheExpires" ||
+          !compactsBeforeCacheExpires(current, records.thread.providerInstanceId) ||
           !resolveProjectProviderInstanceEnabled(
             current,
             records.thread.projectId,

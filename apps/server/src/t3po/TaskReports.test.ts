@@ -200,13 +200,13 @@ it.effect("pins revisions and durably reports once without starting a destinatio
         },
       ],
     });
-    const context = JSON.parse(yield* store.context(projectId, source, "", execution.id));
+    const context = JSON.parse((yield* store.context(projectId, source, "", execution.id)).context);
     expect(context.briefRevision).toBe(2);
     expect(context.assignment).toBe("Second");
     yield* store.mutate({ ...task, type: "edit_task", brief: "Third" });
-    expect(JSON.parse(yield* store.context(projectId, source, "", execution.id)).assignment).toBe(
-      "Second",
-    );
+    expect(
+      JSON.parse((yield* store.context(projectId, source, "", execution.id)).context).assignment,
+    ).toBe("Second");
     yield* sink.write({
       events: [
         {
@@ -397,7 +397,9 @@ it.effect("pins revisions and durably reports once without starting a destinatio
         },
       ],
     });
-    expect(JSON.parse(yield* store.context(projectId, source, "", next.id))).toMatchObject({
+    expect(
+      JSON.parse((yield* store.context(projectId, source, "", next.id)).context),
+    ).toMatchObject({
       assignment: "Third",
       briefRevision: 3,
     });

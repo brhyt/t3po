@@ -145,11 +145,14 @@ it.effect(
       const records = yield* second.read;
       expect(records.leads[0]?.threadId).toBe("t3po-lead:project-a");
       expect(records.leads[0]?.autoName).toBeUndefined();
-      const context = yield* second.context(projectId, ThreadId.make("t3po-lead:project-a"));
+      const context = (yield* second.context(projectId, ThreadId.make("t3po-lead:project-a")))
+        .context;
       expect(context).toContain("Use fresh evidence.");
       expect(context).toContain("Investigate recall");
-      expect(yield* second.context(otherProjectId, ThreadId.make("t3po-lead:project-a"))).toBe("");
-      expect(yield* second.context(projectId, ThreadId.make("ordinary-thread"))).toBe("");
+      expect(
+        (yield* second.context(otherProjectId, ThreadId.make("t3po-lead:project-a"))).context,
+      ).toBe("");
+      expect((yield* second.context(projectId, ThreadId.make("ordinary-thread"))).context).toBe("");
       expect(
         (yield* second
           .reserveLaunch(task.id, otherProjectId, { ...selection, projectId: otherProjectId })
@@ -266,7 +269,7 @@ it.effect("records a lead delegation atomically and preserves review state on re
     expect(tasks).toHaveLength(1);
     expect(tasks[0]?.reviewedRunId).toBe("worker-run");
     expect(tasks[0]?.completed).toBe(true);
-    expect(yield* store.context(projectId, childThreadId)).toContain("Project context");
+    expect((yield* store.context(projectId, childThreadId)).context).toContain("Project context");
     yield* store.mutate({ type: "create_channel", projectId, id: "research", name: "Research" });
     const channelThread = ThreadId.make("t3po-channel:research");
     yield* sql.withTransaction(
@@ -362,9 +365,9 @@ it.effect(
         title: "Updated",
         channelId: "work",
       });
-      expect(yield* store.context(projectId, ThreadId.make("t3po-task:task-a"))).toContain(
-        "New assignment",
-      );
+      expect(
+        (yield* store.context(projectId, ThreadId.make("t3po-task:task-a"))).context,
+      ).toContain("New assignment");
       yield* store.mutate({ type: "edit_channel", projectId, id: "work", name: "Engineering" });
       yield* store.mutate({ type: "archive_channel", projectId, id: "work", archived: true });
       expect((yield* store.read).tasks).toHaveLength(1);
@@ -455,11 +458,11 @@ it.effect(
       expect(
         (yield* store.read).memory.find((entry) => entry.projectId === projectId)?.pending,
       ).toBe(2);
-      const local = yield* store.context(
+      const local = (yield* store.context(
         projectId,
         ThreadId.make("t3po-lead:project-a"),
         "What did we decide?",
-      );
+      )).context;
       expect(local).toContain("Result 1");
       expect(local).not.toContain("Private other project");
       expect(
@@ -468,9 +471,9 @@ it.effect(
       const restarted = yield* Store.Store.pipe(Effect.provide(Layer.fresh(Store.layer)));
       online = true;
       yield* TestClock.adjust("2 seconds");
-      expect(yield* restarted.context(projectId, ThreadId.make("t3po-lead:project-a"))).toContain(
-        "Remember the approved decision.",
-      );
+      expect(
+        (yield* restarted.context(projectId, ThreadId.make("t3po-lead:project-a"))).recall,
+      ).toContain("Remember the approved decision.");
       expect(requests[1]?.events).toEqual(requests[0]?.events);
       expect(requests.every((request) => request.projectId === projectId)).toBe(true);
       expect(
@@ -489,7 +492,9 @@ it.effect(
       expect(
         (yield* sql`SELECT failures, next_attempt FROM t3po_memory_status WHERE project_id = ${projectId}`)[0],
       ).toEqual({ failures: 0, next_attempt: 0 });
-      expect(yield* restarted.context(projectId, ThreadId.make("t3po-lead:project-b"))).toBe("");
+      expect(
+        (yield* restarted.context(projectId, ThreadId.make("t3po-lead:project-b"))).context,
+      ).toBe("");
       yield* restarted.mutate({
         type: "edit_task",
         projectId,
@@ -668,7 +673,7 @@ it.effect(
         yield* store.mutate({ type: "save_lead", projectId, name: "Lead", brief: "Newer" });
         release.resolve();
         yield* PubSub.take(notifications);
-        expect(yield* Fiber.join(recall)).toContain("Recalled");
+        expect((yield* Fiber.join(recall)).recall).toContain("Recalled");
         expect(requests[0]?.events).toHaveLength(1);
         expect(requests[1]?.events).toHaveLength(0);
         expect((yield* store.read).memory[0]?.pending).toBe(1);
@@ -754,7 +759,7 @@ it.effect(
         Effect.flatMap((store) => store.context(projectId, ThreadId.make("t3po-lead:project-a"))),
         Effect.provide(Store.layer.pipe(Layer.provide(Sqlite.layerFromPath(filename)))),
       );
-      expect(JSON.parse(records).memory.recentRecords).toEqual([
+      expect(JSON.parse(records.context).memory.recentRecords).toEqual([
         { kind: "local_correction", text: "Corrected" },
       ]);
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
@@ -763,24 +768,90 @@ it.effect(
 it.effect("channel conversations retain identity after rename and share scoped lead context", () =>
   Effect.gen(function* () {
     const store = yield* Store.Store;
+    const sql = yield* SqlClient.SqlClient;
     yield* store.mutate({ type: "save_lead", projectId, name: "Lead", brief: "Project decisions" });
     yield* store.mutate({ type: "create_channel", projectId, id: "research", name: "Research" });
     yield* store.mutate({ ...task, channelId: "research" });
     yield* store.mutate({ ...task, id: "unrelated", title: "Other channel task" });
     const threadId = ThreadId.make("t3po-channel:research");
     expect(yield* store.getTaskProject(threadId)).toBe(projectId);
-    const context = JSON.parse(yield* store.context(projectId, threadId));
+    // The conversation's own messages are already in the provider transcript.
+    yield* sql`INSERT INTO orchestration_v2_projection_messages (message_id, thread_id, run_id, role, streaming, created_at, updated_at, payload_json) VALUES ('channel-message', ${threadId}, 'channel-run', 'user', 0, '2026-11-25T12:00:00.000Z', '2026-11-25T12:00:00.000Z', '{"text":"Earlier channel request"}')`;
+    const block = (yield* store.context(projectId, threadId)).context;
+    expect(block).not.toContain("Earlier channel request");
+    const context = JSON.parse(block);
+    expect(context).not.toHaveProperty("sourceMessages");
     expect(context.role).toBe("project lead");
     expect(context.projectBrief).toBe("Project decisions");
     expect(context.channel).toEqual({ id: "research", name: "Research" });
     expect(context.recentTasks.map((item: { title: string }) => item.title)).toEqual([task.title]);
-    expect(yield* store.context(otherProjectId, threadId)).toBe("");
+    expect((yield* store.context(otherProjectId, threadId)).context).toBe("");
     yield* store.mutate({ type: "edit_channel", projectId, id: "research", name: "Discovery" });
     const restarted = yield* Store.Store.pipe(Effect.provide(Layer.fresh(Store.layer)));
-    expect(JSON.parse(yield* restarted.context(projectId, threadId)).channel.name).toBe(
+    expect(JSON.parse((yield* restarted.context(projectId, threadId)).context).channel.name).toBe(
       "Discovery",
     );
   }).pipe(Effect.provide(Store.layer.pipe(Layer.provideMerge(Sqlite.layerMemory)))),
+);
+
+it.effect(
+  "resends the lead context block only after a new session, a change, or a compaction",
+  () =>
+    Effect.gen(function* () {
+      const store = yield* Store.Store;
+      const sql = yield* SqlClient.SqlClient;
+      const threadId = ThreadId.make("t3po-lead:project-a");
+      let ordinal = 0;
+      const turn = Effect.fn("test.turn")(function* (
+        context: string,
+        options: { readonly providerThreadId?: string; readonly reached?: boolean } = {},
+      ) {
+        const runId = `run-${++ordinal}`;
+        const providerThreadId = options.providerThreadId ?? "provider-thread-a";
+        const sent = yield* store.claimContextDelivery({
+          threadId,
+          runId: RunId.make(runId),
+          providerThreadId,
+          context,
+        });
+        const now = "2026-11-25T12:00:00.000Z";
+        yield* sql`INSERT INTO orchestration_v2_projection_runs (run_id, thread_id, ordinal, provider, status, requested_at, completed_at, payload_json) VALUES (${runId}, ${threadId}, ${ordinal}, 'claudeAgent', 'completed', ${now}, ${now}, '{}')`;
+        yield* sql`INSERT INTO orchestration_v2_projection_run_attempts (attempt_id, thread_id, run_id, attempt_ordinal, root_node_id, provider, provider_thread_id, provider_turn_id, status, payload_json) VALUES (${`attempt-${runId}`}, ${threadId}, ${runId}, 1, 'root', 'claudeAgent', ${providerThreadId}, ${options.reached === false ? null : `turn-${runId}`}, 'completed', '{}')`;
+        return sent;
+      });
+      expect(yield* turn("brief A")).toBe(true);
+      expect(yield* turn("brief A")).toBe(false);
+      expect(yield* turn("brief B")).toBe(true);
+      expect(yield* turn("brief B")).toBe(false);
+      yield* sql`INSERT INTO orchestration_v2_projection_turn_items (turn_item_id, thread_id, run_id, ordinal, type, status, updated_at, payload_json) VALUES ('compaction-1', ${threadId}, ${`run-${ordinal}`}, 9, 'compaction', 'completed', '2026-11-25T12:00:00.000Z', '{}')`;
+      expect(yield* turn("brief B")).toBe(true);
+      expect(yield* turn("brief B")).toBe(false);
+      expect(yield* turn("brief B", { providerThreadId: "provider-thread-b" })).toBe(true);
+      // A start that never reached the provider delivered nothing.
+      expect(
+        yield* turn("brief C", { providerThreadId: "provider-thread-b", reached: false }),
+      ).toBe(true);
+      expect(yield* turn("brief C", { providerThreadId: "provider-thread-b" })).toBe(true);
+      const restarted = yield* Store.Store.pipe(Effect.provide(Layer.fresh(Store.layer)));
+      expect(
+        yield* restarted.claimContextDelivery({
+          threadId,
+          runId: RunId.make("after-restart"),
+          providerThreadId: "provider-thread-b",
+          context: "brief C",
+        }),
+      ).toBe(false);
+      // Jobs restate their assignment every turn.
+      for (const runId of ["job-run-1", "job-run-2"])
+        expect(
+          yield* store.claimContextDelivery({
+            threadId: ThreadId.make("t3po-task:task-a"),
+            runId: RunId.make(runId),
+            providerThreadId: "provider-thread-a",
+            context: "assignment",
+          }),
+        ).toBe(true);
+    }).pipe(Effect.provide(Store.layer.pipe(Layer.provideMerge(Sqlite.layerMemory)))),
 );
 
 it.effect(

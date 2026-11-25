@@ -340,8 +340,10 @@ it.effect(
       expect(
         yield* sql`SELECT source_project_id, target_project_id, revoked FROM t3po_space_handoffs WHERE job_id = ${receipt.jobId}`,
       ).toEqual([{ source_project_id: projectId, target_project_id: destination, revoked: 1 }]);
-      expect(yield* store.context(projectId, caller)).toContain(receipt.jobId);
-      expect(yield* store.context(destination, task.threadId)).not.toContain("Improve the project");
+      expect((yield* store.context(projectId, caller)).context).toContain(receipt.jobId);
+      expect((yield* store.context(destination, task.threadId)).context).not.toContain(
+        "Improve the project",
+      );
     }).pipe(Effect.provide(fixture)),
 );
 

@@ -36,6 +36,7 @@ import {
   OrchestrationV2ThreadLaunchWorkspaceStrategy,
   T3PO_DEFAULT_CONCURRENT_JOBS,
   T3PO_DEFAULT_WORK_ACCESS,
+  isT3poLeadConversation,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
@@ -90,12 +91,23 @@ export class Store extends Context.Service<
     readonly proposalEnabled: (threadId: ThreadId) => Effect.Effect<boolean, T3poError>;
     readonly memoryDeliveryLock: Effect.Effect<Semaphore.Semaphore>;
     readonly runMemoryWorker: Effect.Effect<never>;
+    /** The stable project block, plus this message's memory recall; both are "" when absent. */
     readonly context: (
       projectId: ProjectId,
       threadId: ThreadId,
       query?: string,
       runId?: RunId,
-    ) => Effect.Effect<string, T3poError>;
+    ) => Effect.Effect<{ readonly context: string; readonly recall: string }, T3poError>;
+    /**
+     * Whether a lead or channel turn must resend `context`: its provider has not seen this block
+     * since its session started, last compacted, or the block changed. Records the send.
+     */
+    readonly claimContextDelivery: (input: {
+      readonly threadId: ThreadId;
+      readonly runId: RunId;
+      readonly providerThreadId: string;
+      readonly context: string;
+    }) => Effect.Effect<boolean, T3poError>;
     readonly read: Effect.Effect<Page, T3poError>;
     readonly list: (input: T3poQuery) => Effect.Effect<Page, T3poError>;
     readonly results: (
@@ -829,6 +841,7 @@ const make = Effect.gen(function* () {
   );
   const context = Effect.fn("T3poStore.context")(
     function* (projectId: ProjectId, threadId: ThreadId, query = "", runId?: RunId) {
+      const none = { context: "", recall: "" };
       if (
         !threadId.startsWith("t3po-lead:") &&
         !threadId.startsWith("t3po-task:") &&
@@ -836,7 +849,7 @@ const make = Effect.gen(function* () {
       ) {
         const linked =
           yield* sql`SELECT id FROM t3po_tasks WHERE project_id = ${projectId} AND json_extract(data, '$.threadId') = ${threadId} LIMIT 1`;
-        if (linked.length === 0) return "";
+        if (linked.length === 0) return none;
       }
       const leads = yield* sql<{
         data: string;
@@ -860,18 +873,18 @@ const make = Effect.gen(function* () {
         data: string;
       }>`SELECT data FROM t3po_tasks WHERE project_id = ${projectId} AND json_extract(data, '$.threadId') = ${threadId} LIMIT 1`;
       let assignment = assignments[0] ? yield* decodeT3poTaskJson(assignments[0].data) : null;
-      if (!leads[0] && !assignment) return "";
+      if (!leads[0] && !assignment) return none;
       if (assignment && runId) {
         const rows = yield* sql<{ data: string }>`SELECT r.data FROM t3po_task_executions e
           JOIN t3po_task_revisions r ON r.task_id = e.task_id AND r.revision = e.revision WHERE e.run_id = ${runId}`;
         if (rows[0]) assignment = yield* decodeT3poTaskJson(rows[0].data);
       }
-      if (threadId !== lead.threadId && !assignment && !channel) return "";
+      if (threadId !== lead.threadId && !assignment && !channel) return none;
       let recall = "";
       let memoryAvailable = false;
       if ((threadId === lead.threadId || channel) && memory.configured) {
         const recalled = yield* exchangeMemory(projectId, query.slice(0, 2000));
-        if (!recalled) return "";
+        if (!recalled) return none;
         recall = recalled.context;
         memoryAvailable = recalled.available;
       }
@@ -879,7 +892,7 @@ const make = Effect.gen(function* () {
         kind: string;
         text: string;
       }>`SELECT kind, substr(text, 1, 2000) AS text FROM t3po_memory_events_v2 WHERE project_id = ${projectId} AND superseded_by IS NULL ORDER BY sequence DESC LIMIT 5`;
-      return yield* encodeUnknownJson({
+      const context = yield* encodeUnknownJson({
         spaceRules:
           yield* sql`SELECT s.name, s.rules FROM t3po_spaces s JOIN t3po_project_spaces p ON p.space_id = s.id WHERE p.project_id = ${projectId}`,
         sharedResources:
@@ -891,10 +904,6 @@ const make = Effect.gen(function* () {
         outgoingHandoffs:
           threadId === lead.threadId || channel
             ? yield* sql`SELECT h.job_id AS jobId, h.target_project_id AS projectId, r.state, r.reason FROM t3po_space_handoffs h JOIN t3po_work_routes r ON r.job_id = h.job_id WHERE h.source_project_id = ${projectId} AND r.caller_thread_id = ${threadId} ORDER BY r.sequence DESC LIMIT 30`
-            : [],
-        sourceMessages:
-          threadId === lead.threadId || channel
-            ? yield* sql`SELECT message_id AS id, substr(json_extract(payload_json, '$.text'), 1, 1000) AS text FROM orchestration_v2_projection_messages WHERE thread_id = ${threadId} AND role = 'user' ORDER BY rowid DESC LIMIT 8`
             : [],
         workstreams:
           threadId === lead.threadId || channel
@@ -908,7 +917,6 @@ const make = Effect.gen(function* () {
         memory: {
           configured: memory.configured,
           available: memoryAvailable,
-          recalledContext: recall,
           recentRecords,
         },
         role: threadId === lead.threadId || channel ? "project lead" : "task worker",
@@ -934,8 +942,52 @@ const make = Effect.gen(function* () {
             brief: task.brief.slice(0, 300),
           })),
       });
+      return {
+        context,
+        recall: recall === "" ? "" : yield* encodeUnknownJson({ recalledContext: recall }),
+      };
     },
     Effect.mapError((cause) => new T3poError({ operation: "read", cause })),
+  );
+  const claimContextDelivery = Effect.fn("T3poStore.claimContextDelivery")(
+    function* (input: {
+      readonly threadId: ThreadId;
+      readonly runId: RunId;
+      readonly providerThreadId: string;
+      readonly context: string;
+    }) {
+      // Jobs and linked threads always restate their assignment.
+      if (!isT3poLeadConversation(input.threadId)) return true;
+      // Provider-native, idle, and manual compactions all leave a compaction item.
+      const counted = yield* sql<{
+        count: number;
+      }>`SELECT count(*) AS count FROM orchestration_v2_projection_turn_items WHERE thread_id = ${input.threadId} AND type = 'compaction'`;
+      const compactions = counted[0]?.count ?? 0;
+      const previous = (yield* sql<{
+        context: string;
+        providerThreadId: string;
+        runId: string;
+        compactions: number;
+      }>`SELECT context, provider_thread_id AS providerThreadId, run_id AS runId, compactions FROM t3po_context_deliveries WHERE thread_id = ${input.threadId}`)[0];
+      // A run that never reached its provider, or was rolled back, did not deliver its block.
+      const reached =
+        previous === undefined || previous.runId === input.runId
+          ? []
+          : yield* sql`SELECT 1 FROM orchestration_v2_projection_run_attempts a JOIN orchestration_v2_projection_runs r ON r.run_id = a.run_id WHERE a.run_id = ${previous.runId} AND a.provider_turn_id IS NOT NULL AND r.status != 'rolled_back' LIMIT 1`;
+      if (
+        previous !== undefined &&
+        reached.length > 0 &&
+        previous.context === input.context &&
+        previous.providerThreadId === input.providerThreadId &&
+        previous.compactions === compactions
+      )
+        return false;
+      yield* sql`INSERT INTO t3po_context_deliveries (thread_id, context, provider_thread_id, run_id, compactions)
+        VALUES (${input.threadId}, ${input.context}, ${input.providerThreadId}, ${input.runId}, ${compactions})
+        ON CONFLICT(thread_id) DO UPDATE SET context = excluded.context, provider_thread_id = excluded.provider_thread_id, run_id = excluded.run_id, compactions = excluded.compactions`;
+      return true;
+    },
+    Effect.mapError((cause) => new T3poError({ operation: "save", cause })),
   );
   return Store.of({
     proposalEnabled: Effect.fn("T3poStore.proposalEnabled")((threadId: ThreadId) =>
@@ -1008,6 +1060,7 @@ const make = Effect.gen(function* () {
     mutate,
     reserveLaunch,
     context,
+    claimContextDelivery,
   });
 });
 export const layer = Layer.effect(Store, make).pipe(

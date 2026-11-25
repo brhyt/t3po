@@ -196,11 +196,11 @@ it.effect(
       yield* store.mutate(resource);
       for (const id of ["a", "b"])
         expect(
-          yield* store.context(ProjectId.make(id), ThreadId.make(`t3po-lead:${id}`)),
+          (yield* store.context(ProjectId.make(id), ThreadId.make(`t3po-lead:${id}`))).context,
         ).toContain("https://design.example.com");
-      expect(yield* store.context(ProjectId.make("c"), ThreadId.make("t3po-lead:c"))).not.toContain(
-        "https://design.example.com",
-      );
+      expect(
+        (yield* store.context(ProjectId.make("c"), ThreadId.make("t3po-lead:c"))).context,
+      ).not.toContain("https://design.example.com");
       expect(yield* guard.allows("t3_thread_read", { threadId: "b" }, scope)).toBe(false);
       for (const location of [
         "https://user:password@example.com",
@@ -237,9 +237,9 @@ it.effect(
         ),
       ).toBe(false);
       yield* store.mutate({ type: "unshare_resource", projectId, id: resource.id });
-      expect(yield* store.context(ProjectId.make("b"), ThreadId.make("t3po-lead:b"))).not.toContain(
-        "https://design.example.com",
-      );
+      expect(
+        (yield* store.context(ProjectId.make("b"), ThreadId.make("t3po-lead:b"))).context,
+      ).not.toContain("https://design.example.com");
       yield* store.mutate({
         type: "assign_space",
         projectId: ProjectId.make("b"),
@@ -266,17 +266,17 @@ it.effect("persists space rules across renames and injects them only into assign
       id: "personal",
       rules: "Use personal accounts only.",
     });
-    expect(yield* store.context(projectId, ThreadId.make("t3po-lead:a"))).not.toContain(
+    expect((yield* store.context(projectId, ThreadId.make("t3po-lead:a"))).context).not.toContain(
       "Use personal accounts only.",
     );
     yield* store.mutate({ type: "assign_space", projectId, spaceId: "personal" });
     yield* store.mutate({ type: "save_space", projectId, id: "personal", name: "Private" });
     const rebuilt = yield* Store.Store.pipe(Effect.provide(Layer.fresh(Store.layer)));
-    expect(yield* rebuilt.context(projectId, ThreadId.make("t3po-lead:a"))).toContain(
+    expect((yield* rebuilt.context(projectId, ThreadId.make("t3po-lead:a"))).context).toContain(
       "Use personal accounts only.",
     );
     yield* store.mutate({ type: "save_space_rules", projectId, id: "personal", rules: "" });
-    expect(yield* store.context(projectId, ThreadId.make("t3po-lead:a"))).not.toContain(
+    expect((yield* store.context(projectId, ThreadId.make("t3po-lead:a"))).context).not.toContain(
       "Use personal accounts only.",
     );
   }).pipe(Effect.provide(fixture)),

@@ -37,6 +37,11 @@ export type T3poQuery = typeof T3poQuery.Type;
 export const T3PO_DEFAULT_CONCURRENT_JOBS = 3;
 /** Jobs run until done without waiting on approvals; supervise a single job from the Work panel. */
 export const T3PO_DEFAULT_WORK_ACCESS = "full-access" as const;
+/** A project's long-lived lead or channel conversation, as opposed to a job. */
+export const isT3poLeadConversation = (threadId: string) =>
+  threadId.startsWith("t3po-lead:") || threadId.startsWith("t3po-channel:");
+/** Lead conversations compact this early so a long one stays cheap to resume. */
+export const T3PO_LEAD_AUTO_COMPACT_WINDOW = 300_000;
 
 const T3poBudget = Schema.Struct({
   /** No longer enforced; jobs run until they finish. Kept for older clients. */
