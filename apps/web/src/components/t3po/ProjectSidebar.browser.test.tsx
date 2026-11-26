@@ -14,6 +14,8 @@ const state = vi.hoisted(() => ({
   menu: [] as unknown[],
   menuChoice: null as string | null,
   secondMachine: false,
+  scratch: false,
+  started: [] as unknown[],
 }));
 vi.mock(import("../../localApi"), async (original) => ({
   ...(await original()),
@@ -57,6 +59,16 @@ vi.mock(import("../../state/t3po"), async () => {
     t3po: { snapshot: () => undefined, mutate: { permissionAtom: () => Atom.make(true) } } as never,
   };
 });
+vi.mock(import("../../hooks/useScratchProject"), () => ({
+  useScratchProject: (() => ({
+    scratchEnvironmentId: () => "roc",
+    scratchWorkspaceRootFor: (id: string) => (id === "roc" ? "/data/scratch" : null),
+    openScratchProject: async () => null,
+    startScratchThread: async (environmentId: string) => {
+      state.started.push(environmentId);
+    },
+  })) as never,
+}));
 vi.mock(import("../../state/entities"), async (original) => ({
   ...(await original()),
   useProjects: (() => [
@@ -69,6 +81,20 @@ vi.mock(import("../../state/entities"), async (original) => ({
       projectIcon: state.projectIcon,
       faviconPath: null,
     },
+    ...(state.scratch
+      ? [
+          {
+            environmentId: "roc",
+            id: "scratch",
+            title: "No project",
+            workspaceRoot: "/data/scratch",
+            archivedAt: null,
+            projectIcon: null,
+            faviconPath: null,
+            isScratch: true,
+          },
+        ]
+      : []),
     ...(state.secondMachine
       ? [
           {
@@ -84,7 +110,24 @@ vi.mock(import("../../state/entities"), async (original) => ({
       : []),
   ]) as never,
   useThreadShell: (() => undefined) as never,
-  useThreadShellsForProjectRefs: (() => []) as never,
+  useThreadShellsForProjectRefs: ((refs: ReadonlyArray<{ projectId: string }>) =>
+    state.scratch && refs.some((ref) => ref.projectId === "scratch")
+      ? [
+          {
+            id: "loose-chat",
+            environmentId: "roc",
+            projectId: "scratch",
+            title: "Quick question about taxes",
+            archivedAt: null,
+            lineage: { relationshipToParent: null },
+            delegatedFrom: null,
+            visibleItemCount: 2,
+            latestUserMessageAt: "2026-11-26T01:00:00Z",
+            updatedAt: "2026-11-26T01:00:00Z",
+            worktreePath: null,
+          },
+        ]
+      : []) as never,
 }));
 vi.mock(import("../../state/environments"), async (original) => ({
   ...(await original()),
@@ -419,5 +462,39 @@ it("lists projects in no space from every machine under one Off Record section",
     expect(sections.some((text) => text.includes("Mac Notes"))).toBe(true);
   } finally {
     state.secondMachine = false;
+  }
+});
+
+it("keeps conversations with no project under Off Record and starts new ones there", async () => {
+  state.archived = false;
+  state.scratch = true;
+  state.started = [];
+  state.data = {
+    spaces: [{ id: "personal", name: "Personal" }],
+    projectSpaces: [],
+    conversations: [],
+    memory: [],
+    leads: [],
+    channels: [],
+    tasks: [],
+    nextCursor: null,
+  };
+  try {
+    await using screen = await render(
+      <SidebarProvider>
+        <ProjectSidebar />
+      </SidebarProvider>,
+    );
+    await expect
+      .element(screen.getByRole("link", { name: /Quick question about taxes/ }))
+      .toBeVisible();
+    // The No project itself is not shown as a project with a lead and channels.
+    await expect
+      .element(screen.getByRole("region", { name: "No project" }))
+      .not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "New conversation", exact: true }));
+    await vi.waitFor(() => expect(state.started).toEqual(["roc"]));
+  } finally {
+    state.scratch = false;
   }
 });

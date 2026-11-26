@@ -52,6 +52,7 @@ import { useEnvironments } from "../../state/environments";
 import { useNowMinute } from "../../hooks/useNowMinute";
 import { formatRelativeTime } from "../../timestampFormat";
 import { projectConversations } from "./projectConversations";
+import { useScratchProject } from "../../hooks/useScratchProject";
 
 export function ProjectSidebar() {
   const gt = useGT();
@@ -182,6 +183,32 @@ export function ProjectSidebar() {
 
 function OffRecordHeading() {
   const gt = useGT();
+  const { environments } = useEnvironments();
+  const { scratchEnvironmentId, scratchWorkspaceRootFor, startScratchThread } = useScratchProject();
+  const { setOpenMobile } = useSidebar();
+  const offering = environments.filter(
+    (environment) => scratchWorkspaceRootFor(environment.environmentId) !== null,
+  );
+  // One machine, or this device's own, starts at once; otherwise ask which machine.
+  async function start(event: { clientX: number; clientY: number; nativeEvent: MouseEvent }) {
+    const chosen = offering.length === 1 ? offering[0]!.environmentId : scratchEnvironmentId(null);
+    let environmentId = chosen;
+    if (environmentId === null && offering.length > 1) {
+      const action = await readLocalApi()?.contextMenu.show(
+        offering.map((environment) => ({
+          id: environment.environmentId,
+          label: environment.label,
+        })),
+        { x: event.clientX, y: event.clientY },
+        contextMenuSourceOf(event.nativeEvent),
+      );
+      environmentId =
+        offering.find((environment) => environment.environmentId === action)?.environmentId ?? null;
+    }
+    if (environmentId === null) return;
+    setOpenMobile(false);
+    await startScratchThread(environmentId);
+  }
   return (
     <div className="space-y-1 pt-2">
       <div
@@ -198,7 +225,84 @@ function OffRecordHeading() {
           </TooltipPopup>
         </Tooltip>
       </div>
+      <SidebarMenuButton
+        size="sm"
+        disabled={!offering.length}
+        onClick={(event) => void start(event)}
+      >
+        <PlusIcon />
+        <span>
+          <T>New conversation</T>
+        </span>
+      </SidebarMenuButton>
     </div>
+  );
+}
+
+/** Conversations on a machine's No project, listed straight under Off Record. */
+function NoProjectConversations({
+  environmentId,
+  projectId,
+  machineLabel,
+  currentThreadId,
+}: {
+  environmentId: EnvironmentId;
+  projectId: ProjectId;
+  machineLabel: string;
+  currentThreadId: string | undefined;
+}) {
+  const { setOpenMobile } = useSidebar();
+  const threads = useThreadShellsForProjectRefs([{ environmentId, projectId }]);
+  const conversations = projectConversations(threads, { environmentId, projectId });
+  const [limit, setLimit] = useState(6);
+  const [olderShown, setOlderShown] = useState(false);
+  const olderShelf = useOlderSettledShelf({
+    scopes: [{ environmentId, projectIds: [projectId] }],
+    expanded: olderShown,
+    visibleCount: limit,
+  });
+  useOlderSettledShelfGrowth(olderShelf, conversations);
+  const olderUnloaded = olderShelf.unloadedCount(threads) > 0;
+  return (
+    <>
+      {conversations
+        .filter((thread, index) => index < limit || thread.id === currentThreadId)
+        .map((thread) => (
+          <SidebarMenuButton
+            key={thread.id}
+            render={
+              <Link
+                to="/$environmentId/$threadId"
+                params={{ environmentId, threadId: thread.id }}
+              />
+            }
+            onClick={() => setOpenMobile(false)}
+            isActive={thread.id === currentThreadId}
+            title={thread.title}
+            size="lg"
+          >
+            <SidebarLabel
+              label={thread.title}
+              timestamp={thread.updatedAt}
+              machine={machineLabel}
+            />
+          </SidebarMenuButton>
+        ))}
+      {conversations.length > limit || olderUnloaded ? (
+        <SidebarMenuButton
+          size="sm"
+          disabled={olderShelf.loading}
+          onClick={() => {
+            setOlderShown(true);
+            setLimit((value) => value + 6);
+          }}
+        >
+          <span>
+            <T>Show more</T>
+          </span>
+        </SidebarMenuButton>
+      ) : null}
+    </>
   );
 }
 
@@ -325,20 +429,35 @@ function SpaceProjects({
                 </span>
               </div>
             )}
-            {members.map((project) => (
-              <ProjectChannels
-                key={project.id}
-                project={project}
-                projectId={project.id}
-                environmentId={environmentId}
-                title={project.title}
-                archived={project.archivedAt != null}
-                workspaceRoot={project.workspaceRoot}
-                machineLabel={machineLabel}
-                search={search}
-                currentThreadId={currentThreadId}
-              />
-            ))}
+            {mode === "offRecord"
+              ? projects
+                  .filter((project) => project.isScratch)
+                  .map((project) => (
+                    <NoProjectConversations
+                      key={project.id}
+                      environmentId={environmentId}
+                      projectId={project.id}
+                      machineLabel={machineLabel}
+                      currentThreadId={currentThreadId}
+                    />
+                  ))
+              : null}
+            {members
+              .filter((project) => !project.isScratch)
+              .map((project) => (
+                <ProjectChannels
+                  key={project.id}
+                  project={project}
+                  projectId={project.id}
+                  environmentId={environmentId}
+                  title={project.title}
+                  archived={project.archivedAt != null}
+                  workspaceRoot={project.workspaceRoot}
+                  machineLabel={machineLabel}
+                  search={search}
+                  currentThreadId={currentThreadId}
+                />
+              ))}
           </div>
         );
       })}
@@ -1015,7 +1134,7 @@ function SidebarLabel({
   label: string;
   timestamp: string | null;
   machine: string;
-  path: string;
+  path?: string;
 }) {
   return (
     <span className="block min-w-0 flex-1">
@@ -1026,15 +1145,22 @@ function SidebarLabel({
       <span className="mt-0.5 flex min-w-0 items-center gap-1 text-xs font-normal text-sidebar-muted-foreground/80">
         <MonitorIcon className="size-3 shrink-0" />
         <span className="shrink-0">{machine}</span>
-        <FolderIcon className="ml-1 size-3 shrink-0" />
-        <Tooltip>
-          <TooltipTrigger render={<span className="truncate" />}>
-            {path
-              .replace(/\\/g, "/")
-              .replace(/^(?:\/(?:Users|home)\/[^/]+|\/root|[A-Za-z]:\/Users\/[^/]+)(?=\/|$)/, "~")}
-          </TooltipTrigger>
-          <TooltipPopup>{path}</TooltipPopup>
-        </Tooltip>
+        {path === undefined ? null : (
+          <>
+            <FolderIcon className="ml-1 size-3 shrink-0" />
+            <Tooltip>
+              <TooltipTrigger render={<span className="truncate" />}>
+                {path
+                  .replace(/\\/g, "/")
+                  .replace(
+                    /^(?:\/(?:Users|home)\/[^/]+|\/root|[A-Za-z]:\/Users\/[^/]+)(?=\/|$)/,
+                    "~",
+                  )}
+              </TooltipTrigger>
+              <TooltipPopup>{path}</TooltipPopup>
+            </Tooltip>
+          </>
+        )}
       </span>
     </span>
   );
