@@ -14,6 +14,7 @@ import {
   type T3poResultsPage,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
+import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
@@ -24,6 +25,8 @@ import * as ApplicationEvents from "../persistence/OrchestrationEventStore.ts";
 import * as GitWorkflow from "../git/GitWorkflowService.ts";
 import * as Store from "./Store.ts";
 import * as ProjectService from "../project/ProjectService.ts";
+import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
+import * as ScheduledTasks from "../scheduledTasks/ScheduledTaskService.ts";
 import * as ThreadLaunch from "../orchestration-v2/ThreadLaunchService.ts";
 import * as ThreadManagement from "../orchestration-v2/ThreadManagementService.ts";
 import { taskStatus } from "./TaskStatus.ts";
@@ -49,6 +52,8 @@ const make = Effect.gen(function* () {
   const projects = yield* ProjectService.ProjectService;
   const threads = yield* ThreadManagement.ThreadManagementService;
   const launcher = yield* ThreadLaunch.ThreadLaunchService;
+  const folders = yield* ManagedProjectFolders.ManagedProjectFolders;
+  const scheduledTasks = yield* ScheduledTasks.ScheduledTaskService;
   const requireProject = Effect.fn("T3po.requireProject")(function* (projectId: ProjectId) {
     const project = yield* projects.getById(projectId);
     if (Option.isNone(project)) return yield* new T3poError({ operation: "invalid" });
@@ -123,6 +128,80 @@ const make = Effect.gen(function* () {
       isT3poError(cause) ? cause : new T3poError({ operation: "read", cause }),
     ),
   );
+  /**
+   * Moves a conversation and its history to another project, or to the No project. The next turn
+   * runs where a new conversation there would: the project root, or a fresh scratch folder for the
+   * No project. A thread with its own worktree keeps it.
+   */
+  const moveConversationProject = Effect.fn("T3po.moveConversationProject")(function* (
+    input: Extract<T3poMutation, { readonly type: "move_conversation_project" }>,
+  ) {
+    const source = yield* requireProject(input.projectId);
+    const target = yield* requireProject(input.targetProjectId);
+    yield* store.checkConversationMove(input);
+    const shell = yield* threads.getThreadShell(input.threadId);
+    if (!shell || shell.projectId !== input.projectId)
+      return yield* new T3poError({ operation: "invalid" });
+    if (
+      shell.activeRunId ||
+      (shell.pendingBackgroundTasks?.length ?? 0) > 0 ||
+      ["preparing", "queued", "starting", "running", "waiting"].includes(shell.status)
+    )
+      return yield* new T3poError({ operation: "conversation_busy" });
+    // A No project conversation works in its own scratch folder, which is not a worktree.
+    const ownWorktree =
+      shell.worktreePath !== null &&
+      shell.worktreePath !== source.workspaceRoot &&
+      shell.worktreePath !== target.workspaceRoot &&
+      !(yield* folders.isScratchProject(input.projectId));
+    const workspace = ownWorktree
+      ? { worktreePath: shell.worktreePath, branch: shell.branch }
+      : (yield* folders.isScratchProject(input.targetProjectId))
+        ? {
+            worktreePath: Option.getOrNull(
+              yield* folders.folderForThread({
+                projectId: input.targetProjectId,
+                threadId: input.threadId,
+                text: shell.title,
+              }),
+            ),
+            branch: null,
+          }
+        : {
+            worktreePath: null,
+            branch: yield* git
+              .currentBranch(target.workspaceRoot)
+              .pipe(Effect.orElseSucceed(() => null)),
+          };
+    yield* threads
+      .dispatch({
+        type: "thread.project.move",
+        // Unique per thread state, so a retry of the same move is deduplicated.
+        commandId: CommandId.make(
+          `t3po-move:${input.threadId}:${input.targetProjectId}:${DateTime.formatIso(shell.updatedAt)}`,
+        ),
+        threadId: input.threadId,
+        projectId: input.targetProjectId,
+        ...workspace,
+      })
+      .pipe(
+        Effect.mapError(
+          (cause) =>
+            new T3poError({
+              operation: /work in progress|background|still running/i.test(cause.message)
+                ? "conversation_busy"
+                : "save",
+              cause,
+            }),
+        ),
+      );
+    yield* scheduledTasks.moveThreadTasks({
+      threadIds: [input.threadId],
+      projectId: input.targetProjectId,
+    });
+    yield* store.mutate(input);
+    yield* PubSub.publish(changes, { projectId: input.targetProjectId, metadata: true });
+  });
   const mutate = Effect.fn("T3po.mutate")(
     function* (input: T3poMutation) {
       yield* requireProject(input.projectId);
@@ -151,6 +230,7 @@ const make = Effect.gen(function* () {
         reviewedRunId = shell.latestRunId;
       }
       if (input.type === "memory_control") yield* store.controlMemory(input);
+      else if (input.type === "move_conversation_project") yield* moveConversationProject(input);
       else yield* store.mutate(input, reviewedRunId);
       if (input.type === "delete_channel") {
         const channelThread = ThreadId.make(`t3po-channel:${input.id}`);
@@ -176,6 +256,7 @@ const make = Effect.gen(function* () {
           input.type.endsWith("_resource") ||
           input.type.endsWith("_space") ||
           input.type === "move_conversation" ||
+          input.type === "move_conversation_project" ||
           input.type === "save_budget" ||
           input.type === "save_lead" ||
           input.type === "save_work_model" ||

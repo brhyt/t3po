@@ -298,6 +298,50 @@ function useConversationLifecycle() {
   return { items, run };
 }
 
+/**
+ * The "Move to project" menu item for a conversation in `projectId`, offering every other active
+ * project on the same machine, its No project included, and the move it starts when one is chosen.
+ */
+function useMoveToProject(environmentId: EnvironmentId, projectId: ProjectId) {
+  const gt = useGT();
+  const mutate = useAtomCommand(t3po.mutate);
+  const canMutate = useAtomValue(t3po.mutate.permissionAtom(environmentId));
+  const targets = useProjects()
+    .filter(
+      (project) =>
+        project.environmentId === environmentId &&
+        project.id !== projectId &&
+        project.archivedAt == null,
+    )
+    .sort((a, b) => Number(a.isScratch === true) - Number(b.isScratch === true));
+  const item = {
+    id: "move-project",
+    label: gt("Move to project"),
+    disabled: !canMutate || targets.length === 0,
+    children: targets.map((project) => ({
+      id: `project:${project.id}`,
+      label: project.isScratch ? gt("No project") : project.title,
+    })),
+  };
+  /** Moves the conversation when `action` names a target; false for any other action. */
+  async function move(action: string | null | undefined, threadId: ThreadId) {
+    const target = targets.find((project) => `project:${project.id}` === action);
+    if (!target) return false;
+    const result = await mutate({
+      environmentId,
+      input: {
+        type: "move_conversation_project",
+        projectId,
+        threadId,
+        targetProjectId: target.id,
+      },
+    });
+    if (result._tag !== "Success") throw squashAtomCommandFailure(result);
+    return true;
+  }
+  return { item, move };
+}
+
 /** Conversations on a machine's No project, listed straight under Off Record. */
 function NoProjectConversations({
   environmentId,
@@ -324,6 +368,7 @@ function NoProjectConversations({
   const olderUnloaded = olderShelf.unloadedCount(threads) > 0;
   const gt = useGT();
   const lifecycle = useConversationLifecycle();
+  const moveToProject = useMoveToProject(environmentId, projectId);
   const [error, setError] = useState<string | null>(null);
   return (
     <>
@@ -349,13 +394,17 @@ function NoProjectConversations({
             size="lg"
             onContextMenu={(event) => {
               event.preventDefault();
+              setError(null);
               void readLocalApi()
                 ?.contextMenu.show(
-                  lifecycle.items.map((item) => ({ ...item, separatorBefore: false })),
+                  [moveToProject.item, ...lifecycle.items],
                   { x: event.clientX, y: event.clientY },
                   contextMenuSourceOf(event.nativeEvent),
                 )
-                .then((action) => lifecycle.run(action, environmentId, thread.id, thread.title))
+                .then(async (action) => {
+                  if (await moveToProject.move(action, thread.id)) return;
+                  await lifecycle.run(action, environmentId, thread.id, thread.title);
+                })
                 .catch((cause) =>
                   setError(cause instanceof Error ? cause.message : gt("Could not save changes.")),
                 );
@@ -381,6 +430,11 @@ function NoProjectConversations({
             <T>Show more</T>
           </span>
         </SidebarMenuButton>
+      ) : null}
+      {error ? (
+        <p role="alert" className="px-2 text-xs text-destructive">
+          {error}
+        </p>
       ) : null}
     </>
   );
@@ -616,6 +670,7 @@ function ProjectChannels({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const mutate = useAtomCommand(t3po.mutate);
+  const moveToProject = useMoveToProject(environmentId, projectId);
   const gt = useGT();
   const navigate = useNavigate();
   const [collapsed, setCollapsed] = useLocalStorage(
@@ -735,12 +790,18 @@ function ProjectChannels({
                   disabled:
                     !canMutate || !associations.some((entry) => entry.threadId === thread.id),
                 },
+                moveToProject.item,
                 ...lifecycle.items,
               ],
               { x: event.clientX, y: event.clientY },
               contextMenuSourceOf(event.nativeEvent),
             )
             .then(async (action) => {
+              setError(null);
+              if (await moveToProject.move(action, thread.id)) {
+                query.refresh();
+                return;
+              }
               await lifecycle.run(action, environmentId, thread.id, thread.title);
               if (action === "new") {
                 setMoving(thread.id);

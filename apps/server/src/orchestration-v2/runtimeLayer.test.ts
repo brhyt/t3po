@@ -11555,6 +11555,116 @@ it.layer(layerSharedApplicationDataPlaneTest)("snooze projection", (it) => {
       assert.equal(stayed?.projectId, scratchProjectId);
     }),
   );
+
+  it.effect("moves an idle thread and its history to another project", () =>
+    Effect.gen(function* () {
+      const projects = yield* ProjectService.ProjectService;
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const eventSink = yield* EventSink.EventSinkV2;
+      const sourceProjectId = ProjectId.make("runtime-layer-move-source");
+      const targetProjectId = ProjectId.make("runtime-layer-move-target");
+      for (const projectId of [sourceProjectId, targetProjectId])
+        yield* projects.create({
+          commandId: CommandId.make(`${projectId}-create`),
+          projectId,
+          title: projectId,
+          workspaceRoot: `/tmp/${projectId}`,
+        });
+      const createThread = (threadId: ThreadId) =>
+        orchestrator.dispatch({
+          type: "thread.create",
+          createdBy: "user",
+          creationSource: "web",
+          commandId: CommandId.make(`${threadId}-create`),
+          threadId,
+          projectId: sourceProjectId,
+          title: "Loose question",
+          modelSelection,
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          branch: null,
+          worktreePath: "/tmp/runtime-layer-move-source-scratch/2026-11-26-question",
+        });
+      const move = (threadId: ThreadId, projectId: ProjectId, suffix: string) =>
+        orchestrator.dispatch({
+          type: "thread.project.move",
+          commandId: CommandId.make(`${threadId}-move-${suffix}`),
+          threadId,
+          projectId,
+          worktreePath: null,
+          branch: "main",
+        });
+      const idleThreadId = ThreadId.make("runtime-layer-move-idle");
+      const busyThreadId = ThreadId.make("runtime-layer-move-busy");
+      yield* createThread(idleThreadId);
+      yield* createThread(busyThreadId);
+      const now = yield* DateTime.now;
+      yield* eventSink.write({
+        events: [
+          {
+            id: EventId.make("runtime-layer-move-history"),
+            type: "message.updated",
+            threadId: idleThreadId,
+            occurredAt: now,
+            payload: {
+              id: MessageId.make("runtime-layer-move-history"),
+              threadId: idleThreadId,
+              runId: null,
+              nodeId: null,
+              role: "user",
+              text: "Where should this live?",
+              attachments: [],
+              streaming: false,
+              createdAt: now,
+              updatedAt: now,
+              createdBy: "user",
+              creationSource: "web",
+            },
+          },
+        ],
+      });
+      yield* orchestrator.dispatch({
+        type: "message.dispatch",
+        createdBy: "user",
+        creationSource: "web",
+        commandId: CommandId.make("runtime-layer-move-busy-message"),
+        threadId: busyThreadId,
+        messageId: MessageId.make("runtime-layer-move-busy-message"),
+        text: "Keep this run active.",
+        attachments: [],
+        modelSelection,
+        dispatchMode: { type: "start_immediately" },
+      });
+
+      const busy = yield* move(busyThreadId, targetProjectId, "busy").pipe(Effect.flip);
+      assert.equal(
+        busy.cause,
+        `Thread ${busyThreadId} still has work in progress. Finish or stop it first.`,
+      );
+      const missing = yield* move(idleThreadId, ProjectId.make("missing"), "missing").pipe(
+        Effect.flip,
+      );
+      assert.equal(missing.cause, `Thread ${idleThreadId} cannot move to missing project missing.`);
+      const same = yield* move(idleThreadId, sourceProjectId, "same").pipe(Effect.flip);
+      assert.equal(same.cause, `Thread ${idleThreadId} is already in project ${sourceProjectId}.`);
+
+      yield* move(idleThreadId, targetProjectId, "target");
+      const moved = yield* orchestrator.getThreadProjection(idleThreadId);
+      assert.equal(moved.thread.projectId, targetProjectId);
+      // The next turn runs in the target project's root.
+      assert.isNull(moved.thread.worktreePath);
+      assert.equal(moved.thread.branch, "main");
+      assert.deepEqual(
+        moved.messages.map((message) => message.text),
+        ["Where should this live?"],
+      );
+      const shell = yield* orchestrator.getShellSnapshot();
+      assert.equal(
+        shell.threads.find((thread) => thread.id === busyThreadId)?.projectId,
+        sourceProjectId,
+      );
+    }),
+  );
 });
 
 it.layer(layerSharedApplicationDataPlaneTest)("visited projection", (it) => {

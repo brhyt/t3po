@@ -367,3 +367,98 @@ it.effect("lets space agents use the browser, devices and pages in their own spa
     ]);
   }).pipe(Effect.provide(fixture)),
 );
+
+it.effect(
+  "moves only ordinary conversations between projects, clears their channel and keeps memory as it was",
+  () =>
+    Effect.gen(function* () {
+      yield* seed;
+      const store = yield* Store.Store;
+      const guard = yield* SpacePolicy.SpacePolicy;
+      const sql = yield* SqlClient.SqlClient;
+      for (const [thread, payload] of [
+        ["child", '{"lineage":{"parentThreadId":"a"}}'],
+        ["delegated", '{"lineage":{"parentThreadId":null},"delegatedFrom":{"threadId":"a"}}'],
+        ["t3po-lead:a", '{"lineage":{"parentThreadId":null}}'],
+        ["t3po-task:job", '{"lineage":{"parentThreadId":null}}'],
+      ] as const)
+        yield* sql`INSERT INTO orchestration_v2_projection_threads (thread_id, project_id, title, default_provider, runtime_mode, interaction_mode, created_at, updated_at, payload_json) VALUES (${thread}, 'a', 'Conversation', 'codex', 'approval-required', 'default', '2026-11-19T00:00:00Z', '2026-11-19T00:00:00Z', ${payload})`;
+      for (const [project, space] of [
+        ["a", "personal"],
+        ["b", "business"],
+      ] as const) {
+        yield* store.mutate({
+          type: "assign_space",
+          projectId: ProjectId.make(project),
+          spaceId: space,
+        });
+        yield* store.mutate({
+          type: "save_lead",
+          projectId: ProjectId.make(project),
+          name: "Lead",
+          brief: `Brief for ${project}`,
+        });
+      }
+      const memory = () =>
+        sql<{
+          projectId: string;
+          count: number;
+        }>`SELECT project_id AS projectId, count(*) AS count FROM t3po_memory_events_v2 GROUP BY project_id ORDER BY project_id`;
+      const remembered = yield* memory();
+      expect(remembered).toEqual([
+        { projectId: "a", count: 1 },
+        { projectId: "b", count: 1 },
+      ]);
+      yield* store.mutate({
+        type: "move_conversation",
+        projectId,
+        threadId: ThreadId.make("a"),
+        channelId: "research",
+        newChannelName: "Research",
+      });
+      const move = (threadId: string, targetProjectId = "b") => ({
+        type: "move_conversation_project" as const,
+        projectId,
+        threadId: ThreadId.make(threadId),
+        targetProjectId: ProjectId.make(targetProjectId),
+      });
+      for (const refused of [
+        move("child"),
+        move("delegated"),
+        move("t3po-lead:a"),
+        move("t3po-task:job"),
+        move("t3po-channel:research"),
+        move("a", "a"),
+        move("b"),
+      ])
+        expect(yield* store.checkConversationMove(refused).pipe(Effect.isFailure)).toBe(true);
+      yield* store.mutate({
+        type: "create_task",
+        projectId,
+        id: "job",
+        channelId: null,
+        title: "Job",
+        brief: "Do the job.",
+      });
+      yield* sql`UPDATE t3po_tasks SET data = json_set(data, '$.threadId', 'a') WHERE id = 'job'`;
+      // A thread a job runs in is not an ordinary conversation.
+      expect(yield* store.checkConversationMove(move("a")).pipe(Effect.isFailure)).toBe(true);
+      yield* sql`DELETE FROM t3po_tasks WHERE id = 'job'`;
+      yield* store.checkConversationMove(move("a"));
+
+      // Agents cannot reach another space's project; only the user interface moves across.
+      expect(
+        yield* guard.allows("t3_thread_update", { threadId: "a", projectId: "b" }, scope),
+      ).toBe(false);
+      expect(yield* guard.allows("t3po_mutate", { threadId: "a", projectId: "b" }, scope)).toBe(
+        false,
+      );
+
+      // Orchestration re-parents the thread; the store then forgets its channel in project a.
+      yield* sql`UPDATE orchestration_v2_projection_threads SET project_id = 'b' WHERE thread_id = 'a'`;
+      yield* store.mutate(move("a"));
+      expect((yield* store.read).conversations).toEqual([]);
+      // Old turns are not copied into b's memory, and a's memory stays.
+      expect(yield* memory()).toEqual(remembered);
+    }).pipe(Effect.provide(fixture)),
+);

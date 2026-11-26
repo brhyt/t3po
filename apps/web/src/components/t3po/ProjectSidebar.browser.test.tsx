@@ -15,6 +15,7 @@ const state = vi.hoisted(() => ({
   menuChoice: null as string | null,
   secondMachine: false,
   scratch: false,
+  projectChat: false,
   started: [] as unknown[],
   palette: [] as unknown[],
   archived_threads: [] as unknown[],
@@ -140,23 +141,39 @@ vi.mock(import("../../state/entities"), async (original) => ({
   ]) as never,
   useThreadShell: (() => undefined) as never,
   useThreadShellsForProjectRefs: ((refs: ReadonlyArray<{ projectId: string }>) =>
-    state.scratch && refs.some((ref) => ref.projectId === "scratch")
+    state.projectChat && refs.some((ref) => ref.projectId === "project")
       ? [
           {
-            id: "loose-chat",
+            id: "studio-chat",
             environmentId: "roc",
-            projectId: "scratch",
-            title: "Quick question about taxes",
+            projectId: "project",
+            title: "Pick a color palette",
             archivedAt: null,
             lineage: { relationshipToParent: null },
             delegatedFrom: null,
             visibleItemCount: 2,
-            latestUserMessageAt: "2026-11-26T01:00:00Z",
-            updatedAt: "2026-11-26T01:00:00Z",
+            latestUserMessageAt: "2026-11-26T02:00:00Z",
+            updatedAt: "2026-11-26T02:00:00Z",
             worktreePath: null,
           },
         ]
-      : []) as never,
+      : state.scratch && refs.some((ref) => ref.projectId === "scratch")
+        ? [
+            {
+              id: "loose-chat",
+              environmentId: "roc",
+              projectId: "scratch",
+              title: "Quick question about taxes",
+              archivedAt: null,
+              lineage: { relationshipToParent: null },
+              delegatedFrom: null,
+              visibleItemCount: 2,
+              latestUserMessageAt: "2026-11-26T01:00:00Z",
+              updatedAt: "2026-11-26T01:00:00Z",
+              worktreePath: null,
+            },
+          ]
+        : []) as never,
 }));
 vi.mock(import("../../state/environments"), async (original) => ({
   ...(await original()),
@@ -596,6 +613,109 @@ it("archives and deletes conversations, deletes channels and removes projects fr
     );
   } finally {
     state.scratch = false;
+    state.menuChoice = null;
+  }
+});
+
+it("moves a conversation with no project into a project on the same machine", async () => {
+  state.archived = false;
+  state.scratch = true;
+  state.secondMachine = true;
+  state.calls = [];
+  state.menu = [];
+  state.menuChoice = "project:project";
+  state.data = {
+    spaces: [],
+    projectSpaces: [],
+    conversations: [],
+    memory: [],
+    leads: [],
+    channels: [],
+    tasks: [],
+    nextCursor: null,
+  };
+  try {
+    await using screen = await render(
+      <SidebarProvider>
+        <ProjectSidebar />
+      </SidebarProvider>,
+    );
+    const row = screen.getByRole("link", { name: /Quick question about taxes/ });
+    await expect.element(row).toBeVisible();
+    row.element().dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+    await vi.waitFor(() =>
+      expect(state.calls).toContainEqual({
+        environmentId: "roc",
+        input: {
+          type: "move_conversation_project",
+          projectId: "scratch",
+          threadId: "loose-chat",
+          targetProjectId: "project",
+        },
+      }),
+    );
+    // Only this machine's other projects are offered; the Mac's project is not.
+    expect((state.menu as unknown[])[0]).toEqual({
+      id: "move-project",
+      label: "Move to project",
+      disabled: false,
+      children: [{ id: "project:project", label: "Studio" }],
+    });
+  } finally {
+    state.scratch = false;
+    state.secondMachine = false;
+    state.menuChoice = null;
+  }
+});
+
+it("moves a project conversation back to No project from its menu", async () => {
+  state.archived = false;
+  state.scratch = true;
+  state.projectChat = true;
+  state.calls = [];
+  state.menu = [];
+  state.menuChoice = "project:scratch";
+  state.data = {
+    spaces: [],
+    projectSpaces: [],
+    conversations: [],
+    memory: [],
+    leads: [],
+    channels: [],
+    tasks: [],
+    nextCursor: null,
+  };
+  try {
+    await using screen = await render(
+      <SidebarProvider>
+        <ProjectSidebar />
+      </SidebarProvider>,
+    );
+    const row = screen.getByRole("link", { name: /Pick a color palette/ });
+    await expect.element(row).toBeVisible();
+    row.element().dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+    await vi.waitFor(() =>
+      expect(state.calls).toContainEqual({
+        environmentId: "roc",
+        input: {
+          type: "move_conversation_project",
+          projectId: "project",
+          threadId: "studio-chat",
+          targetProjectId: "scratch",
+        },
+      }),
+    );
+    expect(state.menu).toContainEqual({
+      id: "move-project",
+      label: "Move to project",
+      disabled: false,
+      children: [{ id: "project:scratch", label: "No project" }],
+    });
+    // Choosing a project does not also move it between channels.
+    expect(state.calls).toHaveLength(1);
+  } finally {
+    state.scratch = false;
+    state.projectChat = false;
     state.menuChoice = null;
   }
 });

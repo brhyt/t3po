@@ -3645,6 +3645,18 @@ const OrchestrationV2InternalCommand = Schema.Union([
     projectId: ProjectId,
   }),
   /**
+   * Moves an idle top-level thread and its history to another project. Its next turn runs in
+   * `worktreePath`, or in the project root when null, so its provider sessions end.
+   */
+  Schema.Struct({
+    type: Schema.Literal("thread.project.move"),
+    commandId: CommandId,
+    threadId: ThreadId,
+    projectId: ProjectId,
+    worktreePath: Schema.NullOr(TrimmedNonEmptyString),
+    branch: Schema.NullOr(TrimmedNonEmptyString),
+  }),
+  /**
    * After a push, the thread's watches forget whether their checks were running, since the push
    * can start new ones. Applied to the watches as they are then, so no earlier read overwrites them.
    */

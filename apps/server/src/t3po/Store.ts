@@ -170,6 +170,13 @@ export class Store extends Context.Service<
     readonly scheduledTurnNote: (taskId: ScheduledTaskId) => Effect.Effect<string, T3poError>;
     readonly controlMemory: (input: T3poMemoryControl) => Effect.Effect<void, T3poError>;
     readonly mutate: (input: T3poMutation, reviewedRunId?: RunId) => Effect.Effect<void, T3poError>;
+    /**
+     * Fails unless the thread is an ordinary conversation, not a lead, channel, job, subagent or
+     * delegated thread, and is in the move's source project.
+     */
+    readonly checkConversationMove: (
+      input: Extract<T3poMutation, { readonly type: "move_conversation_project" }>,
+    ) => Effect.Effect<void, T3poError>;
     /** Marks the lead as asked to draw the project icon; true only for the call that marked it. */
     readonly requestProjectIcon: (
       projectId: ProjectId,
@@ -564,6 +571,23 @@ const make = Effect.gen(function* () {
     yield* sql`INSERT INTO t3po_notes (thread_id, project_id, channel_id, text, revision, updated_at, updated_by, memory_event_id) VALUES (${notesThread(input.projectId, input.channelId)}, ${input.projectId}, ${input.channelId}, ${text}, ${saved.revision}, ${now}, ${input.updatedBy}, ${eventId}) ON CONFLICT(thread_id) DO UPDATE SET text = excluded.text, revision = excluded.revision, updated_at = excluded.updated_at, updated_by = excluded.updated_by, memory_event_id = excluded.memory_event_id`;
     return saved;
   });
+  const checkConversationMove = Effect.fn("T3poStore.checkConversationMove")(
+    function* (input: Extract<T3poMutation, { readonly type: "move_conversation_project" }>) {
+      if (
+        input.projectId === input.targetProjectId ||
+        /^t3po-(?:lead|task|channel):/.test(input.threadId)
+      )
+        return yield* new T3poError({ operation: "invalid" });
+      const ordinary =
+        yield* sql`SELECT thread_id FROM orchestration_v2_projection_threads WHERE thread_id = ${input.threadId} AND project_id = ${input.projectId} AND deleted_at IS NULL AND archived_at IS NULL AND json_extract(payload_json, '$.lineage.parentThreadId') IS NULL AND json_extract(payload_json, '$.delegatedFrom') IS NULL`;
+      const managed =
+        yield* sql`SELECT project_id FROM t3po_tasks WHERE json_extract(data, '$.threadId') = ${input.threadId} UNION SELECT project_id FROM t3po_leads WHERE json_extract(data, '$.threadId') = ${input.threadId}`;
+      if (!ordinary.length || managed.length) return yield* new T3poError({ operation: "invalid" });
+    },
+    Effect.mapError((cause) =>
+      isT3poError(cause) ? cause : new T3poError({ operation: "read", cause }),
+    ),
+  );
   const mutate = Effect.fn("T3poStore.mutate")(
     function* (input: T3poMutation, reviewedRunId?: RunId) {
       if (input.type === "save_external_binding") {
@@ -723,6 +747,9 @@ const make = Effect.gen(function* () {
           yield* requireChannel(input.channelId, input.projectId);
           yield* sql`INSERT INTO t3po_conversations (thread_id, project_id, channel_id) VALUES (${input.threadId}, ${input.projectId}, ${input.channelId}) ON CONFLICT(thread_id) DO UPDATE SET channel_id = excluded.channel_id`;
         }
+      } else if (input.type === "move_conversation_project") {
+        // Once the conversation has left its project, that project's channel no longer lists it.
+        yield* sql`DELETE FROM t3po_conversations WHERE thread_id = ${input.threadId} AND project_id = ${input.projectId} AND NOT EXISTS (SELECT 1 FROM orchestration_v2_projection_threads WHERE thread_id = ${input.threadId} AND project_id = ${input.projectId})`;
       } else if (input.type === "save_workstream") {
         const rows = yield* sql<{
           data: string;
@@ -1179,6 +1206,7 @@ const make = Effect.gen(function* () {
     Effect.mapError((cause) => new T3poError({ operation: "save", cause })),
   );
   return Store.of({
+    checkConversationMove,
     proposalEnabled: Effect.fn("T3poStore.proposalEnabled")((threadId: ThreadId) =>
       ExternalActionStore.proposalBinding(threadId).pipe(
         Effect.provideService(SqlClient.SqlClient, sql),

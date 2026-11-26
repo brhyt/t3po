@@ -396,6 +396,16 @@ export const T3poMutation = Schema.Union([
     channelId: Schema.NullOr(TrimmedNonEmptyString),
     newChannelName: Schema.optional(TrimmedNonEmptyString.check(Schema.isMaxLength(200))),
   }),
+  /**
+   * Moves an ordinary conversation from `projectId` to another project on this machine, or to
+   * its No project. Only the user interface sends this, so it may cross Spaces.
+   */
+  Schema.Struct({
+    type: Schema.Literal("move_conversation_project"),
+    projectId: ProjectId,
+    threadId: ThreadId,
+    targetProjectId: ProjectId,
+  }),
   Schema.Struct({
     type: Schema.Literal("save_notes"),
     projectId: ProjectId,
@@ -509,6 +519,7 @@ export class T3poError extends Schema.TaggedError<T3poError>()("T3poError", {
     "launch",
     "invalid",
     "busy",
+    "conversation_busy",
     "space_busy",
     "channel_busy",
     "space_nonempty",
@@ -550,6 +561,8 @@ export class T3poError extends Schema.TaggedError<T3poError>()("T3poError", {
     if (this.operation === "notes_stale")
       return "These notes changed while you were editing. Review the latest notes and save again.";
     if (this.operation === "busy") return "Stop the running task before archiving it.";
+    if (this.operation === "conversation_busy")
+      return "This conversation is still working. Wait for it and its background agents to finish, or stop them, before moving it to another project.";
     if (this.operation === "workspace")
       return "Choose an existing Git base branch for the worktree, or use the project folder.";
     return this.operation === "invalid"

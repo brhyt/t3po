@@ -5,6 +5,7 @@ import * as Schema from "effect/Schema";
 import { NodeId, RunAttemptId, TrimmedNonEmptyString } from "./index.ts";
 import {
   latestProviderTurnForAttempt,
+  OrchestrationV2Command,
   OrchestrationV2CheckpointFileSummary,
   OrchestrationV2ProviderCapabilities,
   OrchestrationV2ProviderThread,
@@ -455,6 +456,23 @@ describe("orchestration V2 contracts", () => {
     expect(runtimeThread.pendingBackgroundTasks).toEqual([]);
     expect(runtimeThread.contextUsage).toBeNull();
     expect(runtimeThread.nativeMetadata).toBeNull();
+  });
+});
+
+describe("client commands", () => {
+  it("cannot move a thread to another project; only the server sends that", () => {
+    const decode = Schema.decodeUnknownOption(OrchestrationV2Command);
+    for (const type of ["thread.project.move", "thread.project.adopt-folder"])
+      expect(
+        decode({
+          type,
+          commandId: "command",
+          threadId: "thread",
+          projectId: "project",
+          worktreePath: null,
+          branch: null,
+        })._tag,
+      ).toBe("None");
   });
 });
 

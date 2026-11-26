@@ -3428,6 +3428,7 @@ it.effect.each(["main", "sole", "explicit", "ambiguous"] as const)(
           harness.layer,
           T3poChanges.layer,
           T3poApplicationEvents.layer.pipe(Layer.provide(harness.layer)),
+          Layer.mock(ScheduledTasks.ScheduledTaskService)({}),
         );
         yield* Effect.gen(function* () {
           const service = yield* T3poService.Service;
@@ -3497,6 +3498,7 @@ it.effect(
       harness.layer,
       T3poChanges.layer,
       T3poApplicationEvents.layer.pipe(Layer.provide(harness.layer)),
+      Layer.mock(ScheduledTasks.ScheduledTaskService)({}),
     );
     const projectWork = T3poService.layer.pipe(Layer.provide(support));
     return Effect.gen(function* () {
@@ -3808,6 +3810,7 @@ it.effect("pushes T3PO changes to other clients and refreshes after reconnect", 
     harness.layer,
     T3poChanges.layer,
     T3poApplicationEvents.layer.pipe(Layer.provide(harness.layer)),
+    Layer.mock(ScheduledTasks.ScheduledTaskService)({}),
   );
   return Effect.gen(function* () {
     const service = yield* T3poService.Service;
@@ -3861,6 +3864,7 @@ it.effect("reports task preparation failure before provider context is construct
     harness.layer,
     T3poChanges.layer,
     T3poApplicationEvents.layer.pipe(Layer.provide(harness.layer)),
+    Layer.mock(ScheduledTasks.ScheduledTaskService)({}),
   );
   return Effect.gen(function* () {
     const service = yield* T3poService.Service;
@@ -3957,6 +3961,7 @@ it.effect.each([false, true])(
         harness.layer,
         T3poChanges.layer,
         T3poApplicationEvents.layer.pipe(Layer.provide(harness.layer)),
+        Layer.mock(ScheduledTasks.ScheduledTaskService)({}),
       );
       yield* Effect.gen(function* () {
         const service = yield* T3poService.Service;
@@ -4097,6 +4102,7 @@ it.effect(
       harness.layer,
       T3poChanges.layer,
       T3poApplicationEvents.layer.pipe(Layer.provide(harness.layer)),
+      Layer.mock(ScheduledTasks.ScheduledTaskService)({}),
     );
     return Effect.gen(function* () {
       const service = yield* T3poService.Service;
@@ -4144,3 +4150,115 @@ it.effect(
     }).pipe(Effect.provide(T3poService.layer.pipe(Layer.provideMerge(support))));
   },
 );
+
+it.effect("moves a conversation to No project and into a project, refusing while it works", () => {
+  // The other project stands in for this machine's No project.
+  const scratchFolder = "/other-repo/2026-11-26-quick-question";
+  const harness = makeHarness({
+    git: { currentBranch: (cwd) => Effect.succeed(cwd === project.workspaceRoot ? "main" : null) },
+    managedFolders: Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({
+      namedProjectsRoot: "/projects",
+      isScratchProject: (id) => Effect.succeed(id === otherProjectId),
+      folderForThread: (input) =>
+        Effect.succeed(
+          input.projectId === otherProjectId ? Option.some(scratchFolder) : Option.none(),
+        ),
+    }),
+  });
+  const movedTasks: Array<{ threadIds: ReadonlyArray<ThreadId>; projectId: ProjectId }> = [];
+  const support = Layer.mergeAll(
+    harness.layer,
+    T3poChanges.layer,
+    T3poApplicationEvents.layer.pipe(Layer.provide(harness.layer)),
+    Layer.mock(ScheduledTasks.ScheduledTaskService)({
+      moveThreadTasks: (input) => Effect.sync(() => void movedTasks.push(input)),
+    }),
+  );
+  return Effect.gen(function* () {
+    const service = yield* T3poService.Service;
+    const threads = yield* ThreadManagement.ThreadManagementService;
+    const sql = yield* SqlClient.SqlClient;
+    for (const entry of [project, otherProject])
+      yield* sql`INSERT OR IGNORE INTO projection_projects (project_id, title, has_custom_title, workspace_root, default_model_selection_json, default_thread_env_mode, auto_pull, favicon_path, project_icon_json, scripts_json, pinned_at, archived_at, created_at, updated_at, deleted_at) VALUES (${entry.id}, ${entry.title}, 0, ${entry.workspaceRoot}, NULL, NULL, 0, NULL, NULL, '[]', NULL, NULL, ${entry.createdAt}, ${entry.updatedAt}, NULL)`;
+    const create = (threadId: ThreadId) =>
+      threads.dispatch({
+        type: "thread.create",
+        commandId: CommandId.make(`${threadId}:create`),
+        threadId,
+        projectId,
+        title: "Quick question",
+        modelSelection,
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        branch: null,
+        worktreePath: null,
+        createdBy: "user",
+        creationSource: "web",
+      });
+    const idle = ThreadId.make("thread:move:idle");
+    const busy = ThreadId.make("thread:move:busy");
+    yield* create(idle);
+    yield* create(busy);
+    yield* threads.dispatch({
+      type: "message.dispatch",
+      createdBy: "user",
+      creationSource: "web",
+      commandId: CommandId.make("command:move:busy"),
+      threadId: busy,
+      messageId: MessageId.make("message:move:busy"),
+      text: "Keep working.",
+      attachments: [],
+      modelSelection,
+      dispatchMode: { type: "start_immediately" },
+    });
+    const move = (threadId: ThreadId, from: ProjectId, to: ProjectId) =>
+      service.mutate({
+        type: "move_conversation_project",
+        projectId: from,
+        threadId,
+        targetProjectId: to,
+      });
+
+    const refused = yield* move(busy, projectId, otherProjectId).pipe(Effect.flip);
+    expect(refused.operation).toBe("conversation_busy");
+    expect(refused.message).toContain("still working");
+    expect((yield* threads.getThreadShell(busy))?.projectId).toBe(projectId);
+
+    yield* service.mutate({
+      type: "move_conversation",
+      projectId,
+      threadId: idle,
+      channelId: "research",
+      newChannelName: "Research",
+    });
+    expect((yield* service.snapshot({})).conversations).toHaveLength(1);
+
+    // Into No project: a fresh scratch folder, as a new conversation there would get.
+    yield* move(idle, projectId, otherProjectId);
+    // Its channel in the old project no longer lists it.
+    expect((yield* service.snapshot({})).conversations).toEqual([]);
+    expect(yield* threads.getThreadShell(idle)).toMatchObject({
+      projectId: otherProjectId,
+      worktreePath: scratchFolder,
+      branch: null,
+    });
+    expect(movedTasks).toEqual([{ threadIds: [idle], projectId: otherProjectId }]);
+    // Moving again from the old project is refused rather than repeated.
+    expect((yield* move(idle, projectId, otherProjectId).pipe(Effect.flip)).operation).toBe(
+      "invalid",
+    );
+
+    // Out of No project: the scratch folder is not a worktree, so it runs in the project root.
+    yield* move(idle, otherProjectId, projectId);
+    expect(yield* threads.getThreadShell(idle)).toMatchObject({
+      projectId,
+      worktreePath: null,
+      branch: "main",
+    });
+    expect(
+      (yield* move(ThreadId.make(`t3po-lead:${projectId}`), projectId, otherProjectId).pipe(
+        Effect.flip,
+      )).operation,
+    ).toBe("invalid");
+  }).pipe(Effect.provide(T3poService.layer.pipe(Layer.provideMerge(support))));
+});
