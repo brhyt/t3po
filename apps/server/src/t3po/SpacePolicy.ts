@@ -5,8 +5,31 @@ import * as Layer from "effect/Layer";
 import * as SqlClient from "effect/sql/SqlClient";
 import type { McpInvocationScope } from "../mcp/McpInvocationContext.ts";
 
-// Unscoped search, remote routing and device/browser tools need their own space-aware principals.
+// Unscoped search and remote routing need their own space-aware principals. Browser and device
+// tools are offered only when Settings → Tools and the space allow them, and the browser is the
+// space's own profile (ServerBrowser enforces it), so they act inside the space.
 const scopedTools = new Set([
+  "html_preview",
+  "html_render",
+  "send_to_user",
+  "preview_status",
+  "preview_open",
+  "preview_dialog",
+  "preview_navigate",
+  "preview_resize",
+  "preview_set_appearance",
+  "preview_snapshot",
+  "preview_act",
+  "preview_evaluate",
+  "preview_wait_for",
+  "preview_recording_start",
+  "preview_recording_stop",
+  "t3_preview_list",
+  "t3_preview_close",
+  "device_list",
+  "device_open",
+  "device_screenshot",
+  "device_close",
   "propose_pull_request_draft",
   "orchestrator_capabilities",
   "tool_search",

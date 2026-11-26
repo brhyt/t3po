@@ -31,6 +31,8 @@ import * as FiberSet from "effect/FiberSet";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as SqlClient from "effect/sql/SqlClient";
+import * as SpaceTools from "../t3po/SpaceTools.ts";
 import * as Queue from "effect/Queue";
 import * as Ref from "effect/Ref";
 import * as Schedule from "effect/Schedule";
@@ -430,6 +432,8 @@ export const layerWithOptions = (
       const mcpSessions = yield* McpProviderSessions.McpProviderSessions;
       /** Unreadable settings must preserve explicit browser-access opt-outs. */
       const serverSettings = yield* Effect.serviceOption(ServerSettings.ServerSettingsService);
+      // t3po: a space can turn the browser or devices on or off for its projects.
+      const spaceSql = yield* Effect.serviceOption(SqlClient.SqlClient);
       const projectService = yield* Effect.serviceOption(ProjectService.ProjectService);
       const eventSink = yield* EventSink.EventSinkV2;
       const commandOutput = yield* CommandOutputHub.CommandOutputHub;
@@ -475,10 +479,24 @@ export const layerWithOptions = (
                     settings.enableAgentDeviceAccess,
                 };
             }
-            const effective = resolveProjectSettings(settings, thread.projectId).settings;
+            const resolved = resolveProjectSettings(settings, thread.projectId);
+            const effective = resolved.settings;
+            // A project's own setting wins, then its space's choice, then Settings → Tools.
+            const choose = (
+              tool: "browser" | "device",
+              key: "enableAgentBrowserAccess" | "enableAgentDeviceAccess",
+            ) =>
+              resolved.sources[key] === "project" || Option.isNone(spaceSql)
+                ? Effect.succeed(effective[key])
+                : SpaceTools.spaceToolChoice(thread.projectId, tool).pipe(
+                    Effect.provideService(SqlClient.SqlClient, spaceSql.value),
+                    Effect.map((choice) => choice ?? effective[key]),
+                  );
             return {
-              browser: effective.enableAgentBrowserAccess,
-              device: settings.enableDeviceSupport && effective.enableAgentDeviceAccess,
+              browser: yield* choose("browser", "enableAgentBrowserAccess"),
+              device:
+                settings.enableDeviceSupport &&
+                (yield* choose("device", "enableAgentDeviceAccess")),
             };
           }).pipe(
             Effect.catch((cause) =>

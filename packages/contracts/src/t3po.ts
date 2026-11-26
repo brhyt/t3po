@@ -279,6 +279,15 @@ export const T3poSharedResource = Schema.Struct({
   name: TrimmedNonEmptyString.check(Schema.isMaxLength(200)),
   location: TrimmedNonEmptyString.check(Schema.isMaxLength(2000)),
 });
+/** Tools a space can turn on or off; `spaceId` null is every project in no space. */
+export const T3poSpaceToolName = Schema.Literals(["browser", "device"]);
+export type T3poSpaceToolName = typeof T3poSpaceToolName.Type;
+export const T3poSpaceTool = Schema.Struct({
+  spaceId: Schema.NullOr(TrimmedNonEmptyString),
+  tool: T3poSpaceToolName,
+  enabled: Schema.Boolean,
+});
+export type T3poSpaceTool = typeof T3poSpaceTool.Type;
 export const T3poProjectSpace = Schema.Struct({
   projectId: ProjectId,
   spaceId: TrimmedNonEmptyString,
@@ -300,6 +309,7 @@ export const T3poSnapshot = Schema.Struct({
   externalBindings: Schema.optional(Schema.Array(T3poExternalBinding)),
   spaceConnections: Schema.optional(Schema.Array(T3poSpaceConnection)),
   sharedResources: Schema.optional(Schema.Array(T3poSharedResource)),
+  spaceTools: Schema.optional(Schema.Array(T3poSpaceTool)),
   spaces: Schema.optional(Schema.Array(T3poSpace)),
   projectSpaces: Schema.optional(Schema.Array(T3poProjectSpace)),
   conversations: Schema.optional(Schema.Array(T3poConversation)),
@@ -343,6 +353,14 @@ export const T3poMutation = Schema.Union([
     projectId: ProjectId,
     id: TrimmedNonEmptyString,
     rules: Schema.String.check(Schema.isMaxLength(12000)),
+  }),
+  Schema.Struct({
+    type: Schema.Literal("set_space_tool"),
+    projectId: ProjectId,
+    spaceId: Schema.NullOr(TrimmedNonEmptyString),
+    tool: T3poSpaceToolName,
+    /** Null follows the default in Settings → Tools. */
+    enabled: Schema.NullOr(Schema.Boolean),
   }),
   Schema.Struct({
     type: Schema.Literal("connect_space"),

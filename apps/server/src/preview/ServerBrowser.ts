@@ -63,6 +63,8 @@ import * as FileSystem from "effect/FileSystem";
 import { constVoid } from "effect/Function";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as SqlClient from "effect/sql/SqlClient";
+import * as SpaceTools from "../t3po/SpaceTools.ts";
 import type * as Path from "effect/Path";
 import * as Queue from "effect/Queue";
 import * as Schedule from "effect/Schedule";
@@ -585,6 +587,18 @@ const make = Effect.gen(function* () {
     config.baseDir,
   ]);
   const agentScope = yield* AgentScope;
+  const spaceSql = yield* Effect.serviceOption(SqlClient.SqlClient);
+  /** The only browser an agent in this thread may open or drive, when its space decides one. */
+  const spaceProfile = (threadId: string): Promise<string | undefined> =>
+    Option.isNone(spaceSql)
+      ? Promise.resolve(undefined)
+      : runPromise(
+          SpaceTools.browserProfileFor(threadId).pipe(
+            Effect.provideService(SqlClient.SqlClient, spaceSql.value),
+          ),
+        );
+  const outsideSpace = (tab: ServerTab, required: string | undefined) =>
+    required !== undefined && tab.profileId !== required;
   const launchersDir = NodePath.join(config.stateDir, "server-browser", "launchers");
 
   const tabs = new Map<string, ServerTab>();
@@ -2515,6 +2529,15 @@ const make = Effect.gen(function* () {
           "This tab belongs to another agent session. You can read it, but open your own tab to act.",
         reason: "agentMismatch",
       });
+    if (
+      !READ_OPERATIONS.has(request.operation) &&
+      outsideSpace(tab, await spaceProfile(request.threadId))
+    )
+      throw new BrowserControlInterrupted({
+        message:
+          "This tab uses a browser outside this space. You can read it, but call preview_open with reuseExistingTab=false to act in your space's own browser.",
+        reason: "agentMismatch",
+      });
     return tab;
   };
 
@@ -2588,12 +2611,21 @@ const make = Effect.gen(function* () {
           });
         }
         // Reusing another session's tab requires explicit tabId; reading it grants no implicit takeover.
-        const existing =
+        const owned =
           found && (request.tabIdExplicit || found.control.agentId === request.agentSessionId)
             ? found
             : undefined;
+        const required = await spaceProfile(request.threadId);
+        if (owned && request.tabIdExplicit && outsideSpace(owned, required))
+          throw new BrowserControlInterrupted({
+            message:
+              "This tab uses a browser outside this space. Call preview_open with reuseExistingTab=false to open one in your space's own browser.",
+            reason: "agentMismatch",
+          });
+        // A tab from before the space decided its browser is left alone; the agent gets a new one.
+        const existing = owned && !outsideSpace(owned, required) ? owned : undefined;
         const navigationTimeout = Math.min(request.timeoutMs, NAVIGATION_TIMEOUT_MS);
-        const profileId = existing ? undefined : resolveOpenProfile(open.profileId);
+        const profileId = existing ? undefined : (required ?? resolveOpenProfile(open.profileId));
         if (!existing) closeIdleAgentTabs();
         const tab =
           existing ??

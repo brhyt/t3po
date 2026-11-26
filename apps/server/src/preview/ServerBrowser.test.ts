@@ -25,6 +25,8 @@ import * as Scope from "effect/Scope";
 import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
+import * as SqlClient from "effect/sql/SqlClient";
+import * as Sqlite from "../persistence/Sqlite.ts";
 import * as Logger from "effect/Logger";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
@@ -4302,4 +4304,42 @@ it.live("a page's title change without navigation reaches its session", () =>
       });
     }).pipe(Effect.provide(layer));
   }).pipe(Effect.scoped),
+);
+
+it.effect("an agent in a space opens and drives only its space's own browser", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      const manager = yield* Manager.PreviewManager;
+      const broker = yield* Broker.PreviewAutomationBroker;
+      yield* sql`INSERT INTO t3po_spaces (id, name) VALUES ('work', 'Work') ON CONFLICT DO NOTHING`;
+      yield* sql`INSERT INTO t3po_project_spaces (project_id, space_id) VALUES ('space-project', 'work')`;
+      yield* sql`INSERT INTO orchestration_v2_projection_threads (thread_id, project_id, title, default_provider, runtime_mode, interaction_mode, created_at, updated_at, payload_json) VALUES (${testThread.threadId}, 'space-project', 'Conversation', 'codex', 'approval-required', 'default', '2026-11-26T00:00:00Z', '2026-11-26T00:00:00Z', '{}')`;
+      yield* Effect.yieldNow;
+      // A tab from the user's own browser, before the agent asks for one.
+      const { tabId: userTab } = yield* manager.open({
+        threadId: scope.thread.threadId,
+        runtime: "server",
+      });
+      const opened = yield* broker.invoke<PreviewAutomationStatus>({
+        scope,
+        operation: "open",
+        input: { show: false, profileId: "default", url: "https://example.com/" },
+      });
+      expect(opened.tabId).not.toBe(userTab);
+      expect(contextRequests.at(-1)).toEqual({ profileId: "space:work", isolated: false });
+      const outside = yield* broker
+        .invoke<void>({
+          scope,
+          tabId: PreviewTabId.make(userTab),
+          operation: "navigate",
+          input: { url: "https://example.com/other" },
+        })
+        .pipe(Effect.flip);
+      expect(outside).toMatchObject({
+        _tag: "PreviewAutomationControlInterruptedError",
+        reason: "agentMismatch",
+      });
+    }),
+  ).pipe(Effect.provide(layer.pipe(Layer.provideMerge(Sqlite.layerMemory)))),
 );

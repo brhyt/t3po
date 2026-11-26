@@ -7,6 +7,7 @@ import * as Sqlite from "../persistence/Sqlite.ts";
 import type { McpInvocationScope } from "../mcp/McpInvocationContext.ts";
 import * as Store from "./Store.ts";
 import * as SpacePolicy from "./SpacePolicy.ts";
+import * as SpaceTools from "./SpaceTools.ts";
 
 const fixture = Layer.merge(Store.layer, SpacePolicy.layer).pipe(
   Layer.provideMerge(Sqlite.layerMemory),
@@ -279,5 +280,90 @@ it.effect("persists space rules across renames and injects them only into assign
     expect((yield* store.context(projectId, ThreadId.make("t3po-lead:a"))).context).not.toContain(
       "Use personal accounts only.",
     );
+  }).pipe(Effect.provide(fixture)),
+);
+
+it.effect("lets space agents use the browser, devices and pages in their own space's browser", () =>
+  Effect.gen(function* () {
+    yield* seed;
+    const store = yield* Store.Store;
+    const guard = yield* SpacePolicy.SpacePolicy;
+    expect(yield* SpaceTools.browserProfileFor("a")).toBeUndefined();
+    for (const [project, space] of [
+      ["a", "personal"],
+      ["b", "business"],
+    ] as const)
+      yield* store.mutate({
+        type: "assign_space",
+        projectId: ProjectId.make(project),
+        spaceId: space,
+      });
+    for (const name of [
+      "preview_open",
+      "preview_act",
+      "device_open",
+      "html_render",
+      "send_to_user",
+    ])
+      expect(yield* guard.allows(name, { url: "https://rig.ai" }, scope)).toBe(true);
+    // Another space's conversation stays out of reach through browser tools too.
+    expect(yield* guard.allows("preview_status", { threadId: "b" }, scope)).toBe(false);
+    expect(yield* SpaceTools.browserProfileFor("a")).toBe("space:personal");
+    expect(yield* SpaceTools.browserProfileFor("b")).toBe("space:business");
+    expect(yield* SpaceTools.browserProfileFor("c")).toBe("incognito");
+
+    expect(yield* SpaceTools.spaceToolChoice("a", "browser")).toBeUndefined();
+    yield* store.mutate({
+      type: "set_space_tool",
+      projectId,
+      spaceId: "personal",
+      tool: "browser",
+      enabled: false,
+    });
+    yield* store.mutate({
+      type: "set_space_tool",
+      projectId,
+      spaceId: null,
+      tool: "device",
+      enabled: true,
+    });
+    expect(yield* SpaceTools.spaceToolChoice("a", "browser")).toBe(false);
+    expect(yield* SpaceTools.spaceToolChoice("b", "browser")).toBeUndefined();
+    expect(yield* SpaceTools.spaceToolChoice("c", "device")).toBe(true);
+    expect((yield* store.read).spaceTools).toEqual([
+      { spaceId: "personal", tool: "browser", enabled: false },
+      { spaceId: null, tool: "device", enabled: true },
+    ]);
+    expect(
+      yield* store
+        .mutate({
+          type: "set_space_tool",
+          projectId,
+          spaceId: "missing",
+          tool: "browser",
+          enabled: true,
+        })
+        .pipe(Effect.isFailure),
+    ).toBe(true);
+    yield* store.mutate({
+      type: "set_space_tool",
+      projectId,
+      spaceId: "personal",
+      tool: "browser",
+      enabled: null,
+    });
+    expect(yield* SpaceTools.spaceToolChoice("a", "browser")).toBeUndefined();
+    yield* store.mutate({
+      type: "set_space_tool",
+      projectId,
+      spaceId: "business",
+      tool: "browser",
+      enabled: true,
+    });
+    yield* store.mutate({ type: "assign_space", projectId: ProjectId.make("b"), spaceId: null });
+    yield* store.mutate({ type: "remove_space", projectId, id: "business" });
+    expect((yield* store.read).spaceTools).toEqual([
+      { spaceId: null, tool: "device", enabled: true },
+    ]);
   }).pipe(Effect.provide(fixture)),
 );

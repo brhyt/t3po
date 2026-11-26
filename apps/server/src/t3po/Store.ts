@@ -11,6 +11,7 @@ import {
   T3poSpace,
   T3poExternalBinding,
   T3poSharedResource,
+  type T3poSpaceTool,
   T3poSpaceConnection,
   T3poProjectSpace,
   T3poConversation,
@@ -77,6 +78,7 @@ type Page = {
   externalBindings: readonly (typeof T3poExternalBinding.Type)[];
   spaceConnections: readonly (typeof T3poSpaceConnection.Type)[];
   sharedResources: readonly (typeof T3poSharedResource.Type)[];
+  spaceTools: readonly T3poSpaceTool[];
   spaces: readonly T3poSpace[];
   projectSpaces: readonly (typeof T3poProjectSpace.Type)[];
   conversations: readonly (typeof T3poConversation.Type)[];
@@ -443,6 +445,15 @@ const make = Effect.gen(function* () {
         sharedResources: yield* sql<
           typeof T3poSharedResource.Type
         >`SELECT id, owner_space_id AS ownerSpaceId, target_space_id AS targetSpaceId, name, location FROM t3po_shared_resources`,
+        spaceTools: (yield* sql<{
+          spaceId: string;
+          tool: T3poSpaceTool["tool"];
+          enabled: number;
+        }>`SELECT space_id AS spaceId, tool, enabled FROM t3po_space_tools`).map((row) => ({
+          spaceId: row.spaceId === "" ? null : row.spaceId,
+          tool: row.tool,
+          enabled: row.enabled === 1,
+        })),
         spaces: yield* sql<T3poSpace>`SELECT id, name, rules FROM t3po_spaces ORDER BY rowid`,
         projectSpaces: yield* sql<
           typeof T3poProjectSpace.Type
@@ -607,6 +618,16 @@ const make = Effect.gen(function* () {
         const existing = yield* sql`SELECT id FROM t3po_spaces WHERE id = ${input.id}`;
         if (!existing.length) return yield* new T3poError({ operation: "invalid" });
         yield* sql`UPDATE t3po_spaces SET rules = ${input.rules} WHERE id = ${input.id}`;
+      } else if (input.type === "set_space_tool") {
+        if (input.spaceId !== null) {
+          const space = yield* sql`SELECT id FROM t3po_spaces WHERE id = ${input.spaceId}`;
+          if (!space.length) return yield* new T3poError({ operation: "invalid" });
+        }
+        const spaceKey = input.spaceId ?? "";
+        if (input.enabled === null)
+          yield* sql`DELETE FROM t3po_space_tools WHERE space_id = ${spaceKey} AND tool = ${input.tool}`;
+        else
+          yield* sql`INSERT INTO t3po_space_tools (space_id, tool, enabled) VALUES (${spaceKey}, ${input.tool}, ${input.enabled ? 1 : 0}) ON CONFLICT(space_id, tool) DO UPDATE SET enabled = excluded.enabled`;
       } else if (input.type === "connect_space") {
         const source = yield* sql`SELECT id FROM t3po_spaces WHERE id = ${input.sourceSpaceId}`;
         const target =
@@ -638,6 +659,7 @@ const make = Effect.gen(function* () {
         const members =
           yield* sql`SELECT project_id FROM t3po_project_spaces WHERE space_id = ${input.id} LIMIT 1`;
         if (members.length) return yield* new T3poError({ operation: "space_nonempty" });
+        yield* sql`DELETE FROM t3po_space_tools WHERE space_id = ${input.id}`;
         yield* sql`DELETE FROM t3po_spaces WHERE id = ${input.id}`;
       } else if (input.type === "assign_space") {
         const previous = yield* sql<{

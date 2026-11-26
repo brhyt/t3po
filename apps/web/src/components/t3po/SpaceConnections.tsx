@@ -7,6 +7,7 @@ import { useEnvironmentQuery } from "../../state/query";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { t3po } from "../../state/t3po";
 import { randomUUID } from "../../lib/utils";
+import { SpaceToolChoices, useToolDefaults } from "./ToolsSettings";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
@@ -39,7 +40,8 @@ export function SpaceConnections({
   );
   const mutate = useAtomCommand(t3po.mutate);
   const canMutate = useAtomValue(t3po.mutate.permissionAtom(environmentId));
-  const [tab, setTab] = useState<"connections" | "rules">("connections");
+  const [tab, setTab] = useState<"connections" | "rules" | "tools">("connections");
+  const toolDefaults = useToolDefaults(environmentId);
   const [rules, setRules] = useState(space.rules ?? "");
   const [savedRules, setSavedRules] = useState(space.rules ?? "");
   const [busy, setBusy] = useState(false);
@@ -113,8 +115,32 @@ export function SpaceConnections({
             >
               <T>Rules</T>
             </Button>
+            <Button
+              size="sm"
+              variant={tab === "tools" ? "secondary" : "ghost"}
+              onClick={() => setTab("tools")}
+            >
+              <T>Tools</T>
+            </Button>
           </div>
-          {tab === "rules" ? (
+          {tab === "tools" ? (
+            <div className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                <T>
+                  Choose what agents in this space can use. Defaults come from Settings → Tools.
+                  This space's browser is its own, so its logins stay here.
+                </T>
+              </p>
+              <SpaceToolChoices
+                environmentId={environmentId}
+                projectId={projectId}
+                spaceId={space.id}
+                choices={query.data?.spaceTools ?? []}
+                defaults={toolDefaults}
+                onSaved={() => query.refresh()}
+              />
+            </div>
+          ) : tab === "rules" ? (
             <div className="space-y-3">
               <p className="text-sm text-muted-foreground">
                 <T>

@@ -251,6 +251,44 @@ it("opens space settings and autosaves rules on blur", async () => {
   );
 });
 
+it("turns the browser off for one space from its Tools tab", async () => {
+  state.archived = false;
+  state.calls = [];
+  state.data = {
+    spaces: [{ id: "personal", name: "Personal" }],
+    projectSpaces: [],
+    spaceTools: [],
+    conversations: [],
+    memory: [],
+    leads: [],
+    channels: [],
+    tasks: [],
+    nextCursor: null,
+  };
+  await using screen = await render(
+    <SidebarProvider>
+      <ProjectSidebar />
+    </SidebarProvider>,
+  );
+  await userEvent.click(screen.getByRole("button", { name: "Space settings", exact: true }));
+  await userEvent.click(screen.getByRole("button", { name: "Tools", exact: true }));
+  await userEvent.selectOptions(screen.getByRole("combobox", { name: "Browser" }), "off");
+  await vi.waitFor(() =>
+    expect(state.calls).toEqual([
+      {
+        environmentId: "roc",
+        input: {
+          type: "set_space_tool",
+          projectId: "project",
+          spaceId: "personal",
+          tool: "browser",
+          enabled: false,
+        },
+      },
+    ]),
+  );
+});
+
 it("reveals an archived project through the archive view", async () => {
   state.archived = true;
   state.calls = [];

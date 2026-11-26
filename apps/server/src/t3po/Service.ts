@@ -95,6 +95,7 @@ const make = Effect.gen(function* () {
         externalBindings: records.externalBindings,
         spaceConnections: records.spaceConnections,
         sharedResources: records.sharedResources,
+        spaceTools: records.spaceTools,
         spaces: records.spaces,
         projectSpaces: records.projectSpaces,
         conversations: records.conversations.filter((record) =>
@@ -155,6 +156,7 @@ const make = Effect.gen(function* () {
         projectId: input.projectId,
         metadata:
           input.type === "save_space_rules" ||
+          input.type === "set_space_tool" ||
           input.type.endsWith("_resource") ||
           input.type.endsWith("_space") ||
           input.type === "move_conversation" ||

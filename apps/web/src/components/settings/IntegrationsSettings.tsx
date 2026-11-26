@@ -1097,7 +1097,7 @@ function DeviceIntegrationControls({
   );
 }
 
-function AgentBrowserAccessSetting() {
+export function AgentBrowserAccessSetting() {
   const searchableSetting = useSearchableSetting();
   const gt = useGT();
   const { scope } = useSettingsScope();
