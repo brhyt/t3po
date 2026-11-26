@@ -188,6 +188,11 @@ export function ProjectBoard({
   // Board launches use the same model as jobs the lead hands off.
   const selectedModel = lead?.workModel ?? defaultModel;
   const memory = query.data?.memory.find((entry) => entry.projectId === projectId);
+  const inSpace = (query.data?.projectSpaces ?? []).some(
+    (entry) =>
+      entry.projectId === projectId &&
+      (query.data?.spaces ?? []).some((space) => space.id === entry.spaceId),
+  );
   const channels =
     query.data?.channels.filter(
       (channel) => channel.projectId === projectId && !channel.archived,
@@ -284,6 +289,10 @@ export function ProjectBoard({
                   <p className="mt-2 text-xs text-muted-foreground" role="status">
                     {!memory?.configured ? (
                       <T>Memory: local continuity</T>
+                    ) : !inSpace ? (
+                      <T>
+                        Memory: off the record. Move this project into a space to keep it in memory.
+                      </T>
                     ) : memory.available ? (
                       <T>Memory: connected</T>
                     ) : (

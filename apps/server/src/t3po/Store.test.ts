@@ -38,6 +38,15 @@ const task = {
   brief: "Compare the search results and report evidence.",
 };
 
+// Only projects in a space are remembered.
+const rememberProjects = Effect.fn("test.rememberProjects")(function* (
+  ...ids: ReadonlyArray<string>
+) {
+  const sql = yield* SqlClient.SqlClient;
+  yield* sql`INSERT OR IGNORE INTO t3po_spaces (id, name) VALUES ('space', 'Work')`;
+  for (const id of ids.length ? ids : [projectId, otherProjectId])
+    yield* sql`INSERT OR IGNORE INTO t3po_project_spaces (project_id, space_id) VALUES (${id}, 'space')`;
+});
 const seedResult = Effect.fn("test.seedResult")(function* (ordinal: number) {
   const sql = yield* SqlClient.SqlClient;
   const runId = `result-${ordinal}`;
@@ -436,6 +445,7 @@ it.effect(
     };
     return Effect.gen(function* () {
       const store = yield* Store.Store;
+      yield* rememberProjects();
       const brief = {
         type: "save_lead" as const,
         projectId,
@@ -553,6 +563,7 @@ it.effect(
     };
     return Effect.gen(function* () {
       const store = yield* Store.Store;
+      yield* rememberProjects();
       const changes = yield* Changes.Changes;
       const notifications = yield* PubSub.subscribe(changes);
       yield* store.mutate({ type: "save_lead", projectId, name: "Lead", brief: "Initial" });
@@ -658,6 +669,7 @@ it.effect(
     return Effect.gen(function* () {
       yield* Effect.gen(function* () {
         const store = yield* Store.Store;
+        yield* rememberProjects();
         yield* store.mutate({ type: "save_lead", projectId, name: "Lead", brief: "Persisted" });
       }).pipe(Effect.provide(Layer.fresh(Store.layer)));
       yield* Effect.gen(function* () {
@@ -704,6 +716,7 @@ it.effect(
       const filename = path.join(directory, "memory.sqlite");
       yield* Effect.gen(function* () {
         const store = yield* Store.Store;
+        yield* rememberProjects();
         const lock = yield* store.memoryDeliveryLock;
         const inspector = yield* Inspector.MemoryInspector.pipe(
           Effect.provide(
@@ -869,6 +882,7 @@ it.effect(
     };
     return Effect.gen(function* () {
       const store = yield* Store.Store;
+      yield* rememberProjects();
       const brief = {
         type: "save_lead" as const,
         projectId,
@@ -970,6 +984,7 @@ it.effect("retains a disabled-environment backlog when the server is re-enabled"
       ),
     );
   return Effect.gen(function* () {
+    yield* rememberProjects();
     const first = yield* configuredStore(true);
     const brief = {
       type: "save_lead" as const,
@@ -1033,6 +1048,7 @@ it.effect("retains a disabled-environment backlog when the server is re-enabled"
 it.effect("keeps capped, revisioned notes per conversation and journals each revision once", () =>
   Effect.gen(function* () {
     const store = yield* Store.Store;
+    yield* rememberProjects();
     const sql = yield* SqlClient.SqlClient;
     yield* store.mutate({ type: "save_lead", projectId, name: "Lead", brief: "Ship it" });
     yield* store.mutate({ type: "create_channel", projectId, id: "research", name: "Research" });
@@ -1113,3 +1129,58 @@ it.effect("keeps capped, revisioned notes per conversation and journals each rev
     expect((yield* restarted.notes(projectId, null))?.revision).toBe(2);
   }).pipe(Effect.provide(Store.layer.pipe(Layer.provideMerge(Sqlite.layerMemory)))),
 );
+
+it.effect("keeps a project in no space off the record and remembers it once it joins one", () => {
+  const requests: { projectId: string; events: { id: string }[] }[] = [];
+  const fetcher: typeof globalThis.fetch = async (_url, options) => {
+    const input = JSON.parse(new TextDecoder().decode(options?.body as Uint8Array));
+    requests.push(input);
+    return Response.json({
+      acceptedIds: input.events.map((event: { id: string }) => event.id),
+      context: "Remembered.",
+      available: true,
+    });
+  };
+  return Effect.gen(function* () {
+    const store = yield* Store.Store;
+    const sql = yield* SqlClient.SqlClient;
+    const brief = { type: "save_lead" as const, projectId, name: "Lead", brief: "Off the record" };
+    yield* store.mutate(brief);
+    yield* store.saveNotes({
+      projectId,
+      channelId: null,
+      text: "Private decision.",
+      expectedRevision: 0,
+      updatedBy: "user",
+    });
+    const lead = ThreadId.make(`t3po-lead:${projectId}`);
+    const offRecord = yield* store.context(projectId, lead, "what did we decide?");
+    expect(requests).toEqual([]);
+    expect(offRecord.context).toContain("offTheRecord");
+    expect(
+      (yield* sql<{ count: number }>`SELECT count(*) AS count FROM t3po_memory_events_v2`)[0]
+        ?.count,
+    ).toBe(0);
+    yield* rememberProjects(projectId);
+    yield* store.mutate({ ...brief, brief: "Now remembered" });
+    const remembered = yield* store.context(projectId, lead, "what did we decide?");
+    expect(requests.map((request) => request.projectId)).toEqual([projectId]);
+    expect(requests[0]?.events).toHaveLength(1);
+    expect(remembered.context).not.toContain("offTheRecord");
+  }).pipe(
+    Effect.provide(
+      Store.layer.pipe(
+        Layer.provideMerge(database),
+        Layer.provideMerge(
+          ConfigProvider.layer(
+            ConfigProvider.fromUnknown({
+              T3PO_MEMORY_URL: "http://memory.test",
+              T3PO_MEMORY_TOKEN: "test-token",
+            }),
+          ),
+        ),
+      ),
+    ),
+    Effect.provideService(FetchHttpClient.Fetch, fetcher),
+  );
+});

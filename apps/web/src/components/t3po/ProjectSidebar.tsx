@@ -36,9 +36,11 @@ import {
   HashIcon,
   ArchiveIcon,
   RotateCcwIcon,
+  SearchIcon,
 } from "lucide-react";
 import { useProjects, useThreadShell, useThreadShellsForProjectRefs } from "../../state/entities";
 import { useProjectIconRedraw } from "../../hooks/useProjectIconRedraw";
+import { useOlderSettledShelf, useOlderSettledShelfGrowth } from "../../state/olderSettledShelf";
 import { ProjectFavicon, type ProjectFaviconProject } from "../ProjectFavicon";
 import { openCommandPalette } from "../../commandPaletteBus";
 import { Button } from "../ui/button";
@@ -199,7 +201,7 @@ function SpaceProjects({
           onClose={() => setConnections(null)}
         />
       ) : null}
-      {[...spaces, { id: "", name: gt("Unassigned") }].map((space) => {
+      {[...spaces, { id: "", name: gt("Off the record") }].map((space) => {
         const members = projects.filter(
           (project) =>
             (query.data?.projectSpaces?.find((entry) => entry.projectId === project.id)?.spaceId ??
@@ -260,7 +262,19 @@ function SpaceProjects({
                     );
                 }}
               >
-                <span>{space.name}</span>
+                {space.id ? (
+                  <span>{space.name}</span>
+                ) : (
+                  <Tooltip>
+                    <TooltipTrigger render={<span />}>{space.name}</TooltipTrigger>
+                    <TooltipPopup>
+                      <T>
+                        Projects in no space are not kept in long-term memory. Their conversations
+                        stay until you delete them.
+                      </T>
+                    </TooltipPopup>
+                  </Tooltip>
+                )}
                 <span className="flex items-center gap-1">
                   <span>{machineLabel}</span>
                   {space.id && anchor ? (
@@ -347,11 +361,20 @@ function ProjectChannels({
   const threads = useThreadShellsForProjectRefs([{ environmentId, projectId }]);
   const conversations = projectConversations(threads, { environmentId, projectId });
   const [conversationLimit, setConversationLimit] = useState(6);
+  // Settled conversations beyond the newest load in pages, as in the main sidebar.
+  const [olderShown, setOlderShown] = useState(false);
+  const olderShelf = useOlderSettledShelf({
+    scopes: [{ environmentId, projectIds: [projectId] }],
+    expanded: olderShown,
+    visibleCount: conversationLimit,
+  });
   const [moving, setMoving] = useState<ThreadId | null>(null);
   const associations = query.data?.conversations ?? [];
   const looseConversations = conversations.filter(
     (thread) => !associations.some((entry) => entry.threadId === thread.id),
   );
+  useOlderSettledShelfGrowth(olderShelf, looseConversations);
+  const olderUnloaded = olderShelf.unloadedCount(threads) > 0;
   const canMutate = useAtomValue(t3po.mutate.permissionAtom(environmentId));
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<typeof T3poChannel.Type | null>(null);
@@ -540,7 +563,7 @@ function ProjectChannels({
                           id: `space:${space.id}`,
                           label: space.name,
                         })),
-                        { id: "space:", label: gt("Unassigned") },
+                        { id: "space:", label: gt("Off the record") },
                       ],
                     },
                   ],
@@ -737,18 +760,30 @@ function ProjectChannels({
             </span>
           </SidebarMenuButton>
         )}
-        {looseConversations.length > 0 ? (
+        {looseConversations.length > 0 || olderUnloaded ? (
           <div className="pt-2">
-            <div className="px-2 py-1 text-xs text-sidebar-muted-foreground">
+            <div className="flex items-center justify-between px-2 py-1 text-xs text-sidebar-muted-foreground">
               <T>Conversations</T>
+              <Button
+                size="icon-xs"
+                variant="ghost"
+                aria-label={gt("Search conversations")}
+                onClick={() => openCommandPalette({ query: "" })}
+              >
+                <SearchIcon className="size-3" />
+              </Button>
             </div>
             {looseConversations
               .filter((thread, index) => index < conversationLimit || thread.id === currentThreadId)
               .map(conversationRow)}
-            {looseConversations.length > conversationLimit ? (
+            {looseConversations.length > conversationLimit || olderUnloaded ? (
               <SidebarMenuButton
                 size="sm"
-                onClick={() => setConversationLimit((limit) => limit + 6)}
+                disabled={olderShelf.loading}
+                onClick={() => {
+                  setOlderShown(true);
+                  setConversationLimit((limit) => limit + 6);
+                }}
               >
                 <span>
                   <T>Show more</T>

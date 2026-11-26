@@ -197,6 +197,13 @@ const make = Effect.gen(function* () {
     if (!memory.exchangeAllowed(row.projectId))
       yield* sql`UPDATE t3po_memory_events_v2 SET delivery_held = 1 WHERE project_id = ${row.projectId} AND synced_at IS NULL`;
   }
+  // Only projects in a space are remembered; the others are off the record and never sent.
+  const inSpace = (projectId: string) =>
+    sql`EXISTS (SELECT 1 FROM t3po_project_spaces ps JOIN t3po_spaces sp ON sp.id = ps.space_id WHERE ps.project_id = ${projectId})`;
+  const remembered = (projectId: string) =>
+    sql<{ inSpace: number }>`SELECT ${inSpace(projectId)} AS inSpace`.pipe(
+      Effect.map((rows) => rows[0]?.inSpace === 1),
+    );
   const exchangeMemory = Effect.fn("T3poStore.exchangeMemory")(function* (
     projectId: ProjectId,
     query: string,
@@ -205,7 +212,11 @@ const make = Effect.gen(function* () {
     const policies = yield* sql<{
       enabled: number;
     }>`SELECT enabled FROM t3po_memory_delivery_policy WHERE project_id = ${projectId}`;
-    if (policies[0]?.enabled === 0 || !memory.exchangeAllowed(projectId))
+    if (
+      policies[0]?.enabled === 0 ||
+      !memory.exchangeAllowed(projectId) ||
+      !(yield* remembered(projectId))
+    )
       return { acceptedIds: [], context: "", available: false };
     const pending =
       yield* sql<MemoryBridge.MemoryEvent>`SELECT event_id AS id, kind, text, occurred_at AS occurredAt FROM t3po_memory_events_v2 WHERE project_id = ${projectId} AND synced_at IS NULL AND superseded_by IS NULL AND kind != 'local_correction' AND delivery_held = 0 ORDER BY sequence LIMIT 20`;
@@ -246,7 +257,7 @@ const make = Effect.gen(function* () {
     const rows = yield* sql<{
       projectId: string;
       nextAttempt: number;
-    }>`SELECT e.project_id AS projectId, COALESCE(s.next_attempt, 0) AS nextAttempt FROM t3po_memory_events_v2 e LEFT JOIN t3po_memory_status s ON s.project_id = e.project_id WHERE e.synced_at IS NULL AND e.superseded_by IS NULL AND e.kind != 'local_correction' AND e.delivery_held = 0 AND NOT EXISTS (SELECT 1 FROM t3po_memory_delivery_policy p WHERE p.project_id = e.project_id AND p.enabled = 0) GROUP BY e.project_id ORDER BY nextAttempt, e.project_id LIMIT 1`;
+    }>`SELECT e.project_id AS projectId, COALESCE(s.next_attempt, 0) AS nextAttempt FROM t3po_memory_events_v2 e LEFT JOIN t3po_memory_status s ON s.project_id = e.project_id WHERE e.synced_at IS NULL AND e.superseded_by IS NULL AND e.kind != 'local_correction' AND e.delivery_held = 0 AND NOT EXISTS (SELECT 1 FROM t3po_memory_delivery_policy p WHERE p.project_id = e.project_id AND p.enabled = 0) AND EXISTS (SELECT 1 FROM t3po_project_spaces ps JOIN t3po_spaces sp ON sp.id = ps.space_id WHERE ps.project_id = e.project_id) GROUP BY e.project_id ORDER BY nextAttempt, e.project_id LIMIT 1`;
     const row = rows[0];
     if (!row) {
       yield* Queue.take(wake);
@@ -272,6 +283,8 @@ const make = Effect.gen(function* () {
     kind: MemoryBridge.MemoryEvent["kind"],
     text: string,
   ) {
+    // Off the record: nothing about this project is journaled for memory.
+    if (!(yield* remembered(projectId))) return null;
     const now = DateTime.formatIso(yield* DateTime.now);
     const rows = yield* sql<{
       id: string;
@@ -535,7 +548,7 @@ const make = Effect.gen(function* () {
       "conversation_notes",
       `Working notes for the ${owner[0].name}, saved by the ${input.updatedBy}. They replace earlier notes for this conversation.\n\n${text}`,
     );
-    if (current?.memoryEventId)
+    if (eventId && current?.memoryEventId)
       yield* sql`UPDATE t3po_memory_events_v2 SET superseded_by = ${eventId}, revision = revision + 1 WHERE project_id = ${input.projectId} AND event_id = ${current.memoryEventId} AND superseded_by IS NULL`;
     yield* sql`INSERT INTO t3po_notes (thread_id, project_id, channel_id, text, revision, updated_at, updated_by, memory_event_id) VALUES (${notesThread(input.projectId, input.channelId)}, ${input.projectId}, ${input.channelId}, ${text}, ${saved.revision}, ${now}, ${input.updatedBy}, ${eventId}) ON CONFLICT(thread_id) DO UPDATE SET text = excluded.text, revision = excluded.revision, updated_at = excluded.updated_at, updated_by = excluded.updated_by, memory_event_id = excluded.memory_event_id`;
     return saved;
@@ -1038,6 +1051,12 @@ const make = Effect.gen(function* () {
         memory: {
           configured: memory.configured,
           available: memoryAvailable,
+          ...(memory.configured && !(yield* remembered(projectId))
+            ? {
+                offTheRecord:
+                  "This project is in no space, so nothing from it is kept in long-term memory. Moving it into a space starts memory.",
+              }
+            : {}),
           recentRecords,
         },
         role: threadId === lead.threadId || channel ? "project lead" : "task worker",
