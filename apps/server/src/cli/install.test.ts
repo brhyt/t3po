@@ -37,7 +37,8 @@ const setup = Effect.gen(function* () {
       Effect.provideService(HostProcess.IsExecutable, true),
       Effect.provideService(HostProcess.ExecutablePath, executable),
       Effect.provideService(HostProcess.Environment, {
-        PATH: "/usr/bin",
+        // Not the real /usr/bin, which may hold an installed t3 that would shadow this one.
+        PATH: path.join(root, "usr/bin"),
         SHELL: "/bin/zsh",
         T3CODE_INSTALL_BIN_DIR: binDir,
         T3CODE_NPM_LAUNCHER_PATH: path.join(npmPackage, "bin/t3.mjs"),
@@ -67,7 +68,9 @@ it.layer(NodeServices.layer)("t3 install", (it) => {
       yield* fs.symlink(path.join(root, ".t3"), alias);
       yield* fs.remove(link);
       yield* fs.symlink(path.join(alias, "runtime/versions", VERSION, "t3"), link);
-      const onPath = yield* provide(installCli(), { PATH: `/usr/bin:${path.join(root, "bin")}/` });
+      const onPath = yield* provide(installCli(), {
+        PATH: `${path.join(root, "usr/bin")}:${path.join(root, "bin")}/`,
+      });
       assert.isTrue(onPath.onPath);
       // Another t3 earlier on PATH still runs first, so `t3` would not run this one.
       const otherBin = path.join(root, "other-bin");

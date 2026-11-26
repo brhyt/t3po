@@ -10,6 +10,9 @@ import PullRequestFilesViewed from "./Migrations/053_PullRequestFilesViewed.ts";
 import RemoveRedundantProjectionIndexes from "./Migrations/056_RemoveRedundantProjectionIndexes.ts";
 import OrchestrationV2 from "./Migrations/055_OrchestrationV2.ts";
 
+// This fork's own migrations run after the upstream ones.
+const t3poMigrations = migrationManifest.filter(([, name]) => name.startsWith("T3po"));
+
 const seedPreview = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   yield* runMigrations({ toMigrationInclusive: 52 });
@@ -78,6 +81,7 @@ describe("V2 preview upgrade", () => {
         [96, "RepairStaleTitleRegeneration"],
         [97, "IssueTrackerBindings"],
         [98, "ActiveShellIndexIndexes"],
+        ...t3poMigrations,
       ]);
       assert.deepStrictEqual(yield* runMigrations(), []);
       assert.deepStrictEqual(yield* sql`SELECT * FROM orchestration_v2_legacy_imports`, imports);
@@ -199,6 +203,7 @@ describe("V2 preview upgrade", () => {
         [96, "RepairStaleTitleRegeneration"],
         [97, "IssueTrackerBindings"],
         [98, "ActiveShellIndexIndexes"],
+        ...t3poMigrations,
       ]);
     }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );
