@@ -13,6 +13,7 @@ const state = vi.hoisted(() => ({
   projectIcon: null as unknown,
   menu: [] as unknown[],
   menuChoice: null as string | null,
+  secondMachine: false,
 }));
 vi.mock(import("../../localApi"), async (original) => ({
   ...(await original()),
@@ -68,6 +69,19 @@ vi.mock(import("../../state/entities"), async (original) => ({
       projectIcon: state.projectIcon,
       faviconPath: null,
     },
+    ...(state.secondMachine
+      ? [
+          {
+            environmentId: "1421",
+            id: "mac-project",
+            title: "Mac Notes",
+            workspaceRoot: "/Users/me/Notes",
+            archivedAt: null,
+            projectIcon: null,
+            faviconPath: null,
+          },
+        ]
+      : []),
   ]) as never,
   useThreadShell: (() => undefined) as never,
   useThreadShellsForProjectRefs: (() => []) as never,
@@ -79,6 +93,12 @@ vi.mock(import("../../state/environments"), async (original) => ({
       {
         environmentId: "roc",
         label: "roc",
+        serverConfig: null,
+        connection: { phase: "disconnected" },
+      },
+      {
+        environmentId: "1421",
+        label: "1421",
         serverConfig: null,
         connection: { phase: "disconnected" },
       },
@@ -357,4 +377,47 @@ it("shows a lead-drawn icon and offers to redraw or remove it", async () => {
   );
   state.projectIcon = null;
   state.menuChoice = null;
+});
+
+it("lists projects in no space from every machine under one Off Record section", async () => {
+  state.archived = false;
+  state.secondMachine = true;
+  state.calls = [];
+  state.data = {
+    spaces: [{ id: "personal", name: "Personal" }],
+    projectSpaces: [],
+    conversations: [],
+    memory: [],
+    leads: [],
+    channels: [],
+    tasks: [],
+    nextCursor: null,
+  };
+  try {
+    await using screen = await render(
+      <SidebarProvider>
+        <ProjectSidebar />
+      </SidebarProvider>,
+    );
+    await expect.element(screen.getByRole("link", { name: /Studio/ })).toBeVisible();
+    await expect.element(screen.getByRole("link", { name: /Mac Notes/ })).toBeVisible();
+    expect(screen.getByText("Off Record", { exact: true }).elements()).toHaveLength(1);
+    // Spaces stay per machine, so each machine keeps its own.
+    expect(screen.getByText("Personal", { exact: true }).elements()).toHaveLength(2);
+    const sections = [...document.querySelectorAll("a")].map((link) => link.textContent ?? "");
+    const offRecord = [...document.querySelectorAll("*")].find(
+      (node) => node.textContent === "Off Record" && node.children.length === 0,
+    )!;
+    for (const name of ["Studio", "Mac Notes"]) {
+      const link = [...document.querySelectorAll("a")].find((node) =>
+        node.textContent?.includes(name),
+      )!;
+      expect(
+        offRecord.compareDocumentPosition(link) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+    }
+    expect(sections.some((text) => text.includes("Mac Notes"))).toBe(true);
+  } finally {
+    state.secondMachine = false;
+  }
 });

@@ -136,7 +136,29 @@ export function ProjectSidebar() {
         </SidebarMenuButton>
         {[...new Set(projects.map((project) => project.environmentId))].map((environmentId) => (
           <SpaceProjects
+            mode="spaces"
             key={environmentId}
+            environmentId={environmentId}
+            projects={projects.filter(
+              (project) =>
+                project.environmentId === environmentId &&
+                !!project.archivedAt === archivedProjects,
+            )}
+            machineLabel={
+              environments.find((env) => env.environmentId === environmentId)?.label ?? ""
+            }
+            search={activeSearch}
+            currentThreadId={
+              threadRef?.environmentId === environmentId ? threadRef.threadId : undefined
+            }
+          />
+        ))}
+        {/* Projects in no space, from every machine, in one section. */}
+        <OffRecordHeading />
+        {[...new Set(projects.map((project) => project.environmentId))].map((environmentId) => (
+          <SpaceProjects
+            key={`off-record:${environmentId}`}
+            mode="offRecord"
             environmentId={environmentId}
             projects={projects.filter(
               (project) =>
@@ -158,13 +180,38 @@ export function ProjectSidebar() {
   );
 }
 
+function OffRecordHeading() {
+  const gt = useGT();
+  return (
+    <div className="space-y-1 pt-2">
+      <div
+        className="px-2 py-1 text-xs text-sidebar-muted-foreground"
+        aria-label={gt("Off Record")}
+      >
+        <Tooltip>
+          <TooltipTrigger render={<span />}>{gt("Off Record")}</TooltipTrigger>
+          <TooltipPopup>
+            <T>
+              Projects in no space are not kept in long-term memory. Their conversations stay until
+              you delete them.
+            </T>
+          </TooltipPopup>
+        </Tooltip>
+      </div>
+    </div>
+  );
+}
+
 function SpaceProjects({
+  mode,
   environmentId,
   projects,
   machineLabel,
   search,
   currentThreadId,
 }: {
+  /** A machine's own spaces, or just its projects in no space for the shared Off Record section. */
+  mode: "spaces" | "offRecord";
   environmentId: EnvironmentId;
   projects: ReturnType<typeof useProjects>;
   machineLabel: string;
@@ -201,15 +248,15 @@ function SpaceProjects({
           onClose={() => setConnections(null)}
         />
       ) : null}
-      {[...spaces, { id: "", name: gt("Off Record") }].map((space) => {
+      {(mode === "offRecord" ? [{ id: "", name: gt("Off Record") }] : spaces).map((space) => {
         const members = projects.filter(
           (project) =>
             (query.data?.projectSpaces?.find((entry) => entry.projectId === project.id)?.spaceId ??
               "") === space.id,
         );
         return (
-          <div key={space.id} className="space-y-1 pt-2">
-            {editing?.id === space.id ? (
+          <div key={space.id} className={mode === "offRecord" ? "space-y-1" : "space-y-1 pt-2"}>
+            {mode === "offRecord" ? null : editing?.id === space.id ? (
               <InlineName
                 name={space.name}
                 label={gt("Space name")}
@@ -262,19 +309,7 @@ function SpaceProjects({
                     );
                 }}
               >
-                {space.id ? (
-                  <span>{space.name}</span>
-                ) : (
-                  <Tooltip>
-                    <TooltipTrigger render={<span />}>{space.name}</TooltipTrigger>
-                    <TooltipPopup>
-                      <T>
-                        Projects in no space are not kept in long-term memory. Their conversations
-                        stay until you delete them.
-                      </T>
-                    </TooltipPopup>
-                  </Tooltip>
-                )}
+                <span>{space.name}</span>
                 <span className="flex items-center gap-1">
                   <span>{machineLabel}</span>
                   {space.id && anchor ? (
@@ -307,7 +342,7 @@ function SpaceProjects({
           </div>
         );
       })}
-      {editing && !spaces.some((space) => space.id === editing.id) ? (
+      {mode === "offRecord" ? null : editing && !spaces.some((space) => space.id === editing.id) ? (
         <InlineName
           name=""
           label={gt("Space name")}
