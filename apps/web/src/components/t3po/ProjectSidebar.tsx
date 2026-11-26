@@ -201,7 +201,7 @@ function SpaceProjects({
           onClose={() => setConnections(null)}
         />
       ) : null}
-      {[...spaces, { id: "", name: gt("Off the record") }].map((space) => {
+      {[...spaces, { id: "", name: gt("Off Record") }].map((space) => {
         const members = projects.filter(
           (project) =>
             (query.data?.projectSpaces?.find((entry) => entry.projectId === project.id)?.spaceId ??
@@ -563,7 +563,7 @@ function ProjectChannels({
                           id: `space:${space.id}`,
                           label: space.name,
                         })),
-                        { id: "space:", label: gt("Off the record") },
+                        { id: "space:", label: gt("Off Record") },
                       ],
                     },
                   ],

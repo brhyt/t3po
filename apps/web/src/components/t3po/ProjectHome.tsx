@@ -291,7 +291,7 @@ export function ProjectBoard({
                       <T>Memory: local continuity</T>
                     ) : !inSpace ? (
                       <T>
-                        Memory: off the record. Move this project into a space to keep it in memory.
+                        Memory: Off Record. Move this project into a space to keep it in memory.
                       </T>
                     ) : memory.available ? (
                       <T>Memory: connected</T>

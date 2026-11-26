@@ -140,7 +140,7 @@ function SpacesToolsSection({ environmentId }: { environmentId: EnvironmentId })
     })),
     {
       id: null,
-      name: gt("Off the record"),
+      name: gt("Off Record"),
       detail: gt("Projects in no space. A scratch browser that keeps no logins."),
     },
   ];

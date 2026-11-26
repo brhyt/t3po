@@ -340,7 +340,7 @@ it("shows a lead-drawn icon and offers to redraw or remove it", async () => {
   const row = screen.getByRole("link", { name: /Studio/ });
   await expect.element(row).toBeVisible();
   // A project in no space is listed under the section that is not kept in memory.
-  await expect.element(screen.getByText("Off the record", { exact: true })).toBeVisible();
+  await expect.element(screen.getByText("Off Record", { exact: true })).toBeVisible();
   expect(row.element().querySelector("img")?.getAttribute("src")).toMatch(/^data:image\/svg\+xml/);
   row.element().dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
   await vi.waitFor(() =>
