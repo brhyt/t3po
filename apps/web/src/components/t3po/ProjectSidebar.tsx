@@ -1,6 +1,9 @@
 import { SidebarChromeFooter } from "../sidebar/SidebarChrome";
 import { useEnvironmentScope } from "../../state/session";
-import { AuthOrchestrationOperateScope } from "@t3tools/contracts";
+import { AuthOrchestrationOperateScope, ThreadId } from "@t3tools/contracts";
+import { scopeThreadRef } from "@t3tools/client-runtime/environment";
+import * as Cause from "effect/Cause";
+import { useThreadActions } from "../../hooks/useThreadActions";
 import { projectEnvironment } from "../../state/projects";
 import { useOrchestrationCommand } from "../../state/use-orchestration-command";
 import { useLocalStorage } from "../../hooks/useLocalStorage";
@@ -11,13 +14,7 @@ import { SpaceConnections } from "./SpaceConnections";
 import { useRoName } from "./useRoName";
 import { useRef, useState } from "react";
 import { useAtomValue } from "@effect/atom-react";
-import type {
-  EnvironmentId,
-  ProjectId,
-  ThreadId,
-  T3poChannel,
-  T3poSpace,
-} from "@t3tools/contracts";
+import type { EnvironmentId, ProjectId, T3poChannel, T3poSpace } from "@t3tools/contracts";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import { useEnvironmentQuery } from "../../state/query";
 import { useAtomCommand } from "../../state/use-atom-command";
@@ -269,6 +266,38 @@ function OffRecordHeading() {
   );
 }
 
+/** Archive and Delete for a conversation row; Delete asks first, as elsewhere in the app. */
+function useConversationLifecycle() {
+  const gt = useGT();
+  const { archiveThread, confirmAndDeleteThread } = useThreadActions();
+  const items = [
+    { id: "archive", label: gt("Archive"), separatorBefore: true },
+    { id: "delete", label: gt("Delete…"), destructive: true },
+  ];
+  async function run(
+    action: string | null | undefined,
+    environmentId: EnvironmentId,
+    threadId: string,
+    title: string,
+  ) {
+    if (action !== "archive" && action !== "delete") return;
+    const ref = scopeThreadRef(environmentId, ThreadId.make(threadId));
+    const result =
+      action === "archive" ? await archiveThread(ref) : await confirmAndDeleteThread(ref, title);
+    if (result._tag === "Failure") {
+      const cause = Cause.squash(result.cause as Cause.Cause<unknown>);
+      throw cause instanceof Error
+        ? cause
+        : new Error(
+            action === "archive"
+              ? gt("Could not archive the conversation.")
+              : gt("Could not delete the conversation."),
+          );
+    }
+  }
+  return { items, run };
+}
+
 /** Conversations on a machine's No project, listed straight under Off Record. */
 function NoProjectConversations({
   environmentId,
@@ -293,8 +322,16 @@ function NoProjectConversations({
   });
   useOlderSettledShelfGrowth(olderShelf, conversations);
   const olderUnloaded = olderShelf.unloadedCount(threads) > 0;
+  const gt = useGT();
+  const lifecycle = useConversationLifecycle();
+  const [error, setError] = useState<string | null>(null);
   return (
     <>
+      {error ? (
+        <p role="alert" className="px-2 text-xs text-destructive">
+          {error}
+        </p>
+      ) : null}
       {conversations
         .filter((thread, index) => index < limit || thread.id === currentThreadId)
         .map((thread) => (
@@ -310,6 +347,19 @@ function NoProjectConversations({
             isActive={thread.id === currentThreadId}
             title={thread.title}
             size="lg"
+            onContextMenu={(event) => {
+              event.preventDefault();
+              void readLocalApi()
+                ?.contextMenu.show(
+                  lifecycle.items.map((item) => ({ ...item, separatorBefore: false })),
+                  { x: event.clientX, y: event.clientY },
+                  contextMenuSourceOf(event.nativeEvent),
+                )
+                .then((action) => lifecycle.run(action, environmentId, thread.id, thread.title))
+                .catch((cause) =>
+                  setError(cause instanceof Error ? cause.message : gt("Could not save changes.")),
+                );
+            }}
           >
             <SidebarLabel
               label={thread.title}
@@ -577,8 +627,12 @@ function ProjectChannels({
   const updateProject = useOrchestrationCommand(projectEnvironment.update, {
     label: "update project",
   });
+  const removeProject = useOrchestrationCommand(projectEnvironment.delete, {
+    label: "remove project",
+  });
   const canUpdateProject = useEnvironmentScope(environmentId, AuthOrchestrationOperateScope);
   const redrawProjectIcon = useProjectIconRedraw();
+  const lifecycle = useConversationLifecycle();
   const drawnIcon = project.projectIcon?.kind === "generated";
   async function updateProjectDetails(input: {
     title?: string;
@@ -587,6 +641,35 @@ function ProjectChannels({
   }) {
     const result = await updateProject({ environmentId, input: { projectId, ...input } });
     if (result._tag !== "Success") throw squashAtomCommandFailure(result);
+  }
+  async function deleteChannel(channel: typeof T3poChannel.Type) {
+    const confirmed = await readLocalApi()?.dialogs.confirm(
+      gt(
+        'Delete the "{name}" channel? Its chat is deleted. Its jobs and conversations move back to the project.',
+        { name: channel.name },
+      ),
+      { variant: "destructive" },
+    );
+    if (!confirmed) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await mutate({
+        environmentId,
+        input: { type: "delete_channel", projectId, id: channel.id },
+      });
+      if (result._tag !== "Success") {
+        const cause = squashAtomCommandFailure(result);
+        setError(cause instanceof Error ? cause.message : gt("Could not save changes."));
+      } else {
+        query.refresh();
+        if (search.channel === channel.id || activeChannelId === channel.id)
+          await navigate({ to: "/", search: { project: projectId, machine: environmentId } });
+      }
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : gt("Could not save changes."));
+    }
+    setBusy(false);
   }
   async function archive(channel: typeof T3poChannel.Type) {
     setBusy(true);
@@ -652,11 +735,13 @@ function ProjectChannels({
                   disabled:
                     !canMutate || !associations.some((entry) => entry.threadId === thread.id),
                 },
+                ...lifecycle.items,
               ],
               { x: event.clientX, y: event.clientY },
               contextMenuSourceOf(event.nativeEvent),
             )
             .then(async (action) => {
+              await lifecycle.run(action, environmentId, thread.id, thread.title);
               if (action === "new") {
                 setMoving(thread.id);
                 setCreating(true);
@@ -750,6 +835,13 @@ function ProjectChannels({
                         { id: "space:", label: gt("Off Record") },
                       ],
                     },
+                    {
+                      id: "remove-project",
+                      label: gt("Remove project…"),
+                      destructive: true,
+                      separatorBefore: true,
+                      disabled: !canUpdateProject,
+                    },
                   ],
                   { x: event.clientX, y: event.clientY },
                   contextMenuSourceOf(event.nativeEvent),
@@ -769,6 +861,22 @@ function ProjectChannels({
                   if (action === "remove-icon") await updateProjectDetails({ projectIcon: null });
                   if (action === "archive") {
                     await updateProjectDetails({ archived: !archived });
+                    await navigate({ to: "/", search: {} });
+                  }
+                  if (action === "remove-project") {
+                    const confirmed = await readLocalApi()?.dialogs.confirm(
+                      gt(
+                        'Remove "{title}"? This deletes the project and its conversations from the app. Files on disk are not touched.',
+                        { title },
+                      ),
+                      { variant: "destructive" },
+                    );
+                    if (!confirmed) return;
+                    const result = await removeProject({
+                      environmentId,
+                      input: { projectId, force: true },
+                    });
+                    if (result._tag !== "Success") throw squashAtomCommandFailure(result);
                     await navigate({ to: "/", search: {} });
                   }
                 })
@@ -847,6 +955,13 @@ function ProjectChannels({
                                 : gt("Archive channel"),
                               disabled: !canMutate || busy,
                             },
+                            {
+                              id: "delete",
+                              label: gt("Delete channel…"),
+                              destructive: true,
+                              separatorBefore: true,
+                              disabled: !canMutate || busy,
+                            },
                           ],
                           { x: event.clientX, y: event.clientY },
                           contextMenuSourceOf(event.nativeEvent),
@@ -857,6 +972,7 @@ function ProjectChannels({
                             setCreating(false);
                           }
                           if (action === "archive") await archive(channel);
+                          if (action === "delete") await deleteChannel(channel);
                         })
                         .catch((cause) =>
                           setError(

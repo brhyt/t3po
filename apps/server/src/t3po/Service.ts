@@ -152,10 +152,26 @@ const make = Effect.gen(function* () {
       }
       if (input.type === "memory_control") yield* store.controlMemory(input);
       else yield* store.mutate(input, reviewedRunId);
+      if (input.type === "delete_channel") {
+        const channelThread = ThreadId.make(`t3po-channel:${input.id}`);
+        if (yield* threads.getThreadShell(channelThread))
+          yield* threads
+            .dispatch({
+              type: "thread.delete",
+              commandId: CommandId.make(`t3po-delete-channel:${input.id}`),
+              threadId: channelThread,
+            })
+            .pipe(
+              Effect.catch((cause) =>
+                Effect.logWarning("Could not delete a deleted channel's chat", { cause }),
+              ),
+            );
+      }
       yield* PubSub.publish(changes, {
         projectId: input.projectId,
         metadata:
           input.type === "save_space_rules" ||
+          input.type === "delete_channel" ||
           input.type === "set_space_tool" ||
           input.type.endsWith("_resource") ||
           input.type.endsWith("_space") ||

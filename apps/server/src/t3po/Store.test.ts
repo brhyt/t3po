@@ -1184,3 +1184,38 @@ it.effect("keeps a project in no space off the record and remembers it once it j
     Effect.provideService(FetchHttpClient.Fetch, fetcher),
   );
 });
+
+it.effect("deletes a channel and moves its jobs and conversations back to the project", () =>
+  Effect.gen(function* () {
+    const store = yield* Store.Store;
+    const sql = yield* SqlClient.SqlClient;
+    yield* store.mutate({ type: "save_lead", projectId, name: "Lead", brief: "Context" });
+    yield* store.mutate({ type: "create_channel", projectId, id: "research", name: "Research" });
+    yield* store.mutate({ ...task, channelId: "research" });
+    yield* sql`INSERT INTO t3po_conversations (thread_id, project_id, channel_id) VALUES ('loose', ${projectId}, 'research')`;
+    yield* sql`INSERT INTO t3po_workstreams (id, project_id, channel_id, data) VALUES ('stream', ${projectId}, 'research', ${JSON.stringify({ id: "stream", projectId, channelId: "research", title: "Stream", goal: "", state: "active" })})`;
+    yield* sql`INSERT INTO t3po_notes (thread_id, project_id, channel_id, text, revision, updated_at, updated_by) VALUES ('t3po-channel:research', ${projectId}, 'research', 'Notes', 1, '2026-11-26T00:00:00Z', 'user')`;
+    // A running job in the channel blocks the delete.
+    yield* sql`INSERT INTO orchestration_v2_projection_runs (run_id, thread_id, ordinal, provider, status, requested_at, payload_json) VALUES ('live', 't3po-task:task-a', 1, 'codex', 'running', '2026-11-26T00:00:00Z', '{}')`;
+    expect(
+      yield* store.mutate({ type: "delete_channel", projectId, id: "research" }).pipe(
+        Effect.flip,
+        Effect.map((error) => (error as { operation?: string }).operation),
+      ),
+    ).toBe("channel_busy");
+    yield* sql`DELETE FROM orchestration_v2_projection_runs WHERE run_id = 'live'`;
+    yield* store.mutate({ type: "archive_channel", projectId, id: "research", archived: true });
+    yield* store.mutate({ type: "delete_channel", projectId, id: "research" });
+    const read = yield* store.read;
+    expect(read.channels.filter((channel) => channel.id === "research")).toEqual([]);
+    expect(read.conversations).toEqual([]);
+    expect(read.tasks.find((entry) => entry.id === task.id)?.channelId).toBeNull();
+    expect(read.workstreams.find((entry) => entry.id === "stream")?.channelId).toBeNull();
+    expect(yield* sql`SELECT thread_id FROM t3po_notes WHERE channel_id = 'research'`).toEqual([]);
+    expect(
+      yield* store
+        .mutate({ type: "delete_channel", projectId, id: "research" })
+        .pipe(Effect.isFailure),
+    ).toBe(true);
+  }).pipe(Effect.provide(Store.layer.pipe(Layer.provideMerge(Sqlite.layerMemory)))),
+);

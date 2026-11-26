@@ -17,6 +17,10 @@ const state = vi.hoisted(() => ({
   scratch: false,
   started: [] as unknown[],
   palette: [] as unknown[],
+  archived_threads: [] as unknown[],
+  deleted_threads: [] as unknown[],
+  confirm: true,
+  confirmAsked: 0,
 }));
 vi.mock(import("../../localApi"), async (original) => ({
   ...(await original()),
@@ -25,6 +29,12 @@ vi.mock(import("../../localApi"), async (original) => ({
       show: async (items: unknown[]) => {
         state.menu = items;
         return state.menuChoice;
+      },
+    },
+    dialogs: {
+      confirm: async () => {
+        state.confirmAsked += 1;
+        return state.confirm;
       },
     },
   })) as never,
@@ -60,6 +70,18 @@ vi.mock(import("../../state/t3po"), async () => {
     t3po: { snapshot: () => undefined, mutate: { permissionAtom: () => Atom.make(true) } } as never,
   };
 });
+vi.mock(import("../../hooks/useThreadActions"), () => ({
+  useThreadActions: (() => ({
+    archiveThread: async (ref: unknown) => {
+      state.archived_threads.push(ref);
+      return { _tag: "Success" };
+    },
+    confirmAndDeleteThread: async (ref: unknown) => {
+      state.deleted_threads.push(ref);
+      return { _tag: "Success" };
+    },
+  })) as never,
+}));
 vi.mock(import("../../commandPaletteBus"), async (original) => ({
   ...(await original()),
   openCommandPalette: ((input: unknown) => {
@@ -507,5 +529,73 @@ it("keeps conversations with no project under Off Record and starts new ones the
     await vi.waitFor(() => expect(state.palette).toContainEqual({ open: "add-project" }));
   } finally {
     state.scratch = false;
+  }
+});
+
+it("archives and deletes conversations, deletes channels and removes projects from their menus", async () => {
+  state.archived = false;
+  state.scratch = true;
+  state.calls = [];
+  state.archived_threads = [];
+  state.deleted_threads = [];
+  state.confirm = true;
+  state.data = {
+    spaces: [],
+    projectSpaces: [],
+    conversations: [],
+    memory: [],
+    leads: [],
+    channels: [
+      { id: "research", projectId: ProjectId.make("project"), name: "Research", archived: false },
+    ],
+    tasks: [],
+    nextCursor: null,
+  };
+  const rightClick = (element: Element) =>
+    element.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+  try {
+    await using screen = await render(
+      <SidebarProvider>
+        <ProjectSidebar />
+      </SidebarProvider>,
+    );
+    const chat = screen.getByRole("link", { name: /Quick question about taxes/ });
+    await expect.element(chat).toBeVisible();
+    state.menuChoice = "archive";
+    rightClick(chat.element());
+    await vi.waitFor(() =>
+      expect(state.archived_threads).toEqual([{ environmentId: "roc", threadId: "loose-chat" }]),
+    );
+    state.menuChoice = "delete";
+    rightClick(chat.element());
+    await vi.waitFor(() => expect(state.deleted_threads).toHaveLength(1));
+
+    state.menuChoice = "delete";
+    rightClick(screen.getByRole("link", { name: "Research" }).element());
+    await vi.waitFor(() =>
+      expect(state.calls).toContainEqual({
+        environmentId: "roc",
+        input: { type: "delete_channel", projectId: "project", id: "research" },
+      }),
+    );
+
+    // Declining the confirmation leaves the project alone.
+    state.confirm = false;
+    state.menuChoice = "remove-project";
+    const asked = state.confirmAsked;
+    rightClick(screen.getByRole("link", { name: /Studio/ }).element());
+    await vi.waitFor(() => expect(state.confirmAsked).toBe(asked + 1));
+    expect(JSON.stringify(state.calls)).not.toContain("force");
+    state.confirm = true;
+    rightClick(screen.getByRole("link", { name: /Studio/ }).element());
+    await vi.waitFor(() =>
+      expect(state.calls).toContainEqual({
+        environmentId: "roc",
+        input: { projectId: "project", force: true },
+      }),
+    );
+  } finally {
+    state.scratch = false;
+    state.menuChoice = null;
   }
 });

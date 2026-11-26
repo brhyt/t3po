@@ -834,6 +834,21 @@ const make = Effect.gen(function* () {
         yield* sql`INSERT INTO t3po_task_revisions (task_id, revision, data, created_at)
           SELECT id, 1, data, ${now} FROM t3po_tasks WHERE id = ${input.id} AND project_id = ${input.projectId}
           ON CONFLICT(task_id, revision) DO NOTHING`;
+      } else if (input.type === "delete_channel") {
+        const exists =
+          yield* sql`SELECT id FROM t3po_channels WHERE id = ${input.id} AND project_id = ${input.projectId}`;
+        if (!exists.length) return yield* new T3poError({ operation: "invalid" });
+        const channelThread = `t3po-channel:${input.id}`;
+        // Work still running in the channel would report back into a chat that no longer exists.
+        const busy =
+          yield* sql`SELECT r.run_id FROM orchestration_v2_projection_runs r WHERE r.status IN ('preparing', 'queued', 'starting', 'running', 'waiting') AND (r.thread_id = ${channelThread} OR r.thread_id IN (SELECT json_extract(data, '$.threadId') FROM t3po_tasks WHERE project_id = ${input.projectId} AND json_extract(data, '$.channelId') = ${input.id})) LIMIT 1`;
+        if (busy.length) return yield* new T3poError({ operation: "channel_busy" });
+        yield* sql`DELETE FROM t3po_conversations WHERE project_id = ${input.projectId} AND channel_id = ${input.id}`;
+        yield* sql`UPDATE t3po_tasks SET data = json_set(data, '$.channelId', json('null')) WHERE project_id = ${input.projectId} AND json_extract(data, '$.channelId') = ${input.id}`;
+        yield* sql`UPDATE t3po_workstreams SET channel_id = NULL, data = json_set(data, '$.channelId', json('null')) WHERE project_id = ${input.projectId} AND channel_id = ${input.id}`;
+        yield* sql`DELETE FROM t3po_notes WHERE project_id = ${input.projectId} AND channel_id = ${input.id}`;
+        yield* sql`DELETE FROM t3po_push_mutes WHERE project_id = ${input.projectId} AND channel_id = ${input.id}`;
+        yield* sql`DELETE FROM t3po_channels WHERE id = ${input.id} AND project_id = ${input.projectId}`;
       } else if (input.type === "edit_channel" || input.type === "archive_channel") {
         const rows = yield* sql<{
           data: string;

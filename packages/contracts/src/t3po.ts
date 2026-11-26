@@ -474,6 +474,12 @@ export const T3poMutation = Schema.Union([
     name: TrimmedNonEmptyString.check(Schema.isMaxLength(200)),
   }),
   Schema.Struct({
+    /** Jobs, workstreams and conversations move back to the project; the channel chat is deleted. */
+    type: Schema.Literal("delete_channel"),
+    projectId: ProjectId,
+    id: TrimmedNonEmptyString,
+  }),
+  Schema.Struct({
     type: Schema.Literals(["archive_task", "archive_channel"]),
     projectId: ProjectId,
     id: TrimmedNonEmptyString,
@@ -504,6 +510,7 @@ export class T3poError extends Schema.TaggedError<T3poError>()("T3poError", {
     "invalid",
     "busy",
     "space_busy",
+    "channel_busy",
     "space_nonempty",
     "space_boundary",
     "workspace",
@@ -530,6 +537,8 @@ export class T3poError extends Schema.TaggedError<T3poError>()("T3poError", {
       return "This job grant has reached its run or concurrency limit.";
     if (this.operation === "space_busy")
       return "Wait for active runs and background agents on this computer to finish before changing a project’s Space.";
+    if (this.operation === "channel_busy")
+      return "Wait for the work running in this channel to finish before deleting it.";
     if (this.operation === "space_nonempty")
       return "Move all projects, including archived projects, out of this Space before removing it.";
     if (this.operation === "space_boundary")
