@@ -38,6 +38,8 @@ import {
   RotateCcwIcon,
 } from "lucide-react";
 import { useProjects, useThreadShell, useThreadShellsForProjectRefs } from "../../state/entities";
+import { useProjectIconRedraw } from "../../hooks/useProjectIconRedraw";
+import { ProjectFavicon, type ProjectFaviconProject } from "../ProjectFavicon";
 import { openCommandPalette } from "../../commandPaletteBus";
 import { Button } from "../ui/button";
 import { Tooltip, TooltipTrigger, TooltipPopup } from "../ui/tooltip";
@@ -277,6 +279,7 @@ function SpaceProjects({
             {members.map((project) => (
               <ProjectChannels
                 key={project.id}
+                project={project}
                 projectId={project.id}
                 environmentId={environmentId}
                 title={project.title}
@@ -318,6 +321,7 @@ function SpaceProjects({
 
 function ProjectChannels({
   archived,
+  project,
   projectId,
   environmentId,
   title,
@@ -327,6 +331,7 @@ function ProjectChannels({
   currentThreadId,
 }: {
   archived: boolean;
+  project: ProjectFaviconProject;
   projectId: ProjectId;
   environmentId: EnvironmentId;
   title: string;
@@ -366,7 +371,13 @@ function ProjectChannels({
     label: "update project",
   });
   const canUpdateProject = useEnvironmentScope(environmentId, AuthOrchestrationOperateScope);
-  async function updateProjectDetails(input: { title?: string; archived?: boolean }) {
+  const redrawProjectIcon = useProjectIconRedraw();
+  const drawnIcon = project.projectIcon?.kind === "generated";
+  async function updateProjectDetails(input: {
+    title?: string;
+    archived?: boolean;
+    projectIcon?: null;
+  }) {
     const result = await updateProject({ environmentId, input: { projectId, ...input } });
     if (result._tag !== "Success") throw squashAtomCommandFailure(result);
   }
@@ -510,6 +521,16 @@ function ProjectChannels({
                       label: archived ? gt("Restore project") : gt("Archive"),
                       disabled: !canUpdateProject,
                     },
+                    ...(drawnIcon
+                      ? [
+                          { id: "redraw-icon", label: gt("Redraw icon"), disabled: !canMutate },
+                          {
+                            id: "remove-icon",
+                            label: gt("Remove icon"),
+                            disabled: !canUpdateProject,
+                          },
+                        ]
+                      : []),
                     {
                       id: "space",
                       label: gt("Move to space"),
@@ -536,6 +557,9 @@ function ProjectChannels({
                     query.refresh();
                   }
                   if (action === "rename") setRenamingProject(true);
+                  if (action === "redraw-icon")
+                    await redrawProjectIcon([{ ...project, id: projectId, environmentId }]);
+                  if (action === "remove-icon") await updateProjectDetails({ projectIcon: null });
                   if (action === "archive") {
                     await updateProjectDetails({ archived: !archived });
                     await navigate({ to: "/", search: {} });
@@ -552,6 +576,7 @@ function ProjectChannels({
               (!currentThreadId || currentThreadId.startsWith("t3po-lead:"))
             }
           >
+            <ProjectFavicon project={project} className="size-4 shrink-0 self-start mt-0.5" />
             <SidebarLabel
               label={title}
               timestamp={latestActivity}

@@ -117,6 +117,8 @@ const make = Effect.gen(function* () {
             }),
           ),
         );
+      // The request is answered; a later failed or cancelled run must not ask again.
+      yield* sql`UPDATE t3po_leads SET data = json_remove(data, '$.iconRequestRunId') WHERE project_id = ${projectId}`;
       return { projectId };
     },
     Effect.tapError((cause) =>

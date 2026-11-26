@@ -166,6 +166,7 @@ import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 
 import { resolveAttachmentPath } from "../../attachmentStore.ts";
 import { snapshotMcpApp } from "../../mcpApps/McpAppSnapshot.ts";
+import { T3PO_SELF_APPROVED_TOOLS } from "../../t3po/LeadTools.ts";
 import { resolveClaudeSdkExecutablePath } from "../../provider/Drivers/ClaudeExecutable.ts";
 import * as ProviderInstallationGate from "../../provider/ProviderInstallationGate.ts";
 import {
@@ -2480,6 +2481,11 @@ export const CLAUDE_READ_ONLY_T3_MCP_ALLOWED_TOOLS: ReadonlyArray<string> = [
   "mcp__t3-code__send_to_user",
 ];
 
+// A chat's own notes, schedules and drawn icon never wait on an approval prompt.
+const CLAUDE_SELF_APPROVED_T3_MCP_TOOLS = T3PO_SELF_APPROVED_TOOLS.map(
+  (name) => `mcp__t3-code__${name}`,
+);
+
 // request_secret can wait an hour; exceed Claude's default 60 s timeout.
 export const CLAUDE_T3_MCP_TOOL_TIMEOUT_MS = 65 * 60 * 1_000;
 
@@ -2499,7 +2505,7 @@ export function claudeMcpQueryOverrides(input: {
     return input.allowedTools === undefined ? {} : { allowedTools: input.allowedTools };
   }
   const mcpAllowedTools = input.readOnlySandbox
-    ? CLAUDE_READ_ONLY_T3_MCP_ALLOWED_TOOLS
+    ? [...CLAUDE_READ_ONLY_T3_MCP_ALLOWED_TOOLS, ...CLAUDE_SELF_APPROVED_T3_MCP_TOOLS]
     : [CLAUDE_T3_MCP_TOOL_WILDCARD];
   return {
     allowedTools: Array.from(new Set([...(input.allowedTools ?? []), ...mcpAllowedTools])),

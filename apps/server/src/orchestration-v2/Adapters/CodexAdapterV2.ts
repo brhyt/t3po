@@ -137,6 +137,7 @@ import {
   MCP_APP_RESOURCE_SCHEME,
 } from "@t3tools/shared/mcpApp";
 import { snapshotMcpApp } from "../../mcpApps/McpAppSnapshot.ts";
+import { T3PO_SELF_APPROVED_TOOLS } from "../../t3po/LeadTools.ts";
 import {
   ProviderAdapterDriverCreateError,
   type ProviderAdapterDriverCreateInput,
@@ -1504,6 +1505,10 @@ const CODEX_T3_MCP_TOOL_TIMEOUT_SEC = 65 * 60;
 // `t3-code-direct.<tool>`; t3McpToolPresentation.ts must keep resolving that form.
 const CODEX_T3_DIRECT_MCP_SERVER = "t3-code-direct";
 const CODEX_DIRECT_ONLY_T3_TOOLS = ["t3_thread_wait", "delegate_task"];
+// A chat's own notes, schedules and drawn icon never wait on an approval prompt.
+const CODEX_SELF_APPROVED_T3_TOOLS = Object.fromEntries(
+  T3PO_SELF_APPROVED_TOOLS.map((name) => [name, { approval_mode: "approve" }]),
+);
 
 function codexThreadRuntimeParams(input: {
   readonly threadId: ThreadId | null;
@@ -1548,7 +1553,11 @@ function codexThreadRuntimeParams(input: {
         ? {}
         : {
             // Override only T3's servers so launch-argument MCP servers survive.
-            "mcp_servers.t3-code": { ...t3Server, disabled_tools: CODEX_DIRECT_ONLY_T3_TOOLS },
+            "mcp_servers.t3-code": {
+              ...t3Server,
+              disabled_tools: CODEX_DIRECT_ONLY_T3_TOOLS,
+              tools: CODEX_SELF_APPROVED_T3_TOOLS,
+            },
             // Code Mode runs a blocking wait or delegate wait as a nested call, and the model
             // keeps polling it. A second, direct-only registration makes it a plain tool call.
             [`mcp_servers.${CODEX_T3_DIRECT_MCP_SERVER}`]: {

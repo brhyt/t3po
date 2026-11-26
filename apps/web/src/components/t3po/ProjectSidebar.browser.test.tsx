@@ -10,6 +10,20 @@ const state = vi.hoisted(() => ({
   data: undefined as typeof T3poSnapshot.Type | undefined,
   calls: [] as unknown[],
   archived: false,
+  projectIcon: null as unknown,
+  menu: [] as unknown[],
+  menuChoice: null as string | null,
+}));
+vi.mock(import("../../localApi"), async (original) => ({
+  ...(await original()),
+  readLocalApi: (() => ({
+    contextMenu: {
+      show: async (items: unknown[]) => {
+        state.menu = items;
+        return state.menuChoice;
+      },
+    },
+  })) as never,
 }));
 vi.mock(import("../../state/query"), async (original) => ({
   ...(await original()),
@@ -51,6 +65,8 @@ vi.mock(import("../../state/entities"), async (original) => ({
       title: "Studio",
       workspaceRoot: "/home/grr/Studio",
       archivedAt: state.archived ? "2026-11-19T00:00:00Z" : null,
+      projectIcon: state.projectIcon,
+      faviconPath: null,
     },
   ]) as never,
   useThreadShell: (() => undefined) as never,
@@ -258,4 +274,47 @@ it("reveals an archived project through the archive view", async () => {
   await expect.element(screen.getByRole("link", { name: /Studio/ })).toBeVisible();
   await userEvent.click(screen.getByRole("button", { name: "Active projects", exact: true }));
   await expect.element(screen.getByRole("link", { name: /Studio/ })).not.toBeInTheDocument();
+});
+
+it("shows a lead-drawn icon and offers to redraw or remove it", async () => {
+  state.archived = false;
+  state.calls = [];
+  state.projectIcon = {
+    kind: "generated",
+    svg: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><rect width="16" height="16" fill="#243047"/></svg>',
+  };
+  state.menuChoice = "redraw-icon";
+  state.data = {
+    spaces: [],
+    projectSpaces: [],
+    conversations: [],
+    memory: [],
+    leads: [],
+    channels: [],
+    tasks: [],
+    nextCursor: null,
+  };
+  await using screen = await render(
+    <SidebarProvider>
+      <ProjectSidebar />
+    </SidebarProvider>,
+  );
+  const row = screen.getByRole("link", { name: /Studio/ });
+  await expect.element(row).toBeVisible();
+  expect(row.element().querySelector("img")?.getAttribute("src")).toMatch(/^data:image\/svg\+xml/);
+  row.element().dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+  await vi.waitFor(() =>
+    expect(state.calls).toContainEqual({
+      environmentId: "roc",
+      input: { type: "redraw_project_icon", projectId: "project" },
+    }),
+  );
+  expect(state.menu).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ id: "redraw-icon" }),
+      expect.objectContaining({ id: "remove-icon" }),
+    ]),
+  );
+  state.projectIcon = null;
+  state.menuChoice = null;
 });

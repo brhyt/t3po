@@ -688,7 +688,7 @@ describe("ClaudeAdapterV2 MCP query overrides", () => {
     browserToolsAvailable: true,
   });
 
-  it("pre-approves only read-only t3-code tools in a read-only sandbox", () => {
+  it("pre-approves only read-only t3-code tools and a chat's own bookkeeping in a read-only sandbox", () => {
     const threadId = ThreadId.make("thread-claude-mcp-read-only");
     const mcpSession = mcpSessionFor(threadId);
     const overrides = ClaudeAdapterV2.claudeMcpQueryOverrides({
@@ -701,10 +701,14 @@ describe("ClaudeAdapterV2 MCP query overrides", () => {
       allowedTools: [
         ...ClaudeAdapterV2.CLAUDE_READ_ONLY_ALLOWED_TOOLS,
         ...ClaudeAdapterV2.CLAUDE_READ_ONLY_T3_MCP_ALLOWED_TOOLS,
+        "mcp__t3-code__t3_notes_update",
+        "mcp__t3-code__t3_work_schedule",
+        "mcp__t3-code__t3_project_icon_set",
       ],
       mcpServers: T3_MCP_SERVERS,
     });
     assert.isFalse(overrides.allowedTools?.includes(ClaudeAdapterV2.CLAUDE_T3_MCP_TOOL_WILDCARD));
+    assert.isFalse(overrides.allowedTools?.includes("mcp__t3-code__t3_work_route"));
   });
 
   it("invalidates live-query reuse when MCP credentials rotate", () => {

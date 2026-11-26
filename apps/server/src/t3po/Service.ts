@@ -102,6 +102,7 @@ const make = Effect.gen(function* () {
         ),
         workstreams: records.workstreams.filter((stream) => activeProjects.has(stream.projectId)),
         memory: records.memory.filter((record) => activeProjects.has(record.projectId)),
+        notes: (records.notes ?? []).filter((record) => activeProjects.has(record.projectId)),
         nextCursor: records.nextCursor,
         leads: records.leads.filter((lead) => activeProjects.has(lead.projectId)),
         channels: records.channels.filter((channel) => activeProjects.has(channel.projectId)),

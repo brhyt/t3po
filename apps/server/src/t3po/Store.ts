@@ -1208,7 +1208,8 @@ const make = Effect.gen(function* () {
     mutate,
     requestProjectIcon: Effect.fn("T3poStore.requestProjectIcon")(
       function* (projectId: ProjectId, runId: RunId) {
-        // Asked once, unless the run that carried the request never reached its provider.
+        // Asked once, unless the run that carried the request did not complete. Setting the
+        // icon clears the run, so a drawn icon is never asked for again.
         const marked = yield* sql<{
           projectId: string;
         }>`UPDATE t3po_leads SET data = json_set(data, '$.iconRequested', json('true'), '$.iconRequestRunId', ${runId})
@@ -1216,7 +1217,7 @@ const make = Effect.gen(function* () {
             COALESCE(json_extract(data, '$.iconRequested'), 0) = 0
             OR (json_extract(data, '$.iconRequestRunId') IS NOT NULL AND (
               json_extract(data, '$.iconRequestRunId') = ${runId}
-              OR NOT EXISTS (SELECT 1 FROM orchestration_v2_projection_run_attempts a JOIN orchestration_v2_projection_runs r ON r.run_id = a.run_id WHERE a.run_id = json_extract(t3po_leads.data, '$.iconRequestRunId') AND a.provider_turn_id IS NOT NULL AND r.status != 'rolled_back')))
+              OR NOT EXISTS (SELECT 1 FROM orchestration_v2_projection_runs r WHERE r.run_id = json_extract(t3po_leads.data, '$.iconRequestRunId') AND r.status = 'completed')))
           ) RETURNING project_id AS projectId`;
         return marked.length > 0;
       },
