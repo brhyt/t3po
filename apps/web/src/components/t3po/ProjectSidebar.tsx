@@ -37,7 +37,18 @@ import {
   ArchiveIcon,
   RotateCcwIcon,
   SearchIcon,
+  FolderPlusIcon,
+  MessageSquarePlusIcon,
 } from "lucide-react";
+import {
+  Menu,
+  MenuItem,
+  MenuPopup,
+  MenuSub,
+  MenuSubPopup,
+  MenuSubTrigger,
+  MenuTrigger,
+} from "../ui/menu";
 import { useProjects, useThreadShell, useThreadShellsForProjectRefs } from "../../state/entities";
 import { useProjectIconRedraw } from "../../hooks/useProjectIconRedraw";
 import { useOlderSettledShelf, useOlderSettledShelfGrowth } from "../../state/olderSettledShelf";
@@ -189,52 +200,71 @@ function OffRecordHeading() {
   const offering = environments.filter(
     (environment) => scratchWorkspaceRootFor(environment.environmentId) !== null,
   );
-  // One machine, or this device's own, starts at once; otherwise ask which machine.
-  async function start(event: { clientX: number; clientY: number; nativeEvent: MouseEvent }) {
-    const chosen = offering.length === 1 ? offering[0]!.environmentId : scratchEnvironmentId(null);
-    let environmentId = chosen;
-    if (environmentId === null && offering.length > 1) {
-      const action = await readLocalApi()?.contextMenu.show(
-        offering.map((environment) => ({
-          id: environment.environmentId,
-          label: environment.label,
-        })),
-        { x: event.clientX, y: event.clientY },
-        contextMenuSourceOf(event.nativeEvent),
-      );
-      environmentId =
-        offering.find((environment) => environment.environmentId === action)?.environmentId ?? null;
-    }
-    if (environmentId === null) return;
+  // One machine, or this device's own, starts at once; otherwise the menu asks which machine.
+  const preferred = offering.length === 1 ? offering[0]!.environmentId : scratchEnvironmentId(null);
+  function start(environmentId: EnvironmentId) {
     setOpenMobile(false);
-    await startScratchThread(environmentId);
+    void startScratchThread(environmentId);
   }
   return (
-    <div className="space-y-1 pt-2">
-      <div
-        className="px-2 py-1 text-xs text-sidebar-muted-foreground"
-        aria-label={gt("Off Record")}
-      >
-        <Tooltip>
-          <TooltipTrigger render={<span />}>{gt("Off Record")}</TooltipTrigger>
-          <TooltipPopup>
-            <T>
-              Projects in no space are not kept in long-term memory. Their conversations stay until
-              you delete them.
-            </T>
-          </TooltipPopup>
-        </Tooltip>
-      </div>
-      <SidebarMenuButton
-        size="sm"
-        disabled={!offering.length}
-        onClick={(event) => void start(event)}
-      >
-        <PlusIcon />
-        <span>
-          <T>New conversation</T>
-        </span>
-      </SidebarMenuButton>
+    <div className="flex items-center justify-between px-2 pt-3 pb-1 text-xs text-sidebar-muted-foreground">
+      <Tooltip>
+        <TooltipTrigger render={<span />}>{gt("Off Record")}</TooltipTrigger>
+        <TooltipPopup>
+          <T>
+            Projects in no space are not kept in long-term memory. Their conversations stay until
+            you delete them.
+          </T>
+        </TooltipPopup>
+      </Tooltip>
+      <Menu>
+        <MenuTrigger
+          render={
+            <Button size="icon-xs" variant="ghost" aria-label={gt("Add to Off Record")}>
+              <PlusIcon className="size-3.5" />
+            </Button>
+          }
+        />
+        <MenuPopup align="end" side="bottom" sideOffset={4} className="min-w-44">
+          {preferred !== null || offering.length <= 1 ? (
+            <MenuItem
+              disabled={preferred === null}
+              onClick={() => {
+                if (preferred !== null) start(preferred);
+              }}
+            >
+              <MessageSquarePlusIcon />
+              <T>New conversation</T>
+            </MenuItem>
+          ) : (
+            <MenuSub>
+              <MenuSubTrigger>
+                <MessageSquarePlusIcon />
+                <T>New conversation</T>
+              </MenuSubTrigger>
+              <MenuSubPopup>
+                {offering.map((environment) => (
+                  <MenuItem
+                    key={environment.environmentId}
+                    onClick={() => start(environment.environmentId)}
+                  >
+                    {environment.label}
+                  </MenuItem>
+                ))}
+              </MenuSubPopup>
+            </MenuSub>
+          )}
+          <MenuItem
+            onClick={() => {
+              setOpenMobile(false);
+              openCommandPalette({ open: "add-project" });
+            }}
+          >
+            <FolderPlusIcon />
+            <T>Add project</T>
+          </MenuItem>
+        </MenuPopup>
+      </Menu>
     </div>
   );
 }

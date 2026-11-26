@@ -16,6 +16,7 @@ const state = vi.hoisted(() => ({
   secondMachine: false,
   scratch: false,
   started: [] as unknown[],
+  palette: [] as unknown[],
 }));
 vi.mock(import("../../localApi"), async (original) => ({
   ...(await original()),
@@ -59,6 +60,12 @@ vi.mock(import("../../state/t3po"), async () => {
     t3po: { snapshot: () => undefined, mutate: { permissionAtom: () => Atom.make(true) } } as never,
   };
 });
+vi.mock(import("../../commandPaletteBus"), async (original) => ({
+  ...(await original()),
+  openCommandPalette: ((input: unknown) => {
+    state.palette.push(input);
+  }) as never,
+}));
 vi.mock(import("../../hooks/useScratchProject"), () => ({
   useScratchProject: (() => ({
     scratchEnvironmentId: () => "roc",
@@ -492,8 +499,12 @@ it("keeps conversations with no project under Off Record and starts new ones the
     await expect
       .element(screen.getByRole("region", { name: "No project" }))
       .not.toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "New conversation", exact: true }));
+    await userEvent.click(screen.getByRole("button", { name: "Add to Off Record", exact: true }));
+    await userEvent.click(screen.getByRole("menuitem", { name: "New conversation" }));
     await vi.waitFor(() => expect(state.started).toEqual(["roc"]));
+    await userEvent.click(screen.getByRole("button", { name: "Add to Off Record", exact: true }));
+    await userEvent.click(screen.getByRole("menuitem", { name: "Add project" }));
+    await vi.waitFor(() => expect(state.palette).toContainEqual({ open: "add-project" }));
   } finally {
     state.scratch = false;
   }
