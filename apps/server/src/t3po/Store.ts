@@ -13,6 +13,9 @@ import {
   T3poSharedResource,
   type T3poSpaceTool,
   type T3poSpaceLimit,
+  type T3poMcpServer,
+  type T3poSpaceAgent,
+  type T3poSpaceMcpChoice,
   type T3poToolDefault,
   T3poSpaceConnection,
   T3poProjectSpace,
@@ -72,6 +75,17 @@ const LaunchReservation = Schema.Struct({
 });
 const encodeT3poLaunchInputJson = Schema.encodeEffect(Schema.fromJsonString(LaunchReservation));
 const decodeT3poLaunchInputJson = Schema.decodeEffect(Schema.fromJsonString(LaunchReservation));
+/** A stored JSON list of strings; anything else reads as empty. */
+const parseStrings = (json: string): string[] => {
+  try {
+    const value: unknown = JSON.parse(json);
+    return Array.isArray(value)
+      ? value.filter((item): item is string => typeof item === "string")
+      : [];
+  } catch {
+    return [];
+  }
+};
 type TaskRecord = T3poTask & {
   readonly workspaceLocked: boolean;
   readonly dispatch?: T3poWorkReceipt;
@@ -83,6 +97,9 @@ type Page = {
   spaceTools: readonly T3poSpaceTool[];
   toolDefaults: readonly T3poToolDefault[];
   spaceLimits: readonly T3poSpaceLimit[];
+  mcpServers: readonly T3poMcpServer[];
+  spaceMcpChoices: readonly T3poSpaceMcpChoice[];
+  spaceAgents: readonly T3poSpaceAgent[];
   spaces: readonly T3poSpace[];
   projectSpaces: readonly (typeof T3poProjectSpace.Type)[];
   conversations: readonly (typeof T3poConversation.Type)[];
@@ -483,6 +500,57 @@ const make = Effect.gen(function* () {
             maxRuntimeMode: row.maxRuntimeMode,
           }),
         ),
+        mcpServers: (yield* sql<{
+          id: string;
+          name: string;
+          spaceId: string | null;
+          transport: "http" | "stdio";
+          url: string | null;
+          command: string | null;
+          args: string;
+          secretName: string | null;
+          hasSecret: number;
+          shared: number;
+        }>`SELECT id, name, space_id AS spaceId, transport, url, command, args_json AS args, secret_name AS secretName, has_secret AS hasSecret, shared FROM t3po_mcp_servers ORDER BY rowid`).map(
+          (row) => ({
+            id: row.id,
+            name: row.name,
+            spaceId: row.spaceId,
+            transport: row.transport,
+            ...(row.url === null ? {} : { url: row.url }),
+            ...(row.command === null ? {} : { command: row.command }),
+            args: parseStrings(row.args),
+            ...(row.secretName === null ? {} : { secretName: row.secretName }),
+            hasSecret: row.hasSecret === 1,
+            shared: row.shared === 1,
+          }),
+        ),
+        spaceMcpChoices: (yield* sql<{
+          spaceId: string;
+          serverId: string;
+          enabled: number;
+        }>`SELECT space_id AS spaceId, server_id AS serverId, enabled FROM t3po_space_mcp_choices`).map(
+          (row) => ({
+            spaceId: row.spaceId === "" ? null : row.spaceId,
+            serverId: row.serverId,
+            enabled: row.enabled === 1,
+          }),
+        ),
+        spaceAgents: (yield* sql<{
+          spaceId: string;
+          hasGithubToken: number;
+          gitName: string | null;
+          gitEmail: string | null;
+          blocked: string;
+        }>`SELECT space_id AS spaceId, has_github_token AS hasGithubToken, git_name AS gitName, git_email AS gitEmail, blocked_json AS blocked FROM t3po_space_agents`).map(
+          (row) => ({
+            spaceId: row.spaceId === "" ? null : row.spaceId,
+            hasGithubToken: row.hasGithubToken === 1,
+            ...(row.gitName === null ? {} : { gitName: row.gitName }),
+            ...(row.gitEmail === null ? {} : { gitEmail: row.gitEmail }),
+            blockedCommands: parseStrings(row.blocked),
+          }),
+        ),
         spaces: yield* sql<T3poSpace>`SELECT id, name, rules FROM t3po_spaces ORDER BY rowid`,
         projectSpaces: yield* sql<
           typeof T3poProjectSpace.Type
@@ -686,6 +754,58 @@ const make = Effect.gen(function* () {
           yield* sql`DELETE FROM t3po_space_limits WHERE space_id = ${spaceKey}`;
         else
           yield* sql`INSERT INTO t3po_space_limits (space_id, max_runtime_mode) VALUES (${spaceKey}, ${input.maxRuntimeMode}) ON CONFLICT(space_id) DO UPDATE SET max_runtime_mode = excluded.max_runtime_mode`;
+      } else if (input.type === "save_mcp_server") {
+        if (input.spaceId !== null) {
+          const space = yield* sql`SELECT id FROM t3po_spaces WHERE id = ${input.spaceId}`;
+          if (!space.length) return yield* new T3poError({ operation: "invalid" });
+        }
+        const location = input.transport === "http" ? input.url?.trim() : input.command?.trim();
+        if (!location || (input.transport === "http" && !/^https?:\/\//.test(location)))
+          return yield* new T3poError({ operation: "invalid" });
+        const clash =
+          yield* sql`SELECT id FROM t3po_mcp_servers WHERE name = ${input.name} AND id <> ${input.id}`;
+        if (clash.length || input.name === "t3-code" || input.name.startsWith("t3-code"))
+          return yield* new T3poError({ operation: "invalid" });
+        const hasSecret =
+          input.secret !== undefined && input.secret.length > 0
+            ? 1
+            : input.clearSecret
+              ? 0
+              : ((yield* sql<{
+                  hasSecret: number;
+                }>`SELECT has_secret AS hasSecret FROM t3po_mcp_servers WHERE id = ${input.id}`)[0]
+                  ?.hasSecret ?? 0);
+        yield* sql`INSERT INTO t3po_mcp_servers (id, name, space_id, transport, url, command, args_json, secret_name, has_secret, shared) VALUES (${input.id}, ${input.name}, ${input.spaceId}, ${input.transport}, ${input.transport === "http" ? location : null}, ${input.transport === "stdio" ? location : null}, ${yield* encodeUnknownJson(input.args)}, ${input.secretName?.trim() || null}, ${hasSecret}, ${input.shared ? 1 : 0}) ON CONFLICT(id) DO UPDATE SET name = excluded.name, space_id = excluded.space_id, transport = excluded.transport, url = excluded.url, command = excluded.command, args_json = excluded.args_json, secret_name = excluded.secret_name, has_secret = excluded.has_secret, shared = excluded.shared`;
+      } else if (input.type === "remove_mcp_server") {
+        yield* sql`DELETE FROM t3po_space_mcp_choices WHERE server_id = ${input.id}`;
+        yield* sql`DELETE FROM t3po_mcp_servers WHERE id = ${input.id}`;
+      } else if (input.type === "set_space_mcp") {
+        if (input.spaceId !== null) {
+          const space = yield* sql`SELECT id FROM t3po_spaces WHERE id = ${input.spaceId}`;
+          if (!space.length) return yield* new T3poError({ operation: "invalid" });
+        }
+        const spaceKey = input.spaceId ?? "";
+        if (input.enabled === null)
+          yield* sql`DELETE FROM t3po_space_mcp_choices WHERE space_id = ${spaceKey} AND server_id = ${input.serverId}`;
+        else
+          yield* sql`INSERT INTO t3po_space_mcp_choices (space_id, server_id, enabled) VALUES (${spaceKey}, ${input.serverId}, ${input.enabled ? 1 : 0}) ON CONFLICT(space_id, server_id) DO UPDATE SET enabled = excluded.enabled`;
+      } else if (input.type === "save_space_agent") {
+        if (input.spaceId !== null) {
+          const space = yield* sql`SELECT id FROM t3po_spaces WHERE id = ${input.spaceId}`;
+          if (!space.length) return yield* new T3poError({ operation: "invalid" });
+        }
+        const spaceKey = input.spaceId ?? "";
+        const hasToken =
+          input.githubToken !== undefined && input.githubToken.length > 0
+            ? 1
+            : input.clearGithubToken
+              ? 0
+              : ((yield* sql<{
+                  hasToken: number;
+                }>`SELECT has_github_token AS hasToken FROM t3po_space_agents WHERE space_id = ${spaceKey}`)[0]
+                  ?.hasToken ?? 0);
+        const blocked = input.blockedCommands.map((rule) => rule.trim()).filter(Boolean);
+        yield* sql`INSERT INTO t3po_space_agents (space_id, has_github_token, git_name, git_email, blocked_json) VALUES (${spaceKey}, ${hasToken}, ${input.gitName?.trim() || null}, ${input.gitEmail?.trim() || null}, ${yield* encodeUnknownJson(blocked)}) ON CONFLICT(space_id) DO UPDATE SET has_github_token = excluded.has_github_token, git_name = excluded.git_name, git_email = excluded.git_email, blocked_json = excluded.blocked_json`;
       } else if (input.type === "connect_space") {
         const source = yield* sql`SELECT id FROM t3po_spaces WHERE id = ${input.sourceSpaceId}`;
         const target =
@@ -719,6 +839,9 @@ const make = Effect.gen(function* () {
         if (members.length) return yield* new T3poError({ operation: "space_nonempty" });
         yield* sql`DELETE FROM t3po_space_tools WHERE space_id = ${input.id}`;
         yield* sql`DELETE FROM t3po_space_limits WHERE space_id = ${input.id}`;
+        yield* sql`DELETE FROM t3po_space_mcp_choices WHERE space_id = ${input.id}`;
+        yield* sql`DELETE FROM t3po_space_agents WHERE space_id = ${input.id}`;
+        yield* sql`DELETE FROM t3po_mcp_servers WHERE space_id = ${input.id}`;
         yield* sql`DELETE FROM t3po_spaces WHERE id = ${input.id}`;
       } else if (input.type === "assign_space") {
         const previous = yield* sql<{

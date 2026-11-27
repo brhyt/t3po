@@ -33,6 +33,7 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as SqlClient from "effect/sql/SqlClient";
 import * as SpaceTools from "../t3po/SpaceTools.ts";
+import * as SpaceAgentSetup from "../t3po/SpaceAgentSetup.ts";
 import * as Queue from "effect/Queue";
 import * as Ref from "effect/Ref";
 import * as Schedule from "effect/Schedule";
@@ -434,6 +435,7 @@ export const layerWithOptions = (
       const serverSettings = yield* Effect.serviceOption(ServerSettings.ServerSettingsService);
       // t3po: a space can turn the browser or devices on or off for its projects.
       const spaceSql = yield* Effect.serviceOption(SqlClient.SqlClient);
+      const spaceAgentSetup = yield* Effect.serviceOption(SpaceAgentSetup.SpaceAgentSetup);
       const projectService = yield* Effect.serviceOption(ProjectService.ProjectService);
       const eventSink = yield* EventSink.EventSinkV2;
       const commandOutput = yield* CommandOutputHub.CommandOutputHub;
@@ -598,6 +600,20 @@ export const layerWithOptions = (
               Effect.gen(function* () {
                 // Live providers build MCP clients once; reuse credentials across workspace handoffs.
                 const access = yield* agentAccessSettings(threadId);
+                // t3ro: the space's GitHub access, MCP servers, blocked commands and network.
+                const setup = Option.isNone(spaceAgentSetup)
+                  ? undefined
+                  : yield* spaceAgentSetup.value.forThread(threadId);
+                const setupFields =
+                  setup === undefined || setup.key === ""
+                    ? {}
+                    : {
+                        agentSetupKey: setup.key,
+                        agentEnvironment: setup.environment,
+                        extraMcpServers: setup.mcpServers,
+                        blockedCommands: setup.blockedCommands,
+                        networkOff: setup.networkOff,
+                      };
                 const browserToolsAvailable = access.browser;
                 const deviceToolsAvailable = access.device;
                 const capabilities = new Set<
@@ -634,6 +650,7 @@ export const layerWithOptions = (
                     resolved.capabilities.has("device") === deviceToolsAvailable &&
                     resolved.capabilities.has("pull-requests") === access.pullRequests &&
                     resolved.capabilities.has("issues") === access.issues &&
+                    (existing.agentSetupKey ?? "") === (setup?.key ?? "") &&
                     // A credential issued while the lineage read failed is replaced once it works.
                     (resolved.thread.subagent === true) === subagent
                   ) {
@@ -651,6 +668,7 @@ export const layerWithOptions = (
                 });
                 yield* mcpSessions.set({
                   ...credential.config,
+                  ...setupFields,
                   hasPendingWake: projectionStore
                     .getThreadRecords(threadId, ["runs", "subagents"])
                     .pipe(

@@ -30,6 +30,8 @@ import * as ScheduledTasks from "../scheduledTasks/ScheduledTaskService.ts";
 import * as ThreadLaunch from "../orchestration-v2/ThreadLaunchService.ts";
 import * as ThreadManagement from "../orchestration-v2/ThreadManagementService.ts";
 import { taskStatus } from "./TaskStatus.ts";
+import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
+import * as SpaceAgentSetup from "./SpaceAgentSetup.ts";
 
 export class Service extends Context.Service<
   Service,
@@ -46,6 +48,20 @@ export class Service extends Context.Service<
 
 const make = Effect.gen(function* () {
   const store = yield* Store.Store;
+  const secretStore = yield* Effect.serviceOption(ServerSecretStore.ServerSecretStore);
+  /** Keeps, replaces or removes a secret the page sent; it is never stored with the rest. */
+  const keepSecret = Effect.fn("T3po.keepSecret")(function* (
+    name: string,
+    value: string | undefined,
+    clear: boolean | undefined,
+  ) {
+    if (Option.isNone(secretStore)) {
+      if (value) return yield* new T3poError({ operation: "invalid" });
+      return;
+    }
+    if (value) yield* secretStore.value.set(name, new TextEncoder().encode(value));
+    else if (clear) yield* secretStore.value.remove(name);
+  });
   const changes = yield* Changes.Changes;
   const events = yield* ApplicationEvents.OrchestrationEventStore;
   const git = yield* GitWorkflow.GitWorkflowService;
@@ -103,6 +119,9 @@ const make = Effect.gen(function* () {
         spaceTools: records.spaceTools,
         toolDefaults: records.toolDefaults,
         spaceLimits: records.spaceLimits,
+        mcpServers: records.mcpServers,
+        spaceMcpChoices: records.spaceMcpChoices,
+        spaceAgents: records.spaceAgents,
         spaces: records.spaces,
         projectSpaces: records.projectSpaces,
         conversations: records.conversations.filter((record) =>
@@ -221,6 +240,22 @@ const make = Effect.gen(function* () {
   const mutate = Effect.fn("T3po.mutate")(
     function* (input: T3poMutation) {
       yield* requireProject(input.projectId);
+      if (input.type === "save_mcp_server")
+        yield* keepSecret(
+          SpaceAgentSetup.mcpSecretName(input.id),
+          input.secret,
+          input.clearSecret,
+        ).pipe(Effect.mapError((cause) => new T3poError({ operation: "save", cause })));
+      if (input.type === "save_space_agent")
+        yield* keepSecret(
+          SpaceAgentSetup.githubSecretName(input.spaceId),
+          input.githubToken,
+          input.clearGithubToken,
+        ).pipe(Effect.mapError((cause) => new T3poError({ operation: "save", cause })));
+      if (input.type === "remove_mcp_server")
+        yield* keepSecret(SpaceAgentSetup.mcpSecretName(input.id), undefined, true).pipe(
+          Effect.ignore,
+        );
       let reviewedRunId;
       if (input.type === "archive_task" && input.archived) {
         const task = yield* store.getTask(input.id, input.projectId);
@@ -271,6 +306,9 @@ const make = Effect.gen(function* () {
           input.type === "set_space_tool" ||
           input.type === "set_tool_default" ||
           input.type === "set_space_limit" ||
+          input.type.endsWith("_mcp_server") ||
+          input.type === "set_space_mcp" ||
+          input.type === "save_space_agent" ||
           input.type.endsWith("_resource") ||
           input.type.endsWith("_space") ||
           input.type === "move_conversation" ||

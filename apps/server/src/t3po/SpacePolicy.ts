@@ -1,4 +1,5 @@
 import * as SpaceConnections from "./SpaceConnections.ts";
+import * as SpaceTools from "./SpaceTools.ts";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -69,12 +70,21 @@ const toolCapabilities = new Map<string, McpCapability>([
   ...Object.keys(IssuesToolkit.tools).map((name) => [name, "issues"] as const),
 ]);
 
+/** Tools a space turns on or off by its own choice, with no session capability behind them. */
+const choiceTools = new Map<string, "secrets" | "schedules">([
+  ["request_secret", "secrets"],
+  ["schedule_task", "schedules"],
+  ["list_scheduled_tasks", "schedules"],
+  ["delete_scheduled_task", "schedules"],
+  ["run_scheduled_task_now", "schedules"],
+]);
+
 /**
  * Inside spaces, pull request and issue tools act on the caller's own thread and project when the
  * space has them on; ids naming another space's work are still refused below.
  */
 const allowedInSpaces = (name: string, scope: McpInvocationScope) => {
-  if (scopedTools.has(name)) return true;
+  if (scopedTools.has(name) || choiceTools.has(name)) return true;
   const capability = toolCapabilities.get(name);
   return (
     (capability === "pull-requests" || capability === "issues") &&
@@ -99,6 +109,19 @@ const make = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   const allows = Effect.fn("SpacePolicy.allows")(
     function* (name: string, payload: unknown, scope: McpInvocationScope) {
+      const choice = choiceTools.get(name);
+      if (choice !== undefined && scope.thread) {
+        const caller = yield* sql<{
+          projectId: string;
+        }>`SELECT project_id AS projectId FROM orchestration_v2_projection_threads WHERE thread_id = ${scope.thread.threadId}`;
+        if (
+          caller[0] &&
+          !(yield* SpaceTools.toolAllowed(caller[0].projectId, choice).pipe(
+            Effect.provideService(SqlClient.SqlClient, sql),
+          ))
+        )
+          return false;
+      }
       const enabled = yield* sql`SELECT project_id FROM t3po_project_spaces LIMIT 1`;
       if (!enabled.length) return true;
       if (!scope.thread || scope.client?.linked || !allowedInSpaces(name, scope)) return false;
@@ -110,6 +133,7 @@ const make = Effect.gen(function* () {
       if (!owner) return false;
       const projects = new Set<string>();
       const threads = new Set<string>();
+      const tasks = new Set<string>();
       let remote = false;
       let invalid = false;
       const visit = (value: unknown, key = "") => {
@@ -124,6 +148,12 @@ const make = Effect.gen(function* () {
         if (typeof value === "string") {
           if (/projectId$/i.test(key)) projects.add(value);
           if (/threadId$/i.test(key)) threads.add(value);
+          // A delegated task's `taskId` is not a scheduled task; only this tool names one that way.
+          if (
+            /scheduledTaskId$/i.test(key) ||
+            (name === "run_scheduled_task_now" && key === "taskId")
+          )
+            tasks.add(value);
           if (key === "environmentId" && value !== scope.environmentId) remote = true;
         } else if (Array.isArray(value)) {
           for (const item of value) visit(item, key.endsWith("Ids") ? key.slice(0, -1) : key);
@@ -139,6 +169,13 @@ const make = Effect.gen(function* () {
         }>`SELECT project_id AS projectId FROM orchestration_v2_projection_threads WHERE thread_id = ${threadId} AND deleted_at IS NULL`;
         if (!target[0]) return false;
         projects.add(target[0].projectId);
+      }
+      for (const taskId of tasks) {
+        const task = yield* sql<{
+          projectId: string;
+        }>`SELECT project_id AS projectId FROM scheduled_tasks WHERE task_id = ${taskId}`;
+        if (!task[0]) return false;
+        projects.add(task[0].projectId);
       }
       for (const projectId of projects) {
         if (projectId === owner.projectId) continue;
@@ -166,6 +203,19 @@ const make = Effect.gen(function* () {
       if (!scope.thread) return true;
       const capability = toolCapabilities.get(name);
       if (capability !== undefined && !scope.capabilities.has(capability)) return false;
+      const choice = choiceTools.get(name);
+      if (choice !== undefined) {
+        const caller = yield* sql<{
+          projectId: string;
+        }>`SELECT project_id AS projectId FROM orchestration_v2_projection_threads WHERE thread_id = ${scope.thread.threadId}`;
+        if (
+          caller[0] &&
+          !(yield* SpaceTools.toolAllowed(caller[0].projectId, choice).pipe(
+            Effect.provideService(SqlClient.SqlClient, sql),
+          ))
+        )
+          return false;
+      }
       const enabled = yield* sql`SELECT project_id FROM t3po_project_spaces LIMIT 1`;
       return !enabled.length || allowedInSpaces(name, scope);
     },

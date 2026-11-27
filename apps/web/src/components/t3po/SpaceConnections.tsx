@@ -8,6 +8,7 @@ import { useAtomCommand } from "../../state/use-atom-command";
 import { t3po } from "../../state/t3po";
 import { randomUUID } from "../../lib/utils";
 import { SpaceLimitChoice, SpaceToolChoices, useToolDefaults } from "./ToolsSettings";
+import { SpaceAgentForm, SpaceMcpChoices } from "./SpaceAgentSettings";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
@@ -144,6 +145,22 @@ export function SpaceConnections({
                 projectId={projectId}
                 spaceId={space.id}
                 limits={query.data?.spaceLimits ?? []}
+                onSaved={() => query.refresh()}
+              />
+              <SpaceMcpChoices
+                environmentId={environmentId}
+                projectId={projectId}
+                spaceId={space.id}
+                servers={query.data?.mcpServers ?? []}
+                choices={query.data?.spaceMcpChoices ?? []}
+                onSaved={() => query.refresh()}
+              />
+              <SpaceAgentForm
+                key={`${space.id}:${query.data?.spaceAgents?.length ?? 0}`}
+                environmentId={environmentId}
+                projectId={projectId}
+                spaceId={space.id}
+                agents={query.data?.spaceAgents ?? []}
                 onSaved={() => query.refresh()}
               />
             </div>

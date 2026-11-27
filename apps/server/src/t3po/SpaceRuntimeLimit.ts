@@ -23,7 +23,7 @@ export const layer: Layer.Layer<
     return RuntimePolicy.RuntimePolicyV2.of({
       resolve: Effect.fn("SpaceRuntimeLimit.resolve")(function* (input) {
         const resolved = yield* base.resolve(input);
-        const limit = yield* SpaceTools.spaceRuntimeLimit(input.thread.projectId).pipe(
+        const spaceLimit = yield* SpaceTools.spaceRuntimeLimit(input.thread.projectId).pipe(
           Effect.provideService(SqlClient.SqlClient, sql),
           // An unreadable limit holds the agent to asking first rather than lifting it.
           Effect.catch((cause) =>
@@ -33,6 +33,15 @@ export const layer: Layer.Layer<
             }).pipe(Effect.as<RuntimeMode>("approval-required")),
           ),
         );
+        // With network off, Full access would skip the sandbox that blocks it.
+        const networkOn = yield* SpaceTools.toolAllowed(input.thread.projectId, "network").pipe(
+          Effect.provideService(SqlClient.SqlClient, sql),
+        );
+        const limit: RuntimeMode | undefined = networkOn
+          ? spaceLimit
+          : spaceLimit !== undefined && !isRuntimeModeAbove(spaceLimit, "auto")
+            ? spaceLimit
+            : "auto";
         if (limit === undefined) return resolved;
         return {
           ...resolved,

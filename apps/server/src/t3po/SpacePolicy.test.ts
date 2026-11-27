@@ -418,6 +418,52 @@ it.effect("lets a space turn pull request and issue tools on, and hides what it 
   }).pipe(Effect.provide(fixture)),
 );
 
+it.effect("lets a space use secrets and schedules, only for its own scheduled tasks", () =>
+  Effect.gen(function* () {
+    yield* seed;
+    const store = yield* Store.Store;
+    const guard = yield* SpacePolicy.SpacePolicy;
+    const sql = yield* SqlClient.SqlClient;
+    for (const [project, space] of [
+      ["a", "personal"],
+      ["b", "business"],
+    ] as const)
+      yield* store.mutate({
+        type: "assign_space",
+        projectId: ProjectId.make(project),
+        spaceId: space,
+      });
+    for (const [task, project] of [
+      ["mine", "a"],
+      ["theirs", "b"],
+    ])
+      yield* sql`INSERT INTO scheduled_tasks (task_id, title, prompt, enabled, schedule_json, project_id, workspace_strategy_json, model_selection_json, runtime_mode, interaction_mode, created_by, creation_source, created_at, updated_at, last_run_status, run_count) VALUES (${task}, 'T', 'p', 1, '{}', ${project}, '{}', '{}', 'full-access', 'default', 'user', 'mcp', '2026-11-27T00:00:00Z', '2026-11-27T00:00:00Z', 'never', 0)`;
+    expect(yield* guard.allows("request_secret", { label: "x", reason: "y" }, scope)).toBe(true);
+    expect(yield* guard.allows("list_scheduled_tasks", {}, scope)).toBe(true);
+    const known = yield* sql`SELECT task_id FROM scheduled_tasks`;
+    expect(known.length).toBe(2);
+    expect(yield* guard.allows("delete_scheduled_task", { scheduledTaskId: "mine" }, scope)).toBe(
+      true,
+    );
+    expect(yield* guard.allows("delete_scheduled_task", { scheduledTaskId: "theirs" }, scope)).toBe(
+      false,
+    );
+    expect(yield* guard.allows("run_scheduled_task_now", { taskId: "theirs" }, scope)).toBe(false);
+    // A delegated task's taskId is not a scheduled task.
+    expect(yield* guard.allows("task_status", { taskId: "delegated-1" }, scope)).toBe(true);
+    yield* store.mutate({
+      type: "set_space_tool",
+      projectId,
+      spaceId: "personal",
+      tool: "secrets",
+      enabled: false,
+    });
+    expect(yield* guard.allows("request_secret", { label: "x", reason: "y" }, scope)).toBe(false);
+    expect(yield* guard.listed("request_secret", scope)).toBe(false);
+    expect(yield* guard.listed("schedule_task", scope)).toBe(true);
+  }).pipe(Effect.provide(fixture)),
+);
+
 it.effect("keeps each space's mode limit and drops it with the space", () =>
   Effect.gen(function* () {
     yield* seed;

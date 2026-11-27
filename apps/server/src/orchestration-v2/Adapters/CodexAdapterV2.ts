@@ -1549,6 +1549,22 @@ function codexThreadRuntimeParams(input: {
       ...(input.threadId === null
         ? {}
         : { [`shell_environment_policy.set.${PortScanner.AGENT_THREAD_ENV}`]: input.threadId }),
+      // t3ro: the space's own GitHub access, per thread for the same reason.
+      ...Object.fromEntries(
+        Object.entries(mcpSession?.agentEnvironment ?? {}).map(([key, value]) => [
+          `shell_environment_policy.set.${key}`,
+          value,
+        ]),
+      ),
+      // t3ro: the space's own and shared MCP servers.
+      ...Object.fromEntries(
+        (mcpSession?.extraMcpServers ?? []).map((server) => [
+          `mcp_servers.${server.name}`,
+          server.transport === "http"
+            ? { url: server.url, http_headers: { ...server.headers } }
+            : { command: server.command, args: [...server.args], env: { ...server.env } },
+        ]),
+      ),
       ...(t3Server === undefined
         ? {}
         : {

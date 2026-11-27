@@ -25,8 +25,17 @@ import { useSettingsScope } from "../settings/SettingsScopeContext";
 import { SettingsPageContainer, SettingsRow, SettingsSection } from "../settings/settingsLayout";
 import { Switch } from "../ui/switch";
 import { resolveRuntimeModeOption, runtimeModeOptions } from "../chat/runtimeModeConfig";
+import { McpServersEditor, SpaceAgentForm, SpaceMcpChoices } from "./SpaceAgentSettings";
 
-const TOOLS: ReadonlyArray<T3poSpaceToolName> = ["browser", "device", "pull-requests", "issues"];
+const TOOLS: ReadonlyArray<T3poSpaceToolName> = [
+  "browser",
+  "device",
+  "pull-requests",
+  "issues",
+  "secrets",
+  "schedules",
+  "network",
+];
 
 /** Saves one t3po change and reports a failure as text. */
 function useSaveT3po(environmentId: EnvironmentId) {
@@ -55,14 +64,16 @@ function useSaveT3po(environmentId: EnvironmentId) {
 
 function useToolLabel() {
   const gt = useGT();
-  return (tool: T3poSpaceToolName) =>
-    tool === "browser"
-      ? gt("Browser")
-      : tool === "device"
-        ? gt("Devices")
-        : tool === "pull-requests"
-          ? gt("Pull requests")
-          : gt("Issues");
+  const labels: Record<T3poSpaceToolName, string> = {
+    browser: gt("Browser"),
+    device: gt("Devices"),
+    "pull-requests": gt("Pull requests"),
+    issues: gt("Issues"),
+    secrets: gt("Secret requests"),
+    schedules: gt("Schedules"),
+    network: gt("Network access"),
+  };
+  return (tool: T3poSpaceToolName) => labels[tool];
 }
 
 /** Each space's choice for one tool: follow the default, or turn it on or off for that space. */
@@ -143,7 +154,15 @@ export function useToolDefaults(
   );
   const on = (tool: T3poToolDefaultName) =>
     toolDefaults?.find((entry) => entry.tool === tool)?.enabled ?? true;
-  return { browser, device, "pull-requests": on("pull-requests"), issues: on("issues") };
+  return {
+    browser,
+    device,
+    "pull-requests": on("pull-requests"),
+    issues: on("issues"),
+    secrets: on("secrets"),
+    schedules: on("schedules"),
+    network: on("network"),
+  };
 }
 
 /** How far a space's agents may go, whatever mode a chat is set to. */
@@ -214,6 +233,9 @@ function SpacesToolsSection({ environmentId }: { environmentId: EnvironmentId })
   const spaces: ReadonlyArray<T3poSpace> = query.data?.spaces ?? [];
   const choices = query.data?.spaceTools ?? [];
   const limits = query.data?.spaceLimits ?? [];
+  const servers = query.data?.mcpServers ?? [];
+  const mcpChoices = query.data?.spaceMcpChoices ?? [];
+  const agents = query.data?.spaceAgents ?? [];
   const memberOf = (spaceId: string | null) =>
     projects.find(
       (project) =>
@@ -266,6 +288,22 @@ function SpacesToolsSection({ environmentId }: { environmentId: EnvironmentId })
                         limits={limits}
                         onSaved={() => query.refresh()}
                       />
+                      <SpaceMcpChoices
+                        environmentId={environmentId}
+                        projectId={project.id}
+                        spaceId={row.id}
+                        servers={servers}
+                        choices={mcpChoices}
+                        onSaved={() => query.refresh()}
+                      />
+                      <SpaceAgentForm
+                        key={`${row.id ?? ""}:${agents.length}`}
+                        environmentId={environmentId}
+                        projectId={project.id}
+                        spaceId={row.id}
+                        agents={agents}
+                        onSaved={() => query.refresh()}
+                      />
                     </div>
                   ) : null
                 }
@@ -300,6 +338,37 @@ function DeviceDefaultRow({ environmentId }: { environmentId: EnvironmentId }) {
   );
 }
 
+/** MCP servers agents get beside T3's own, shared or kept to one space. */
+function ConnectionsSection({ environmentId }: { environmentId: EnvironmentId }) {
+  const gt = useGT();
+  const query = useEnvironmentQuery(
+    t3po.snapshot({ environmentId, input: { metadataOnly: true } }),
+  );
+  const project = useProjects().find(
+    (entry) => entry.environmentId === environmentId && entry.archivedAt == null,
+  );
+  return (
+    <SettingsSection id="tools-connections" title={gt("Connections")}>
+      <SettingsRow
+        title={gt("MCP servers for agents")}
+        description={gt(
+          "Shared connections reach every space unless a space turns them off; a space's own reach only that space. Secrets stay on this computer. Your providers' own MCP servers still load as before.",
+        )}
+        control={null}
+      />
+      <div className="px-4 pb-4">
+        <McpServersEditor
+          environmentId={environmentId}
+          projectId={project?.id}
+          spaces={query.data?.spaces ?? []}
+          servers={query.data?.mcpServers ?? []}
+          onSaved={() => query.refresh()}
+        />
+      </div>
+    </SettingsSection>
+  );
+}
+
 /** Pull request and issue tools: on everywhere unless turned off here or in a space. */
 function ToolDefaultRows({ environmentId }: { environmentId: EnvironmentId }) {
   const gt = useGT();
@@ -321,6 +390,23 @@ function ToolDefaultRows({ environmentId }: { environmentId: EnvironmentId }) {
       tool: "issues",
       title: gt("Agent issue tools"),
       description: gt("Read, create and comment on GitHub and Linear issues."),
+    },
+    {
+      tool: "secrets",
+      title: gt("Secret requests"),
+      description: gt("Agents can ask you for a password or token on a card."),
+    },
+    {
+      tool: "schedules",
+      title: gt("Schedules"),
+      description: gt("Agents can create, run and delete scheduled tasks."),
+    },
+    {
+      tool: "network",
+      title: gt("Network access"),
+      description: gt(
+        "Off keeps agents' commands offline: Codex runs no higher than Auto, and Claude runs commands in its sandbox with no web tools.",
+      ),
     },
   ];
   return (
@@ -378,6 +464,7 @@ export function ToolsSettingsPanel() {
           status={gt("Always on")}
         />
       </SettingsSection>
+      {environmentId ? <ConnectionsSection environmentId={environmentId} /> : null}
       {environmentId ? <SpacesToolsSection environmentId={environmentId} /> : null}
       <p className="px-1 text-xs text-muted-foreground">
         <T>

@@ -280,10 +280,24 @@ export const T3poSharedResource = Schema.Struct({
   location: TrimmedNonEmptyString.check(Schema.isMaxLength(2000)),
 });
 /** Tools a space can turn on or off; `spaceId` null is every project in no space. */
-export const T3poSpaceToolName = Schema.Literals(["browser", "device", "pull-requests", "issues"]);
+export const T3poSpaceToolName = Schema.Literals([
+  "browser",
+  "device",
+  "pull-requests",
+  "issues",
+  "secrets",
+  "schedules",
+  "network",
+]);
 export type T3poSpaceToolName = typeof T3poSpaceToolName.Type;
 /** Tools whose default lives in t3po rather than in server settings; on until turned off. */
-export const T3poToolDefaultName = Schema.Literals(["pull-requests", "issues"]);
+export const T3poToolDefaultName = Schema.Literals([
+  "pull-requests",
+  "issues",
+  "secrets",
+  "schedules",
+  "network",
+]);
 export type T3poToolDefaultName = typeof T3poToolDefaultName.Type;
 export const T3poToolDefault = Schema.Struct({
   tool: T3poToolDefaultName,
@@ -296,6 +310,42 @@ export const T3poSpaceLimit = Schema.Struct({
   maxRuntimeMode: RuntimeMode,
 });
 export type T3poSpaceLimit = typeof T3poSpaceLimit.Type;
+/** An MCP server agents get beside T3's own: central (null space) and shared, or one space's own. */
+export const T3poMcpServerName = TrimmedNonEmptyString.check(
+  Schema.isMaxLength(60),
+  Schema.isPattern(/^[A-Za-z0-9_-]+$/),
+);
+export const T3poMcpServer = Schema.Struct({
+  id: TrimmedNonEmptyString,
+  name: T3poMcpServerName,
+  spaceId: Schema.NullOr(TrimmedNonEmptyString),
+  transport: Schema.Literals(["http", "stdio"]),
+  url: Schema.optional(Schema.String.check(Schema.isMaxLength(2000))),
+  command: Schema.optional(Schema.String.check(Schema.isMaxLength(2000))),
+  args: Schema.Array(Schema.String.check(Schema.isMaxLength(2000))),
+  /** The header (http) or environment variable (stdio) that carries the stored secret. */
+  secretName: Schema.optional(Schema.String.check(Schema.isMaxLength(200))),
+  hasSecret: Schema.Boolean,
+  /** Central servers only: every space gets it unless that space turns it off. */
+  shared: Schema.Boolean,
+});
+export type T3poMcpServer = typeof T3poMcpServer.Type;
+export const T3poSpaceMcpChoice = Schema.Struct({
+  spaceId: Schema.NullOr(TrimmedNonEmptyString),
+  serverId: TrimmedNonEmptyString,
+  enabled: Schema.Boolean,
+});
+export type T3poSpaceMcpChoice = typeof T3poSpaceMcpChoice.Type;
+/** What a space's agents start with besides tools: their own GitHub access and blocked commands. */
+export const T3poSpaceAgent = Schema.Struct({
+  spaceId: Schema.NullOr(TrimmedNonEmptyString),
+  /** False uses your own sign-in, as everywhere else. */
+  hasGithubToken: Schema.Boolean,
+  gitName: Schema.optional(Schema.String.check(Schema.isMaxLength(200))),
+  gitEmail: Schema.optional(Schema.String.check(Schema.isMaxLength(320))),
+  blockedCommands: Schema.Array(Schema.String.check(Schema.isMaxLength(200))),
+});
+export type T3poSpaceAgent = typeof T3poSpaceAgent.Type;
 export const T3poSpaceTool = Schema.Struct({
   spaceId: Schema.NullOr(TrimmedNonEmptyString),
   tool: T3poSpaceToolName,
@@ -326,6 +376,9 @@ export const T3poSnapshot = Schema.Struct({
   spaceTools: Schema.optional(Schema.Array(T3poSpaceTool)),
   toolDefaults: Schema.optional(Schema.Array(T3poToolDefault)),
   spaceLimits: Schema.optional(Schema.Array(T3poSpaceLimit)),
+  mcpServers: Schema.optional(Schema.Array(T3poMcpServer)),
+  spaceMcpChoices: Schema.optional(Schema.Array(T3poSpaceMcpChoice)),
+  spaceAgents: Schema.optional(Schema.Array(T3poSpaceAgent)),
   spaces: Schema.optional(Schema.Array(T3poSpace)),
   projectSpaces: Schema.optional(Schema.Array(T3poProjectSpace)),
   conversations: Schema.optional(Schema.Array(T3poConversation)),
@@ -390,6 +443,46 @@ export const T3poMutation = Schema.Union([
     spaceId: Schema.NullOr(TrimmedNonEmptyString),
     /** Null lets the space's agents run in any mode. */
     maxRuntimeMode: Schema.NullOr(RuntimeMode),
+  }),
+  Schema.Struct({
+    type: Schema.Literal("save_mcp_server"),
+    projectId: ProjectId,
+    id: TrimmedNonEmptyString,
+    name: T3poMcpServerName,
+    spaceId: Schema.NullOr(TrimmedNonEmptyString),
+    transport: Schema.Literals(["http", "stdio"]),
+    url: Schema.optional(Schema.String.check(Schema.isMaxLength(2000))),
+    command: Schema.optional(Schema.String.check(Schema.isMaxLength(2000))),
+    args: Schema.Array(Schema.String.check(Schema.isMaxLength(2000))),
+    secretName: Schema.optional(Schema.String.check(Schema.isMaxLength(200))),
+    /** A new secret; the server keeps it and never sends it back. */
+    secret: Schema.optional(Schema.String.check(Schema.isMaxLength(8000))),
+    clearSecret: Schema.optional(Schema.Boolean),
+    shared: Schema.Boolean,
+  }),
+  Schema.Struct({
+    type: Schema.Literal("remove_mcp_server"),
+    projectId: ProjectId,
+    id: TrimmedNonEmptyString,
+  }),
+  Schema.Struct({
+    type: Schema.Literal("set_space_mcp"),
+    projectId: ProjectId,
+    spaceId: Schema.NullOr(TrimmedNonEmptyString),
+    serverId: TrimmedNonEmptyString,
+    /** Null follows the server's own sharing. */
+    enabled: Schema.NullOr(Schema.Boolean),
+  }),
+  Schema.Struct({
+    type: Schema.Literal("save_space_agent"),
+    projectId: ProjectId,
+    spaceId: Schema.NullOr(TrimmedNonEmptyString),
+    /** A new token for this space's own GitHub access; the server keeps it. */
+    githubToken: Schema.optional(Schema.String.check(Schema.isMaxLength(400))),
+    clearGithubToken: Schema.optional(Schema.Boolean),
+    gitName: Schema.optional(Schema.String.check(Schema.isMaxLength(200))),
+    gitEmail: Schema.optional(Schema.String.check(Schema.isMaxLength(320))),
+    blockedCommands: Schema.Array(Schema.String.check(Schema.isMaxLength(200))),
   }),
   Schema.Struct({
     type: Schema.Literal("connect_space"),

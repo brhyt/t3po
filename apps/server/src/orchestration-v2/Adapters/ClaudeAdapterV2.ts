@@ -2201,6 +2201,9 @@ export function makeClaudeQueryOptions(input: {
   readonly onUserDialog?: ClaudeQueryOptions["onUserDialog"];
   readonly onElicitation?: ClaudeQueryOptions["onElicitation"];
   readonly onStop?: HookCallback;
+  /** t3ro: refuses Bash commands the thread's space blocks. */
+  readonly onPreToolUse?: HookCallback;
+  readonly sandbox?: ClaudeAgentSdkQueryOptions["sandbox"];
   readonly supportedDialogKinds?: ClaudeQueryOptions["supportedDialogKinds"];
   readonly allowDangerouslySkipPermissions?: boolean;
   readonly appendSystemPromptFileText?: string;
@@ -2355,16 +2358,20 @@ export function makeClaudeQueryOptions(input: {
         ...launchAppendSystemPrompt,
       ].join("\n\n"),
     },
-    ...(deviceInstructions || input.onStop !== undefined
+    ...(deviceInstructions || input.onStop !== undefined || input.onPreToolUse !== undefined
       ? {
           hooks: {
             ...(deviceInstructions
               ? { SubagentStart: [{ hooks: [subagentDeviceInstructions] }] }
               : {}),
             ...(input.onStop === undefined ? {} : { Stop: [{ hooks: [input.onStop] }] }),
+            ...(input.onPreToolUse === undefined
+              ? {}
+              : { PreToolUse: [{ matcher: "Bash", hooks: [input.onPreToolUse] }] }),
           },
         }
       : {}),
+    ...(input.sandbox === undefined ? {} : { sandbox: input.sandbox }),
     ...(Object.keys(extraArgs).length === 0 ? {} : { extraArgs }),
   };
   const additionalDirectories = [
@@ -2489,6 +2496,34 @@ const CLAUDE_SELF_APPROVED_T3_MCP_TOOLS = T3RO_SELF_APPROVED_TOOLS.map(
 // request_secret can wait an hour; exceed Claude's default 60 s timeout.
 export const CLAUDE_T3_MCP_TOOL_TIMEOUT_MS = 65 * 60 * 1_000;
 
+/** t3ro: a space with network off runs Bash in Claude's sandbox with no domains allowed. */
+const CLAUDE_NETWORK_OFF_SANDBOX: NonNullable<ClaudeAgentSdkQueryOptions["sandbox"]> = {
+  enabled: true,
+  failIfUnavailable: true,
+  allowUnsandboxedCommands: false,
+  network: { allowedDomains: [], strictAllowlist: true },
+};
+const CLAUDE_NETWORK_TOOLS = ["WebFetch", "WebSearch"];
+
+/** t3ro: refuses a Bash command that contains one of the space's blocked commands. */
+export function claudeBlockedCommandHook(blocked: ReadonlyArray<string>): HookCallback {
+  return async (input) => {
+    if (input.hook_event_name !== "PreToolUse") return {};
+    const toolInput = input.tool_input as { readonly command?: unknown } | undefined;
+    const command = typeof toolInput?.command === "string" ? toolInput.command : "";
+    const match = McpProviderSession.blockedCommandMatch(command, blocked);
+    return match === undefined
+      ? {}
+      : {
+          hookSpecificOutput: {
+            hookEventName: "PreToolUse",
+            permissionDecision: "deny",
+            permissionDecisionReason: `This space blocks \`${match}\`. Ask the user to run it, or to change the space's blocked commands in Settings → Tools.`,
+          },
+        };
+  };
+}
+
 // allowedTools pre-approves calls; tools controls availability. Pre-approve T3 tools for headless modes,
 // limited to annotated read-only tools in read-only sandboxes.
 
@@ -2518,6 +2553,20 @@ export function claudeMcpQueryOverrides(input: {
         },
         timeout: CLAUDE_T3_MCP_TOOL_TIMEOUT_MS,
       },
+      // t3ro: the space's own and shared MCP servers.
+      ...Object.fromEntries(
+        (session.extraMcpServers ?? []).map((server) => [
+          server.name,
+          server.transport === "http"
+            ? { type: "http" as const, url: server.url, headers: { ...server.headers } }
+            : {
+                type: "stdio" as const,
+                command: server.command,
+                args: [...server.args],
+                env: { ...server.env },
+              },
+        ]),
+      ),
     },
   };
 }
@@ -12940,14 +12989,23 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
             ...(launchArgSettings === undefined
               ? {}
               : { sdkSettings: claudeSdkLaunchArgSettings(launchArgSettings) }),
-            environment: claudeQueryEnvironment(
-              adapterOptions.environment,
-              turnInput.appThread,
-              turnInput.appThread.lineage.relationshipToParent === "subagent"
-                ? yield* resolveSubagentPromptCacheTtl(turnInput.runtimePolicy.cwd)
-                : undefined,
-              shouldResume,
+            environment: McpProviderSession.withAgentEnvironment(
+              claudeQueryEnvironment(
+                adapterOptions.environment,
+                turnInput.appThread,
+                turnInput.appThread.lineage.relationshipToParent === "subagent"
+                  ? yield* resolveSubagentPromptCacheTtl(turnInput.runtimePolicy.cwd)
+                  : undefined,
+                shouldResume,
+              ),
+              mcpSession,
             ),
+            ...(mcpSession?.blockedCommands?.length
+              ? { onPreToolUse: claudeBlockedCommandHook(mcpSession.blockedCommands) }
+              : {}),
+            ...(mcpSession?.networkOff
+              ? { sandbox: CLAUDE_NETWORK_OFF_SANDBOX, disallowedTools: CLAUDE_NETWORK_TOOLS }
+              : {}),
             tools: queryPolicy.tools ?? CLAUDE_CODE_PRESET_TOOLS,
             ...(mcpOverrides.allowedTools === undefined
               ? {}

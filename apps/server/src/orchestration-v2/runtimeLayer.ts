@@ -62,6 +62,7 @@ import * as TurnItemPositionStore from "./TurnItemPositionStore.ts";
 import * as ScheduledTaskService from "../scheduledTasks/ScheduledTaskService.ts";
 import * as SecretRequests from "../secrets/SecretRequests.ts";
 import * as SpaceRuntimeLimit from "../t3po/SpaceRuntimeLimit.ts";
+import * as SpaceAgentSetup from "../t3po/SpaceAgentSetup.ts";
 
 export const layerEventInfrastructure = Layer.mergeAll(
   OrchestrationEventStore.layer,
@@ -147,6 +148,8 @@ const layerProviderSessionManagerProvided = ProviderSessionManager.layer.pipe(
       layerProviderEventIngestorProvided,
       ProjectionStore.layer,
       ProviderInstallationGate.layer,
+      // t3ro: what each space adds to the agents it starts.
+      SpaceAgentSetup.layer,
     ),
   ),
 );
