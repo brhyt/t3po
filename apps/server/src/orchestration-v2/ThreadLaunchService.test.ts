@@ -46,6 +46,7 @@ import {
   TextGenerationError,
   ServerSettingsError,
   VcsProcessExitError,
+  ScheduledTaskError,
 } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import * as Deferred from "effect/Deferred";
@@ -4166,12 +4167,16 @@ it.effect("moves a conversation to No project and into a project, refusing while
     }),
   });
   const movedTasks: Array<{ threadIds: ReadonlyArray<ThreadId>; projectId: ProjectId }> = [];
+  let taskMoveFailures = 0;
   const support = Layer.mergeAll(
     harness.layer,
     T3poChanges.layer,
     T3poApplicationEvents.layer.pipe(Layer.provide(harness.layer)),
     Layer.mock(ScheduledTasks.ScheduledTaskService)({
-      moveThreadTasks: (input) => Effect.sync(() => void movedTasks.push(input)),
+      moveThreadTasks: (input) =>
+        taskMoveFailures-- > 0
+          ? Effect.fail(new ScheduledTaskError({ message: "database is locked" }))
+          : Effect.sync(() => void movedTasks.push(input)),
     }),
   );
   return Effect.gen(function* () {
@@ -4243,13 +4248,23 @@ it.effect("moves a conversation to No project and into a project, refusing while
       branch: null,
     });
     expect(movedTasks).toEqual([{ threadIds: [idle], projectId: otherProjectId }]);
-    // Moving again from the old project is refused rather than repeated.
-    expect((yield* move(idle, projectId, otherProjectId).pipe(Effect.flip)).operation).toBe(
-      "invalid",
-    );
+    // Sending the same move again only finishes the follow-up; the thread is not moved twice.
+    yield* move(idle, projectId, otherProjectId);
+    expect((yield* threads.getThreadShell(idle))?.projectId).toBe(otherProjectId);
+    movedTasks.length = 0;
+
+    // A follow-up that keeps failing is reported, the chat stays moved, and a retry finishes it.
+    taskMoveFailures = 3;
+    const partly = yield* move(idle, otherProjectId, projectId).pipe(Effect.flip);
+    expect(partly.operation).toBe("conversation_moved_partly");
+    expect((yield* threads.getThreadShell(idle))?.projectId).toBe(projectId);
+    yield* move(idle, otherProjectId, projectId);
+    expect(movedTasks).toEqual([{ threadIds: [idle], projectId }]);
+    // A brief failure is retried without reaching the caller.
+    taskMoveFailures = 1;
+    yield* move(idle, otherProjectId, projectId);
 
     // Out of No project: the scratch folder is not a worktree, so it runs in the project root.
-    yield* move(idle, otherProjectId, projectId);
     expect(yield* threads.getThreadShell(idle)).toMatchObject({
       projectId,
       worktreePath: null,

@@ -520,6 +520,7 @@ export class T3poError extends Schema.TaggedError<T3poError>()("T3poError", {
     "invalid",
     "busy",
     "conversation_busy",
+    "conversation_moved_partly",
     "space_busy",
     "channel_busy",
     "space_nonempty",
@@ -563,6 +564,8 @@ export class T3poError extends Schema.TaggedError<T3poError>()("T3poError", {
     if (this.operation === "busy") return "Stop the running task before archiving it.";
     if (this.operation === "conversation_busy")
       return "This conversation is still working. Wait for it and its background agents to finish, or stop them, before moving it to another project.";
+    if (this.operation === "conversation_moved_partly")
+      return "The conversation moved, but its schedules and channel link did not update. Try the move again to finish it.";
     if (this.operation === "workspace")
       return "Choose an existing Git base branch for the worktree, or use the project folder.";
     return this.operation === "invalid"

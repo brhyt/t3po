@@ -133,11 +133,30 @@ const make = Effect.gen(function* () {
    * runs where a new conversation there would: the project root, or a fresh scratch folder for the
    * No project. A thread with its own worktree keeps it.
    */
+  /** After the thread has moved: its schedules follow, and the old project's channel drops it. */
+  const finishConversationMove = Effect.fn("T3po.finishConversationMove")(function* (
+    input: Extract<T3poMutation, { readonly type: "move_conversation_project" }>,
+  ) {
+    yield* Effect.gen(function* () {
+      yield* scheduledTasks.moveThreadTasks({
+        threadIds: [input.threadId],
+        projectId: input.targetProjectId,
+      });
+      yield* store.mutate(input);
+    }).pipe(
+      Effect.retry({ times: 2 }),
+      Effect.mapError((cause) => new T3poError({ operation: "conversation_moved_partly", cause })),
+    );
+    yield* PubSub.publish(changes, { projectId: input.targetProjectId, metadata: true });
+  });
   const moveConversationProject = Effect.fn("T3po.moveConversationProject")(function* (
     input: Extract<T3poMutation, { readonly type: "move_conversation_project" }>,
   ) {
     const source = yield* requireProject(input.projectId);
     const target = yield* requireProject(input.targetProjectId);
+    const current = yield* threads.getThreadShell(input.threadId);
+    // Already moved: a retry after the follow-up failed only finishes that.
+    if (current?.projectId === input.targetProjectId) return yield* finishConversationMove(input);
     yield* store.checkConversationMove(input);
     const shell = yield* threads.getThreadShell(input.threadId);
     if (!shell || shell.projectId !== input.projectId)
@@ -195,12 +214,7 @@ const make = Effect.gen(function* () {
             }),
         ),
       );
-    yield* scheduledTasks.moveThreadTasks({
-      threadIds: [input.threadId],
-      projectId: input.targetProjectId,
-    });
-    yield* store.mutate(input);
-    yield* PubSub.publish(changes, { projectId: input.targetProjectId, metadata: true });
+    yield* finishConversationMove(input);
   });
   const mutate = Effect.fn("T3po.mutate")(
     function* (input: T3poMutation) {

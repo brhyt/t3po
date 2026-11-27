@@ -617,6 +617,47 @@ it("archives and deletes conversations, deletes channels and removes projects fr
   }
 });
 
+it("only offers to remove a project in a space once it is archived", async () => {
+  state.calls = [];
+  state.data = {
+    spaces: [{ id: "personal", name: "Personal" }],
+    projectSpaces: [{ projectId: ProjectId.make("project"), spaceId: "personal" }],
+    conversations: [],
+    memory: [],
+    leads: [],
+    channels: [],
+    tasks: [],
+    nextCursor: null,
+  };
+  const menuIds = () => (state.menu as ReadonlyArray<{ id: string }>).map((item) => item.id);
+  const rightClick = (element: Element) =>
+    element.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+  try {
+    state.archived = false;
+    state.menu = [];
+    await using active = await render(
+      <SidebarProvider>
+        <ProjectSidebar />
+      </SidebarProvider>,
+    );
+    rightClick(active.getByRole("link", { name: /Studio/ }).element());
+    await vi.waitFor(() => expect(menuIds()).toContain("archive"));
+    expect(menuIds()).not.toContain("remove-project");
+  } finally {
+    state.menu = [];
+  }
+  state.archived = true;
+  await using archived = await render(
+    <SidebarProvider>
+      <ProjectSidebar />
+    </SidebarProvider>,
+  );
+  await userEvent.click(archived.getByRole("button", { name: "Archived projects", exact: true }));
+  rightClick(archived.getByRole("link", { name: /Studio/ }).element());
+  await vi.waitFor(() => expect(menuIds()).toContain("remove-project"));
+  state.archived = false;
+});
+
 it("moves a conversation with no project into a project on the same machine", async () => {
   state.archived = false;
   state.scratch = true;

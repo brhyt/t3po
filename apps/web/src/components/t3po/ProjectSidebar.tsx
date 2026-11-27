@@ -302,6 +302,8 @@ function useConversationLifecycle() {
  * The "Move to project" menu item for a conversation in `projectId`, offering every other active
  * project on the same machine, its No project included, and the move it starts when one is chosen.
  */
+const NEW_SCRATCH_TARGET = "project:new-scratch";
+
 function useMoveToProject(environmentId: EnvironmentId, projectId: ProjectId) {
   const gt = useGT();
   const mutate = useAtomCommand(t3po.mutate);
@@ -314,28 +316,51 @@ function useMoveToProject(environmentId: EnvironmentId, projectId: ProjectId) {
         project.archivedAt == null,
     )
     .sort((a, b) => Number(a.isScratch === true) - Number(b.isScratch === true));
-  const item = {
-    id: "move-project",
-    label: gt("Move to project"),
-    disabled: !canMutate || targets.length === 0,
-    children: targets.map((project) => ({
+  const { scratchWorkspaceRootFor, openScratchProject } = useScratchProject();
+  const currentIsScratch = useProjects().some(
+    (project) =>
+      project.environmentId === environmentId && project.id === projectId && project.isScratch,
+  );
+  // No project is offered before this machine's first no-project chat; choosing it makes one.
+  const offerNewScratch =
+    !currentIsScratch &&
+    !targets.some((project) => project.isScratch) &&
+    scratchWorkspaceRootFor(environmentId) !== null;
+  const children = [
+    ...targets.map((project) => ({
       id: `project:${project.id}`,
       label: project.isScratch ? gt("No project") : project.title,
     })),
+    ...(offerNewScratch ? [{ id: NEW_SCRATCH_TARGET, label: gt("No project") }] : []),
+  ];
+  const item = {
+    id: "move-project",
+    label: gt("Move to project"),
+    disabled: !canMutate || children.length === 0,
+    children,
   };
   /** Moves the conversation when `action` names a target; false for any other action. */
   async function move(action: string | null | undefined, threadId: ThreadId) {
-    const target = targets.find((project) => `project:${project.id}` === action);
-    if (!target) return false;
-    const result = await mutate({
-      environmentId,
-      input: {
-        type: "move_conversation_project",
-        projectId,
-        threadId,
-        targetProjectId: target.id,
-      },
-    });
+    const targetProjectId =
+      action === NEW_SCRATCH_TARGET && offerNewScratch
+        ? (await openScratchProject(environmentId))?.id
+        : targets.find((project) => `project:${project.id}` === action)?.id;
+    if (action === NEW_SCRATCH_TARGET && targetProjectId === undefined) return true;
+    if (targetProjectId === undefined) return false;
+    const input = {
+      type: "move_conversation_project" as const,
+      projectId,
+      threadId,
+      targetProjectId,
+    };
+    let result = await mutate({ environmentId, input });
+    // The chat moved but its follow-up did not; sending the same move again finishes it.
+    if (
+      result._tag !== "Success" &&
+      (squashAtomCommandFailure(result) as { operation?: string } | undefined)?.operation ===
+        "conversation_moved_partly"
+    )
+      result = await mutate({ environmentId, input });
     if (result._tag !== "Success") throw squashAtomCommandFailure(result);
     return true;
   }
@@ -689,6 +714,10 @@ function ProjectChannels({
   const redrawProjectIcon = useProjectIconRedraw();
   const lifecycle = useConversationLifecycle();
   const drawnIcon = project.projectIcon?.kind === "generated";
+  // A project in a space is archived before it can be removed; Off Record projects go directly.
+  const inSpace = !!query.data?.projectSpaces?.find((entry) => entry.projectId === projectId)
+    ?.spaceId;
+  const removable = archived || !inSpace;
   async function updateProjectDetails(input: {
     title?: string;
     archived?: boolean;
@@ -896,13 +925,17 @@ function ProjectChannels({
                         { id: "space:", label: gt("Off Record") },
                       ],
                     },
-                    {
-                      id: "remove-project",
-                      label: gt("Remove project…"),
-                      destructive: true,
-                      separatorBefore: true,
-                      disabled: !canUpdateProject,
-                    },
+                    ...(removable
+                      ? [
+                          {
+                            id: "remove-project",
+                            label: gt("Remove project…"),
+                            destructive: true,
+                            separatorBefore: true,
+                            disabled: !canUpdateProject,
+                          },
+                        ]
+                      : []),
                   ],
                   { x: event.clientX, y: event.clientY },
                   contextMenuSourceOf(event.nativeEvent),
