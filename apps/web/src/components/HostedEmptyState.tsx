@@ -100,7 +100,7 @@ function T3ConnectSteps() {
           target="_blank"
           rel="noreferrer noopener"
         >
-          <T>Set up T3PO on your computer</T>
+          <T>Set up T3RO on your computer</T>
         </a>
         {isSignedIn ? (
           <div className="mt-4 space-y-1.5">
@@ -143,7 +143,7 @@ function PairingSteps() {
       <SetupStep number={1}>
         <p>
           <T>
-            Open T3PO on the computer that runs your agents. In Settings → Sharing &amp; access,
+            Open T3RO on the computer that runs your agents. In Settings → Sharing &amp; access,
             create a pairing link.
           </T>
         </p>

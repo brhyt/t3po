@@ -3408,7 +3408,7 @@ it.effect("replays an accepted send after the project disables the instance", ()
 });
 
 it.effect.each(["main", "sole", "explicit", "ambiguous"] as const)(
-  "launches T3PO local worktrees without guessing an ambiguous base: %s",
+  "launches T3RO local worktrees without guessing an ambiguous base: %s",
   (mode) =>
     withRealGitRepo(({ cwd, worktreePath, command, harness: makeLocalHarness }) =>
       Effect.gen(function* () {
@@ -3483,7 +3483,7 @@ it.effect.each(["main", "sole", "explicit", "ambiguous"] as const)(
 );
 
 it.effect(
-  "keeps T3PO lead identity and task launches stable across retries and service reconstruction",
+  "keeps T3RO lead identity and task launches stable across retries and service reconstruction",
   () => {
     const harness = makeHarness({
       createWorktree: (input) =>
@@ -3805,7 +3805,7 @@ it.effect(
   },
 );
 
-it.effect("pushes T3PO changes to other clients and refreshes after reconnect", () => {
+it.effect("pushes T3RO changes to other clients and refreshes after reconnect", () => {
   const harness = makeHarness();
   const support = Layer.mergeAll(
     harness.layer,

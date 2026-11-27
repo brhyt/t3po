@@ -69,7 +69,7 @@ const setup = Effect.gen(function* () {
 });
 
 describe("command permissions", () => {
-  it.effect("gates T3PO mutations on the destination environment", () =>
+  it.effect("gates T3RO mutations on the destination environment", () =>
     Effect.gen(function* () {
       const registry = yield* setup;
       registry.set(sessions(env), AsyncResult.success(grant(true)));

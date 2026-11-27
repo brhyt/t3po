@@ -52,7 +52,7 @@ export const leadIconRequest = Effect.fn("T3poProjectIcon.leadIconRequest")(
       : "";
   },
   Effect.catch((cause) =>
-    Effect.logWarning("T3PO project icon request failed", { cause }).pipe(Effect.as("")),
+    Effect.logWarning("T3RO project icon request failed", { cause }).pipe(Effect.as("")),
   ),
 );
 
@@ -122,7 +122,7 @@ const make = Effect.gen(function* () {
       return { projectId };
     },
     Effect.tapError((cause) =>
-      isRefused(cause) ? Effect.void : Effect.logWarning("T3PO project icon failed", { cause }),
+      isRefused(cause) ? Effect.void : Effect.logWarning("T3RO project icon failed", { cause }),
     ),
     Effect.mapError((cause) =>
       isRefused(cause) ? cause : refuse("Could not save the icon. Try again."),

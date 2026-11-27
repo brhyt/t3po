@@ -81,7 +81,7 @@ const program = Effect.gen(function* () {
           "Memory inference requires the existing ChatGPT login; API-key fallback is disabled.",
       });
     const catalog = yield* client.request("model/list", {});
-    const selected = yield* Config.String("T3PO_MEMORY_MODEL").pipe(Config.withDefault(""));
+    const selected = yield* Config.String("T3RO_MEMORY_MODEL").pipe(Config.withDefault(""));
     const model = selected || catalog.data.find((entry) => entry.isDefault)?.model;
     if (!model || !catalog.data.some((entry) => entry.model === model))
       return yield* new HonchoCodex.InferenceError({

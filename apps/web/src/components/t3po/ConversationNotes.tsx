@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useAtomValue } from "@effect/atom-react";
 import { T, useGT } from "gt-react";
-import { T3PO_NOTES_MAX_LENGTH, type EnvironmentId, type ProjectId } from "@t3tools/contracts";
+import { T3RO_NOTES_MAX_LENGTH, type EnvironmentId, type ProjectId } from "@t3tools/contracts";
 import { t3po } from "../../state/t3po";
 import { useEnvironmentQuery } from "../../state/query";
 import { useAtomCommand } from "../../state/use-atom-command";
@@ -67,7 +67,7 @@ export function ConversationNotes({
         <Textarea
           size="sm"
           value={draft?.text ?? notes?.text ?? ""}
-          maxLength={T3PO_NOTES_MAX_LENGTH}
+          maxLength={T3RO_NOTES_MAX_LENGTH}
           disabled={!canMutate || busy}
           placeholder={gt("Decisions, preferences and open questions from this chat.")}
           onChange={(event) =>

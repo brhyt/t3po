@@ -2,7 +2,7 @@ import { ThreadId, type EnvironmentId, type ProjectId } from "@t3tools/contracts
 import { t3po } from "../../state/t3po";
 import { useEnvironmentQuery } from "../../state/query";
 
-const T3PO_THREAD_PREFIXES = ["t3po-task:", "t3po-lead:", "t3po-channel:"];
+const T3RO_THREAD_PREFIXES = ["t3po-task:", "t3po-lead:", "t3po-channel:"];
 
 /** Where a t3po thread sits, for its breadcrumb: the project's space and, for a job, its chat. */
 export function useT3poBreadcrumb(
@@ -15,7 +15,7 @@ export function useT3poBreadcrumb(
 } {
   const job = threadId.startsWith("t3po-task:");
   const query = useEnvironmentQuery(
-    projectId !== null && T3PO_THREAD_PREFIXES.some((prefix) => threadId.startsWith(prefix))
+    projectId !== null && T3RO_THREAD_PREFIXES.some((prefix) => threadId.startsWith(prefix))
       ? t3po.snapshot({
           environmentId,
           input: job ? { projectId, threadId, view: "all" } : { projectId, metadataOnly: true },

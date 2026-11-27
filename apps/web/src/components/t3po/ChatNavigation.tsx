@@ -17,7 +17,7 @@ export function ChatNavigation({
     : undefined;
   if (!channelId && !threadId.startsWith("t3po-lead:")) return null;
   return (
-    <nav aria-label="T3PO" className="flex shrink-0 items-center gap-2 border-b px-4 py-1.5">
+    <nav aria-label="T3RO" className="flex shrink-0 items-center gap-2 border-b px-4 py-1.5">
       <Button
         size="sm"
         variant={view === "chat" ? "secondary" : "ghost"}

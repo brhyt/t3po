@@ -116,7 +116,7 @@ export const run = Effect.gen(function* () {
         Cause.hasInterruptsOnly(cause)
           ? Effect.interrupt
           : Effect.sync(() => failedAtTurns.set(projectId, userTurns)).pipe(
-              Effect.andThen(Effect.logWarning("T3PO lead naming failed", { projectId, cause })),
+              Effect.andThen(Effect.logWarning("T3RO lead naming failed", { projectId, cause })),
             ),
       ),
       Effect.ensuring(Effect.sync(() => inFlight.delete(projectId))),
@@ -142,7 +142,7 @@ export const run = Effect.gen(function* () {
             Effect.catchCause((cause) =>
               Cause.hasInterruptsOnly(cause)
                 ? Effect.interrupt
-                : Effect.logWarning("T3PO lead naming check failed", { cause }),
+                : Effect.logWarning("T3RO lead naming check failed", { cause }),
             ),
           )
         : Effect.void,

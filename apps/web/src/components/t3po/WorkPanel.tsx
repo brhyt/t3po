@@ -4,7 +4,7 @@ import { Link } from "@tanstack/react-router";
 import { T, useGT } from "gt-react";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import {
-  T3PO_DEFAULT_WORK_ACCESS,
+  T3RO_DEFAULT_WORK_ACCESS,
   type EnvironmentId,
   type ProjectId,
   type RuntimeMode,
@@ -58,7 +58,7 @@ export function WorkPanel({
   const tasks = (query.data?.tasks ?? []).filter((task) => task.channelId === (channelId ?? null));
   const workAccess =
     query.data?.leads.find((lead) => lead.projectId === projectId)?.workAccess ??
-    T3PO_DEFAULT_WORK_ACCESS;
+    T3RO_DEFAULT_WORK_ACCESS;
   const statuses = {
     up_next: gt("Queued"),
     active: gt("Running"),

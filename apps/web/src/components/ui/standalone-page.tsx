@@ -21,8 +21,8 @@ export function StandalonePageHeader({
   return (
     <>
       <div className="flex items-baseline justify-between gap-3 text-muted-foreground">
-        <span className="flex items-baseline gap-1.5" aria-label="T3PO">
-          <span className="text-lg font-medium tracking-tight">T3PO</span>
+        <span className="flex items-baseline gap-1.5" aria-label="T3RO">
+          <span className="text-lg font-medium tracking-tight">T3RO</span>
         </span>
         {context ? <span className="text-sm">{context}</span> : null}
       </div>

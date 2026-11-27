@@ -133,7 +133,7 @@ import {
   type RunId,
   type ThreadId,
   isT3poLeadConversation,
-  T3PO_LEAD_AUTO_COMPACT_WINDOW,
+  T3RO_LEAD_AUTO_COMPACT_WINDOW,
   resolveIdleCompaction,
   isDelegatedAppThread,
 } from "@t3tools/contracts";
@@ -166,7 +166,7 @@ import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 
 import { resolveAttachmentPath } from "../../attachmentStore.ts";
 import { snapshotMcpApp } from "../../mcpApps/McpAppSnapshot.ts";
-import { T3PO_SELF_APPROVED_TOOLS } from "../../t3po/LeadTools.ts";
+import { T3RO_SELF_APPROVED_TOOLS } from "../../t3po/LeadTools.ts";
 import { resolveClaudeSdkExecutablePath } from "../../provider/Drivers/ClaudeExecutable.ts";
 import * as ProviderInstallationGate from "../../provider/ProviderInstallationGate.ts";
 import {
@@ -292,9 +292,9 @@ function claudeAutoCompactThreshold(autoCompactWindow: string, maxTokens: number
 function claudeSettingsForThread(settings: ClaudeSettings, threadId: string): ClaudeSettings {
   const window = Number(settings.autoCompactWindow);
   return !isT3poLeadConversation(threadId) ||
-    (window > 0 && window <= T3PO_LEAD_AUTO_COMPACT_WINDOW)
+    (window > 0 && window <= T3RO_LEAD_AUTO_COMPACT_WINDOW)
     ? settings
-    : { ...settings, autoCompactWindow: String(T3PO_LEAD_AUTO_COMPACT_WINDOW) };
+    : { ...settings, autoCompactWindow: String(T3RO_LEAD_AUTO_COMPACT_WINDOW) };
 }
 
 function claudeMessageInputTokens(usage: {
@@ -2482,7 +2482,7 @@ export const CLAUDE_READ_ONLY_T3_MCP_ALLOWED_TOOLS: ReadonlyArray<string> = [
 ];
 
 // A chat's own notes, schedules and drawn icon never wait on an approval prompt.
-const CLAUDE_SELF_APPROVED_T3_MCP_TOOLS = T3PO_SELF_APPROVED_TOOLS.map(
+const CLAUDE_SELF_APPROVED_T3_MCP_TOOLS = T3RO_SELF_APPROVED_TOOLS.map(
   (name) => `mcp__t3-code__${name}`,
 );
 

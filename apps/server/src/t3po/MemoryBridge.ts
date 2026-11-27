@@ -46,17 +46,17 @@ export class MemoryBridge extends Context.Service<
   }
 >()("t3/t3po/MemoryBridge") {}
 const make = Effect.gen(function* () {
-  const exchangeEnabled = yield* Config.Boolean("T3PO_MEMORY_EXCHANGE_ENABLED").pipe(
+  const exchangeEnabled = yield* Config.Boolean("T3RO_MEMORY_EXCHANGE_ENABLED").pipe(
     Config.withDefault(true),
   );
   const disabledProjects = new Set(
-    (yield* Config.String("T3PO_MEMORY_DISABLED_PROJECTS").pipe(Config.withDefault("")))
+    (yield* Config.String("T3RO_MEMORY_DISABLED_PROJECTS").pipe(Config.withDefault("")))
       .split(",")
       .map((id) => id.trim())
       .filter(Boolean),
   );
-  let url = yield* Config.String("T3PO_MEMORY_URL").pipe(Config.withDefault(""));
-  let token = yield* Config.Redacted("T3PO_MEMORY_TOKEN").pipe(
+  let url = yield* Config.String("T3RO_MEMORY_URL").pipe(Config.withDefault(""));
+  let token = yield* Config.Redacted("T3RO_MEMORY_TOKEN").pipe(
     Config.withDefault(Redacted.make("")),
   );
   if (!url && !Redacted.value(token)) {

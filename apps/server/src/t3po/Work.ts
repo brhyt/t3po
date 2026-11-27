@@ -10,7 +10,7 @@ import {
   T3poLaunchInput,
   ModelSelection,
   RuntimeMode,
-  T3PO_DEFAULT_WORK_ACCESS,
+  T3RO_DEFAULT_WORK_ACCESS,
   type T3poNotes,
   type T3poNotesUpdate,
   type T3poWorkReceipt,
@@ -155,7 +155,7 @@ export const reserve = Effect.fn("T3poWork.reserve")(
           projectId,
           taskId: jobId,
           modelSelection: workModel ? yield* decodeModel(workModel) : modelSelection,
-          runtimeMode: isRuntimeMode(workAccess) ? workAccess : T3PO_DEFAULT_WORK_ACCESS,
+          runtimeMode: isRuntimeMode(workAccess) ? workAccess : T3RO_DEFAULT_WORK_ACCESS,
         });
         yield* sql`INSERT INTO t3po_work_routes (id, project_id, caller_thread_id, job_id, workstream_id, input, launch) VALUES (${id}, ${projectId}, ${callerThreadId}, ${jobId}, ${stream.id}, ${encoded}, ${launch})`;
         return {

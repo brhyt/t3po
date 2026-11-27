@@ -920,7 +920,7 @@ export const IRIS_THEME: ThemeDefinition = {
   sidebarArtwork: true,
 };
 
-const T3PO_RO_THEME: ThemeDefinition = {
+const T3RO_RO_THEME: ThemeDefinition = {
   id: "t3po-ro",
   label: "ro",
   appearance: "dark",
@@ -983,7 +983,7 @@ const T3PO_RO_THEME: ThemeDefinition = {
   },
 };
 
-const T3PO_DROID_THEME: ThemeDefinition = {
+const T3RO_DROID_THEME: ThemeDefinition = {
   id: "t3po-droid",
   label: "droid",
   appearance: "dark",
@@ -1046,7 +1046,7 @@ const T3PO_DROID_THEME: ThemeDefinition = {
   },
 };
 
-const T3PO_LAB_THEME: ThemeDefinition = {
+const T3RO_LAB_THEME: ThemeDefinition = {
   id: "t3po-lab",
   label: "lab",
   appearance: "dark",
@@ -1109,7 +1109,7 @@ const T3PO_LAB_THEME: ThemeDefinition = {
   },
 };
 
-const T3PO_PAPER_THEME: ThemeDefinition = {
+const T3RO_PAPER_THEME: ThemeDefinition = {
   id: "t3po-paper",
   label: "paper",
   appearance: "light",
@@ -1178,10 +1178,10 @@ export const BUILT_IN_THEMES: ReadonlyArray<ThemeDefinition> = [
   OCEAN_THEME,
   EMBER_THEME,
   IRIS_THEME,
-  T3PO_RO_THEME,
-  T3PO_DROID_THEME,
-  T3PO_LAB_THEME,
-  T3PO_PAPER_THEME,
+  T3RO_RO_THEME,
+  T3RO_DROID_THEME,
+  T3RO_LAB_THEME,
+  T3RO_PAPER_THEME,
 ];
 
 export function getThemeColorsForAppearance(

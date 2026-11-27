@@ -4,8 +4,8 @@ import {
   T3poWorkspace,
   T3poTask,
   T3poError,
-  T3PO_DEFAULT_CONCURRENT_JOBS,
-  T3PO_DEFAULT_WORK_ACCESS,
+  T3RO_DEFAULT_CONCURRENT_JOBS,
+  T3RO_DEFAULT_WORK_ACCESS,
   RuntimeMode,
   type OrchestrationV2DomainEvent,
 } from "@t3tools/contracts";
@@ -41,7 +41,7 @@ const runtimeModeRank: Record<RuntimeMode, number> = {
   "full-access": 3,
 };
 const isRuntimeMode = Schema.is(RuntimeMode);
-/** Whether the project's job permissions allow `mode`; unset permissions allow T3PO_DEFAULT_WORK_ACCESS. */
+/** Whether the project's job permissions allow `mode`; unset permissions allow T3RO_DEFAULT_WORK_ACCESS. */
 const workAccessAllows = Effect.fn("T3po.workAccessAllows")(function* (
   projectId: string,
   mode: string | undefined,
@@ -51,7 +51,7 @@ const workAccessAllows = Effect.fn("T3po.workAccessAllows")(function* (
     access: string | null;
   }>`SELECT json_extract(data, '$.workAccess') AS access FROM t3po_leads WHERE project_id = ${projectId}`;
   const stored = rows[0]?.access;
-  const access = isRuntimeMode(stored) ? stored : T3PO_DEFAULT_WORK_ACCESS;
+  const access = isRuntimeMode(stored) ? stored : T3RO_DEFAULT_WORK_ACCESS;
   return isRuntimeMode(mode) && runtimeModeRank[mode] <= runtimeModeRank[access];
 });
 const checkSpace = Effect.fn("T3po.checkSpace")(function* (event: OrchestrationV2DomainEvent) {
@@ -287,7 +287,7 @@ export const admitRun = Effect.fn("T3po.admitRun")(function* (event: Orchestrati
   }
   // Jobs run until they finish; a project only limits how many run at once.
   const slots = yield* sql<{ open: number }>`SELECT
-    COALESCE((SELECT max_concurrent FROM t3po_budgets WHERE project_id = ${projectId}), ${T3PO_DEFAULT_CONCURRENT_JOBS})
+    COALESCE((SELECT max_concurrent FROM t3po_budgets WHERE project_id = ${projectId}), ${T3RO_DEFAULT_CONCURRENT_JOBS})
     > (SELECT count(*) FROM t3po_admissions WHERE project_id = ${projectId} AND active = 1) AS open`;
   if (!slots[0]?.open) return yield* new T3poError({ operation: "budget" });
   yield* sql`INSERT INTO t3po_admissions (run_id, project_id, active) VALUES (${event.payload.id}, ${projectId}, ${active ? 1 : 0})`;

@@ -31,7 +31,7 @@ import {
   T3poWorkstream,
   type T3poNotes,
   type T3poNotesUpdate,
-  T3PO_NOTES_MAX_LENGTH,
+  T3RO_NOTES_MAX_LENGTH,
   type T3poWorkReceipt,
   T3poChannel,
   T3poTask,
@@ -42,8 +42,8 @@ import {
   type T3poQuery,
   type T3poWorkspace,
   OrchestrationV2ThreadLaunchWorkspaceStrategy,
-  T3PO_DEFAULT_CONCURRENT_JOBS,
-  T3PO_DEFAULT_WORK_ACCESS,
+  T3RO_DEFAULT_CONCURRENT_JOBS,
+  T3RO_DEFAULT_WORK_ACCESS,
   isT3poLeadConversation,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
@@ -61,7 +61,7 @@ const encodeT3poLeadJson = Schema.encodeEffect(Schema.fromJsonString(T3poLead));
 const encodeT3poChannelJson = Schema.encodeEffect(Schema.fromJsonString(T3poChannel));
 const encodeT3poTaskJson = Schema.encodeEffect(Schema.fromJsonString(T3poTask));
 /** Stored name of a lead that has not named itself yet; clients show their own label for it. */
-const T3PO_LEAD_PLACEHOLDER_NAME = "Lead";
+const T3RO_LEAD_PLACEHOLDER_NAME = "Lead";
 const LaunchReservation = Schema.Struct({
   ...T3poLaunchInput.fields,
   briefRevision: Schema.optional(Schema.Number),
@@ -570,7 +570,7 @@ const make = Effect.gen(function* () {
     if (input.expectedRevision !== undefined && input.expectedRevision !== (current?.revision ?? 0))
       return yield* new T3poError({ operation: "notes_stale" });
     const text = input.edits ? applyNotesEdits(current?.text ?? "", input.edits) : input.text;
-    if (text == null || text.length > T3PO_NOTES_MAX_LENGTH)
+    if (text == null || text.length > T3RO_NOTES_MAX_LENGTH)
       return yield* new T3poError({ operation: "invalid" });
     const now = DateTime.formatIso(yield* DateTime.now);
     const saved = {
@@ -629,7 +629,7 @@ const make = Effect.gen(function* () {
           const budgets = yield* sql<{
             maxConcurrent: number;
           }>`SELECT max_concurrent AS maxConcurrent FROM t3po_budgets WHERE project_id = ${input.projectId}`;
-          const maxConcurrent = budgets[0]?.maxConcurrent ?? T3PO_DEFAULT_CONCURRENT_JOBS;
+          const maxConcurrent = budgets[0]?.maxConcurrent ?? T3RO_DEFAULT_CONCURRENT_JOBS;
           const expiry = Date.parse(input.expiresAt);
           if (input.briefRevision !== (task.briefRevision ?? 1))
             return yield* new T3poError({ operation: "grant_stale" });
@@ -824,7 +824,7 @@ const make = Effect.gen(function* () {
         if (!rows[0]) return yield* new T3poError({ operation: "invalid" });
         const { workAccess: _previous, ...lead } = yield* decodeT3poLeadJson(rows[0].data);
         const data: T3poLead =
-          input.runtimeMode === T3PO_DEFAULT_WORK_ACCESS
+          input.runtimeMode === T3RO_DEFAULT_WORK_ACCESS
             ? lead
             : { ...lead, workAccess: input.runtimeMode };
         yield* sql`UPDATE t3po_leads SET data = ${yield* encodeT3poLeadJson(data)} WHERE project_id = ${input.projectId}`;
@@ -847,7 +847,7 @@ const make = Effect.gen(function* () {
         const data: T3poLead = {
           projectId: input.projectId,
           // Without a name the lead keeps its placeholder and names itself later (LeadNaming).
-          name: input.name ?? (prior?.autoName ? prior.name : T3PO_LEAD_PLACEHOLDER_NAME),
+          name: input.name ?? (prior?.autoName ? prior.name : T3RO_LEAD_PLACEHOLDER_NAME),
           brief: input.brief,
           threadId: ThreadId.make(`t3po-lead:${input.projectId}`),
           ...(input.name === undefined ? { autoName: true } : {}),

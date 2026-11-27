@@ -85,7 +85,7 @@ const threadMetadataDependencies = [
 
 const WorkRouteTool = Tool.make("t3_work_route", {
   description:
-    "Route authorized work from a T3PO lead/channel message. Use new_job for an independent deliverable, follow_up with jobId for an existing job. Reuse a matching workstreamId; otherwise choose a stable new key and goal. sourceMessageId must be a user message in this chat. One stable requestId per request within that message; retries must keep identical arguments. Saves before dispatch, queues under project limits, uses isolated local worktrees. On new_job only, set reportToOrigin for a durable report back to this conversation without starting another provider turn; it requires human review and cannot be combined with a cross-space destination. For an explicitly authorized cross-space handoff, choose destinationProjectId from handoffDestinations and use new_job; send only the agreed brief. The receiving project owns the job and its allowance. No conversation, memory, or onward access is granted. Ordinary conversation needs no call. Never bypass a queued route with another dispatch tool.",
+    "Route authorized work from a T3RO lead/channel message. Use new_job for an independent deliverable, follow_up with jobId for an existing job. Reuse a matching workstreamId; otherwise choose a stable new key and goal. sourceMessageId must be a user message in this chat. One stable requestId per request within that message; retries must keep identical arguments. Saves before dispatch, queues under project limits, uses isolated local worktrees. On new_job only, set reportToOrigin for a durable report back to this conversation without starting another provider turn; it requires human review and cannot be combined with a cross-space destination. For an explicitly authorized cross-space handoff, choose destinationProjectId from handoffDestinations and use new_job; send only the agreed brief. The receiving project owns the job and its allowance. No conversation, memory, or onward access is granted. Ordinary conversation needs no call. Never bypass a queued route with another dispatch tool.",
   parameters: T3poWorkRoute,
   success: T3poWorkReceipt,
   failure: OrchestratorMcpFailure,
@@ -99,7 +99,7 @@ const WorkRouteTool = Tool.make("t3_work_route", {
 
 const NotesUpdateTool = Tool.make("t3_notes_update", {
   description:
-    "Save this T3PO lead/channel conversation's notes: the working record that survives context compaction and is shown to the user, who may edit it too. Pass `text` with `expectedRevision` (the notes revision in your context, 0 if none) to replace the notes, or `edits` to change the current notes (each oldText must appear exactly once). At most 8000 characters. Returns the saved notes.",
+    "Save this T3RO lead/channel conversation's notes: the working record that survives context compaction and is shown to the user, who may edit it too. Pass `text` with `expectedRevision` (the notes revision in your context, 0 if none) to replace the notes, or `edits` to change the current notes (each oldText must appear exactly once). At most 8000 characters. Returns the saved notes.",
   parameters: T3poNotesUpdate,
   success: T3poNotes,
   failure: OrchestratorMcpFailure,
@@ -113,7 +113,7 @@ const NotesUpdateTool = Tool.make("t3_notes_update", {
 
 const ProjectIconTool = Tool.make("t3_project_icon_set", {
   description:
-    "T3PO leads: set this project's sidebar icon from an SVG you write, only when asked to draw one. Never replaces the user's icon or favicon. A simple, distinctive mark of the project's subject, not initials: viewBox 0 0 16 16, one bold shape on a filled rounded tile, two or three solid colors, legible at 14px on light and dark. Plain shapes only: no text, scripts, styles, images, links or external url(). Max 8 KB.",
+    "T3RO leads: set this project's sidebar icon from an SVG you write, only when asked to draw one. Never replaces the user's icon or favicon. A simple, distinctive mark of the project's subject, not initials: viewBox 0 0 16 16, one bold shape on a filled rounded tile, two or three solid colors, legible at 14px on light and dark. Plain shapes only: no text, scripts, styles, images, links or external url(). Max 8 KB.",
   parameters: T3poProjectIconInput,
   success: T3poProjectIconResult,
   failure: OrchestratorMcpFailure,
@@ -127,7 +127,7 @@ const ProjectIconTool = Tool.make("t3_project_icon_set", {
 
 const WorkScheduleTool = Tool.make("t3_work_schedule", {
   description:
-    "Keep schedules for this T3PO lead/channel chat: list, create, update (enabled=false pauses, true resumes), delete. Each run sends its prompt back into this chat at the scheduled time; you then act on it. Use for recurring work and reminders. List before creating to avoid duplicates. Results give the server timeZone and now.",
+    "Keep schedules for this T3RO lead/channel chat: list, create, update (enabled=false pauses, true resumes), delete. Each run sends its prompt back into this chat at the scheduled time; you then act on it. Use for recurring work and reminders. List before creating to avoid duplicates. Results give the server timeZone and now.",
   parameters: T3poScheduleRequest,
   success: T3poScheduleResult,
   failure: OrchestratorMcpFailure,

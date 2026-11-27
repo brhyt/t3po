@@ -1,10 +1,10 @@
 # ro connect private source beta
 
-ro connect is T3PO's connection system, built on the upstream T3 Code protocols. This beta is a source installation for macOS and Linux, not a signed desktop distribution. Existing T3 protocol identifiers, URI schemes and upstream license notices remain intact.
+ro connect is T3RO's connection system, built on the upstream T3 Code protocols. This beta is a source installation for macOS and Linux, not a signed desktop distribution. Existing T3 protocol identifiers, URI schemes and upstream license notices remain intact.
 
 ## Install and operate
 
-Use a dedicated checkout of the reviewed T3PO fork commit, Node matching the repository's engine requirement, and the repository's Vite+ toolchain. Install dependencies with `vp i` before running the installer. Never use an upstream `curl` installer, `npx t3`, `t3 update`, or upstream desktop auto-update to maintain this installation.
+Use a dedicated checkout of the reviewed T3RO fork commit, Node matching the repository's engine requirement, and the repository's Vite+ toolchain. Install dependencies with `vp i` before running the installer. Never use an upstream `curl` installer, `npx t3`, `t3 update`, or upstream desktop auto-update to maintain this installation.
 
 ```sh
 node scripts/ro-connect.mjs install /absolute/path/to/t3po FULL_40_CHARACTER_COMMIT_SHA
@@ -41,15 +41,15 @@ The relay alone receives the Brhyt `CLERK_SECRET_KEY`; never put it into fronten
 
 ## Enroll an existing source checkout
 
-Keep the existing data directory when enrolling a computer. For the private 1421 installation, run from the T3PO checkout after the operator has provided `.t3/ro-relay-client.env` containing only the public configuration above:
+Keep the existing data directory when enrolling a computer. For the private 1421 installation, run from the T3RO checkout after the operator has provided `.t3/ro-relay-client.env` containing only the public configuration above:
 
 ```sh
 node --env-file=.t3/ro-relay-client.env apps/server/src/bin.ts connect link --base-dir .t3 --headless
 ```
 
-Approve installation of the relay client if prompted, then follow the displayed Brhyt sign-in URL and code. Use the production Brhyt account authorized for this relay. The headless flow works when the browser is on another machine. After linking, restart the existing T3PO service when no tasks are running; its startup environment must load the same public configuration. This does not install another server or move conversations. Do not use these `.t3` paths for an installation with a different data directory.
+Approve installation of the relay client if prompted, then follow the displayed Brhyt sign-in URL and code. Use the production Brhyt account authorized for this relay. The headless flow works when the browser is on another machine. After linking, restart the existing T3RO service when no tasks are running; its startup environment must load the same public configuration. This does not install another server or move conversations. Do not use these `.t3` paths for an installation with a different data directory.
 
-Open the hosted T3PO app, sign in with the same Brhyt account, and select the enrolled computer. Existing manual pairing remains available. Cloudflare Access protects the page separately from the Brhyt account used for computer discovery.
+Open the hosted T3RO app, sign in with the same Brhyt account, and select the enrolled computer. Existing manual pairing remains available. Cloudflare Access protects the page separately from the Brhyt account used for computer discovery.
 
 ## Private relay preparation
 

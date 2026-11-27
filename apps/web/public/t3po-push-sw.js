@@ -1,4 +1,4 @@
-// Shows t3po push notifications while no T3PO window is open. Registered once per environment,
+// Shows t3po push notifications while no T3RO window is open. Registered once per environment,
 // at scope /t3po-push/<environmentId>/, so each server keeps its own push subscription. It has no
 // fetch handler and never controls app pages.
 
@@ -13,7 +13,7 @@ self.addEventListener("push", (event) => {
   }
   const text = (value) => (typeof value === "string" ? value : "");
   event.waitUntil(
-    self.registration.showNotification(text(data.title) || "T3PO", {
+    self.registration.showNotification(text(data.title) || "T3RO", {
       body: text(data.body),
       tag: text(data.tag) || undefined,
       icon: "/ro-192.png",

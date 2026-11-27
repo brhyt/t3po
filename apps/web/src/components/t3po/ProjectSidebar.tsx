@@ -82,11 +82,11 @@ export function ProjectSidebar() {
         <Link
           to="/"
           search={{}}
-          aria-label="T3PO"
+          aria-label="T3RO"
           className="ml-3 inline-flex h-7 items-center gap-1 rounded-md text-sm font-medium tracking-tight outline-hidden ring-ring focus-visible:ring-2 focus-visible:ring-inset"
           onClick={() => setOpenMobile(false)}
         >
-          {"T3PO"}
+          {"T3RO"}
         </Link>
         <div className="ml-auto">
           <SidebarTrigger aria-label={gt("Toggle main sidebar")} />

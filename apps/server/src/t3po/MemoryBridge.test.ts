@@ -27,8 +27,8 @@ it.effect.each([
         Layer.provide(
           ConfigProvider.layer(
             ConfigProvider.fromUnknown({
-              T3PO_MEMORY_URL: "http://memory.test",
-              T3PO_MEMORY_TOKEN: "test-token",
+              T3RO_MEMORY_URL: "http://memory.test",
+              T3RO_MEMORY_TOKEN: "test-token",
             }),
           ),
         ),
@@ -71,8 +71,8 @@ it.effect("refreshes processing state and retains it when the service is unavail
         Layer.provide(
           ConfigProvider.layer(
             ConfigProvider.fromUnknown({
-              T3PO_MEMORY_URL: "http://memory.test",
-              T3PO_MEMORY_TOKEN: "test-token",
+              T3RO_MEMORY_URL: "http://memory.test",
+              T3RO_MEMORY_TOKEN: "test-token",
             }),
           ),
         ),
@@ -111,8 +111,8 @@ it.effect("loads a private userdata configuration when environment credentials a
 );
 
 it.effect.each([
-  { T3PO_MEMORY_EXCHANGE_ENABLED: "false" },
-  { T3PO_MEMORY_DISABLED_PROJECTS: "other,project" },
+  { T3RO_MEMORY_EXCHANGE_ENABLED: "false" },
+  { T3RO_MEMORY_DISABLED_PROJECTS: "other,project" },
 ])("stops both delivery and recall without discarding queued events: %j", (settings) => {
   const fetch = vi.fn(async () => Response.json({ acceptedIds: [], context: "", available: true }));
   return Effect.gen(function* () {
@@ -133,8 +133,8 @@ it.effect.each([
         Layer.provide(
           ConfigProvider.layer(
             ConfigProvider.fromUnknown({
-              T3PO_MEMORY_URL: "http://memory.test",
-              T3PO_MEMORY_TOKEN: "fixture",
+              T3RO_MEMORY_URL: "http://memory.test",
+              T3RO_MEMORY_TOKEN: "fixture",
               ...settings,
             }),
           ),

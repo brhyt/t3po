@@ -14,7 +14,7 @@ type ConversationShell = Pick<
   | "updatedAt"
 >;
 
-/** Ordinary conversations stay reachable even when they have no T3PO board record. */
+/** Ordinary conversations stay reachable even when they have no T3RO board record. */
 export function projectConversations<T extends ConversationShell>(
   threads: readonly T[],
   project: ScopedProjectRef,

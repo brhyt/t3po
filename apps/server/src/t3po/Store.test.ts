@@ -526,8 +526,8 @@ it.effect(
           Layer.provideMerge(
             ConfigProvider.layer(
               ConfigProvider.fromUnknown({
-                T3PO_MEMORY_URL: "http://memory.test",
-                T3PO_MEMORY_TOKEN: "test-token",
+                T3RO_MEMORY_URL: "http://memory.test",
+                T3RO_MEMORY_TOKEN: "test-token",
               }),
             ),
           ),
@@ -629,8 +629,8 @@ it.effect(
           Layer.provide(
             ConfigProvider.layer(
               ConfigProvider.fromUnknown({
-                T3PO_MEMORY_URL: "http://memory.test",
-                T3PO_MEMORY_TOKEN: "test-token",
+                T3RO_MEMORY_URL: "http://memory.test",
+                T3RO_MEMORY_TOKEN: "test-token",
               }),
             ),
           ),
@@ -662,8 +662,8 @@ it.effect(
     };
     const configured = ConfigProvider.layer(
       ConfigProvider.fromUnknown({
-        T3PO_MEMORY_URL: "http://memory.test",
-        T3PO_MEMORY_TOKEN: "test-token",
+        T3RO_MEMORY_URL: "http://memory.test",
+        T3RO_MEMORY_TOKEN: "test-token",
       }),
     );
     return Effect.gen(function* () {
@@ -953,8 +953,8 @@ it.effect(
           Layer.provideMerge(
             ConfigProvider.layer(
               ConfigProvider.fromUnknown({
-                T3PO_MEMORY_URL: "http://memory.test",
-                T3PO_MEMORY_TOKEN: "test-token",
+                T3RO_MEMORY_URL: "http://memory.test",
+                T3RO_MEMORY_TOKEN: "test-token",
               }),
             ),
           ),
@@ -974,9 +974,9 @@ it.effect("retains a disabled-environment backlog when the server is re-enabled"
           Layer.provide(
             ConfigProvider.layer(
               ConfigProvider.fromUnknown({
-                T3PO_MEMORY_URL: "http://memory.test",
-                T3PO_MEMORY_TOKEN: "test-token",
-                T3PO_MEMORY_EXCHANGE_ENABLED: String(enabled),
+                T3RO_MEMORY_URL: "http://memory.test",
+                T3RO_MEMORY_TOKEN: "test-token",
+                T3RO_MEMORY_EXCHANGE_ENABLED: String(enabled),
               }),
             ),
           ),
@@ -1174,8 +1174,8 @@ it.effect("keeps a project in no space off the record and remembers it once it j
         Layer.provideMerge(
           ConfigProvider.layer(
             ConfigProvider.fromUnknown({
-              T3PO_MEMORY_URL: "http://memory.test",
-              T3PO_MEMORY_TOKEN: "test-token",
+              T3RO_MEMORY_URL: "http://memory.test",
+              T3RO_MEMORY_TOKEN: "test-token",
             }),
           ),
         ),

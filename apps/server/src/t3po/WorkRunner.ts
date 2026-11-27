@@ -3,7 +3,7 @@ import {
   CommandId,
   MessageId,
   ProjectId,
-  T3PO_DEFAULT_CONCURRENT_JOBS,
+  T3RO_DEFAULT_CONCURRENT_JOBS,
   ThreadId,
   isT3poError,
 } from "@t3tools/contracts";
@@ -59,7 +59,7 @@ export const drain = Effect.fn("T3poWork.drain")(function* (
           const slots = yield* sql<{
             maxConcurrent: number;
             active: number;
-          }>`SELECT COALESCE((SELECT max_concurrent FROM t3po_budgets WHERE project_id = ${projectId}), ${T3PO_DEFAULT_CONCURRENT_JOBS}) AS maxConcurrent, (SELECT count(*) FROM t3po_admissions WHERE project_id = ${projectId} AND active = 1) AS active`;
+          }>`SELECT COALESCE((SELECT max_concurrent FROM t3po_budgets WHERE project_id = ${projectId}), ${T3RO_DEFAULT_CONCURRENT_JOBS}) AS maxConcurrent, (SELECT count(*) FROM t3po_admissions WHERE project_id = ${projectId} AND active = 1) AS active`;
           if ((slots[0]?.active ?? 0) >= (slots[0]?.maxConcurrent ?? 0))
             return "Waiting for an agent slot in this project.";
         }

@@ -14,7 +14,7 @@ import { ArrowUpRightIcon, PlusIcon, CheckIcon, RotateCcwIcon } from "lucide-rea
 import { useRef, useState } from "react";
 import {
   DEFAULT_SERVER_SETTINGS,
-  T3PO_DEFAULT_WORK_ACCESS,
+  T3RO_DEFAULT_WORK_ACCESS,
   type EnvironmentId,
   type ProjectId,
   type T3poLead,
@@ -56,7 +56,7 @@ export function ProjectHome() {
       <WorkspacePageHeader electron={isElectron}>
         <SidebarTrigger />
         <span className="text-sm text-muted-foreground">
-          {"T3PO"}
+          {"T3RO"}
           {" / "}
           {selected?.title ?? roName}
         </span>
@@ -239,7 +239,7 @@ export function ProjectBoard({
           ...(task ? { taskId: task.id } : {}),
           modelSelection: selectedModel,
           // Jobs run with the project's job permissions; lead and channel chats stay supervised.
-          runtimeMode: task ? (lead?.workAccess ?? T3PO_DEFAULT_WORK_ACCESS) : "approval-required",
+          runtimeMode: task ? (lead?.workAccess ?? T3RO_DEFAULT_WORK_ACCESS) : "approval-required",
         },
       });
       if (result._tag !== "Success") {

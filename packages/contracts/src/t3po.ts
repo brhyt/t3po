@@ -34,14 +34,14 @@ export const T3poQuery = Schema.Struct({
 export type T3poQuery = typeof T3poQuery.Type;
 
 /** Jobs a project runs at once when no limit is saved. */
-export const T3PO_DEFAULT_CONCURRENT_JOBS = 3;
+export const T3RO_DEFAULT_CONCURRENT_JOBS = 3;
 /** Jobs run until done without waiting on approvals; supervise a single job from the Work panel. */
-export const T3PO_DEFAULT_WORK_ACCESS = "full-access" as const;
+export const T3RO_DEFAULT_WORK_ACCESS = "full-access" as const;
 /** A project's long-lived lead or channel conversation, as opposed to a job. */
 export const isT3poLeadConversation = (threadId: string) =>
   threadId.startsWith("t3po-lead:") || threadId.startsWith("t3po-channel:");
 /** Lead conversations compact this early so a long one stays cheap to resume. */
-export const T3PO_LEAD_AUTO_COMPACT_WINDOW = 300_000;
+export const T3RO_LEAD_AUTO_COMPACT_WINDOW = 300_000;
 
 const T3poBudget = Schema.Struct({
   /** No longer enforced; jobs run until they finish. Kept for older clients. */
@@ -60,7 +60,7 @@ export const T3poLead = Schema.Struct({
   autoName: Schema.optional(Schema.Boolean),
   /** Model for jobs the lead and its channels hand off. Unset: the handing-off chat's model. */
   workModel: Schema.optional(ModelSelection),
-  /** Most permissive mode jobs, and agents a lead or job starts, may run in. Unset: T3PO_DEFAULT_WORK_ACCESS. */
+  /** Most permissive mode jobs, and agents a lead or job starts, may run in. Unset: T3RO_DEFAULT_WORK_ACCESS. */
   workAccess: Schema.optional(RuntimeMode),
   /** The lead was asked to draw the project's icon; cleared to ask again. */
   iconRequested: Schema.optional(Schema.Boolean),
@@ -84,8 +84,8 @@ export const T3poWorkstream = Schema.Struct({
 });
 export type T3poWorkstream = typeof T3poWorkstream.Type;
 /** Longest working record one lead or channel conversation keeps. */
-export const T3PO_NOTES_MAX_LENGTH = 8000;
-const T3poNotesText = Schema.String.check(Schema.isMaxLength(T3PO_NOTES_MAX_LENGTH));
+export const T3RO_NOTES_MAX_LENGTH = 8000;
+const T3poNotesText = Schema.String.check(Schema.isMaxLength(T3RO_NOTES_MAX_LENGTH));
 /** A conversation's working record: decisions, open questions, preferences and key facts. */
 export const T3poNotes = Schema.Struct({
   projectId: ProjectId,
