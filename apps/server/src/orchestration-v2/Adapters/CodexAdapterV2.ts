@@ -5907,6 +5907,16 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
                 payload,
               );
             }
+            // t3ro: a command the thread's space blocks is declined before anyone is asked.
+            const blockedBy = McpProviderSession.blockedCommandMatch(
+              typeof payload.command === "string" ? payload.command : "",
+              (yield* mcpSessions.read(context.input.threadId))?.blockedCommands,
+            );
+            if (blockedBy !== undefined) {
+              return {
+                decision: "decline",
+              } satisfies CodexSchema.CommandExecutionRequestApprovalResponse;
+            }
             const allowance = sessionAllowance(payload.threadId, context);
             if (allowance.has("command")) {
               return {
