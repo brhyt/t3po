@@ -280,8 +280,22 @@ export const T3poSharedResource = Schema.Struct({
   location: TrimmedNonEmptyString.check(Schema.isMaxLength(2000)),
 });
 /** Tools a space can turn on or off; `spaceId` null is every project in no space. */
-export const T3poSpaceToolName = Schema.Literals(["browser", "device"]);
+export const T3poSpaceToolName = Schema.Literals(["browser", "device", "pull-requests", "issues"]);
 export type T3poSpaceToolName = typeof T3poSpaceToolName.Type;
+/** Tools whose default lives in t3po rather than in server settings; on until turned off. */
+export const T3poToolDefaultName = Schema.Literals(["pull-requests", "issues"]);
+export type T3poToolDefaultName = typeof T3poToolDefaultName.Type;
+export const T3poToolDefault = Schema.Struct({
+  tool: T3poToolDefaultName,
+  enabled: Schema.Boolean,
+});
+export type T3poToolDefault = typeof T3poToolDefault.Type;
+/** The most a space's agents may run with, whatever mode a chat is set to. */
+export const T3poSpaceLimit = Schema.Struct({
+  spaceId: Schema.NullOr(TrimmedNonEmptyString),
+  maxRuntimeMode: RuntimeMode,
+});
+export type T3poSpaceLimit = typeof T3poSpaceLimit.Type;
 export const T3poSpaceTool = Schema.Struct({
   spaceId: Schema.NullOr(TrimmedNonEmptyString),
   tool: T3poSpaceToolName,
@@ -310,6 +324,8 @@ export const T3poSnapshot = Schema.Struct({
   spaceConnections: Schema.optional(Schema.Array(T3poSpaceConnection)),
   sharedResources: Schema.optional(Schema.Array(T3poSharedResource)),
   spaceTools: Schema.optional(Schema.Array(T3poSpaceTool)),
+  toolDefaults: Schema.optional(Schema.Array(T3poToolDefault)),
+  spaceLimits: Schema.optional(Schema.Array(T3poSpaceLimit)),
   spaces: Schema.optional(Schema.Array(T3poSpace)),
   projectSpaces: Schema.optional(Schema.Array(T3poProjectSpace)),
   conversations: Schema.optional(Schema.Array(T3poConversation)),
@@ -361,6 +377,19 @@ export const T3poMutation = Schema.Union([
     tool: T3poSpaceToolName,
     /** Null follows the default in Settings → Tools. */
     enabled: Schema.NullOr(Schema.Boolean),
+  }),
+  Schema.Struct({
+    type: Schema.Literal("set_tool_default"),
+    projectId: ProjectId,
+    tool: T3poToolDefaultName,
+    enabled: Schema.Boolean,
+  }),
+  Schema.Struct({
+    type: Schema.Literal("set_space_limit"),
+    projectId: ProjectId,
+    spaceId: Schema.NullOr(TrimmedNonEmptyString),
+    /** Null lets the space's agents run in any mode. */
+    maxRuntimeMode: Schema.NullOr(RuntimeMode),
   }),
   Schema.Struct({
     type: Schema.Literal("connect_space"),

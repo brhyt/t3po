@@ -7,7 +7,7 @@ import { useEnvironmentQuery } from "../../state/query";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { t3po } from "../../state/t3po";
 import { randomUUID } from "../../lib/utils";
-import { SpaceToolChoices, useToolDefaults } from "./ToolsSettings";
+import { SpaceLimitChoice, SpaceToolChoices, useToolDefaults } from "./ToolsSettings";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
@@ -41,7 +41,7 @@ export function SpaceConnections({
   const mutate = useAtomCommand(t3po.mutate);
   const canMutate = useAtomValue(t3po.mutate.permissionAtom(environmentId));
   const [tab, setTab] = useState<"connections" | "rules" | "tools">("connections");
-  const toolDefaults = useToolDefaults(environmentId);
+  const toolDefaults = useToolDefaults(environmentId, query.data?.toolDefaults);
   const [rules, setRules] = useState(space.rules ?? "");
   const [savedRules, setSavedRules] = useState(space.rules ?? "");
   const [busy, setBusy] = useState(false);
@@ -137,6 +137,13 @@ export function SpaceConnections({
                 spaceId={space.id}
                 choices={query.data?.spaceTools ?? []}
                 defaults={toolDefaults}
+                onSaved={() => query.refresh()}
+              />
+              <SpaceLimitChoice
+                environmentId={environmentId}
+                projectId={projectId}
+                spaceId={space.id}
+                limits={query.data?.spaceLimits ?? []}
                 onSaved={() => query.refresh()}
               />
             </div>

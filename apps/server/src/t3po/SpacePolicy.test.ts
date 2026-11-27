@@ -368,6 +368,92 @@ it.effect("lets space agents use the browser, devices and pages in their own spa
   }).pipe(Effect.provide(fixture)),
 );
 
+it.effect("lets a space turn pull request and issue tools on, and hides what it turned off", () =>
+  Effect.gen(function* () {
+    yield* seed;
+    const store = yield* Store.Store;
+    const guard = yield* SpacePolicy.SpacePolicy;
+    const withTools = {
+      ...scope,
+      capabilities: new Set(["orchestration", "pull-requests", "issues"] as const),
+    };
+    // Before any space exists every tool is listed and allowed, as in T3 Code.
+    expect(yield* guard.listed("link_pull_request", withTools)).toBe(true);
+    expect(yield* guard.listed("link_pull_request", scope)).toBe(false);
+    expect(yield* guard.listed("preview_open", scope)).toBe(false);
+    expect(yield* SpaceTools.toolAllowed("a", "pull-requests")).toBe(true);
+    for (const [project, space] of [
+      ["a", "personal"],
+      ["b", "business"],
+    ] as const)
+      yield* store.mutate({
+        type: "assign_space",
+        projectId: ProjectId.make(project),
+        spaceId: space,
+      });
+    expect(yield* guard.allows("link_pull_request", { url: "https://x" }, withTools)).toBe(true);
+    expect(yield* guard.allows("list_issues", {}, withTools)).toBe(true);
+    expect(yield* guard.allows("link_pull_request", { url: "https://x" }, scope)).toBe(false);
+    // Still only the caller's own space's work.
+    expect(yield* guard.allows("list_thread_issues", { threadId: "b" }, withTools)).toBe(false);
+    expect(yield* guard.listed("t3_thread_list", withTools)).toBe(false);
+    expect(yield* guard.listed("t3_thread_read", withTools)).toBe(true);
+    // The user's own MCP clients keep their full list.
+    expect(yield* guard.listed("t3_thread_list", { ...scope, thread: undefined })).toBe(true);
+
+    yield* store.mutate({ type: "set_tool_default", projectId, tool: "issues", enabled: false });
+    yield* store.mutate({
+      type: "set_space_tool",
+      projectId,
+      spaceId: "personal",
+      tool: "issues",
+      enabled: true,
+    });
+    expect(yield* SpaceTools.toolAllowed("a", "issues")).toBe(true);
+    expect(yield* SpaceTools.toolAllowed("b", "issues")).toBe(false);
+    expect(yield* SpaceTools.toolAllowed("c", "issues")).toBe(false);
+    const read = yield* store.read;
+    expect(read.toolDefaults).toEqual([{ tool: "issues", enabled: false }]);
+    expect(read.spaceTools).toEqual([{ spaceId: "personal", tool: "issues", enabled: true }]);
+  }).pipe(Effect.provide(fixture)),
+);
+
+it.effect("keeps each space's mode limit and drops it with the space", () =>
+  Effect.gen(function* () {
+    yield* seed;
+    const store = yield* Store.Store;
+    yield* store.mutate({ type: "assign_space", projectId, spaceId: "business" });
+    expect(yield* SpaceTools.spaceRuntimeLimit("a")).toBeUndefined();
+    yield* store.mutate({
+      type: "set_space_limit",
+      projectId,
+      spaceId: "business",
+      maxRuntimeMode: "auto-accept-edits",
+    });
+    yield* store.mutate({
+      type: "set_space_limit",
+      projectId,
+      spaceId: null,
+      maxRuntimeMode: "approval-required",
+    });
+    expect(yield* SpaceTools.spaceRuntimeLimit("a")).toBe("auto-accept-edits");
+    expect(yield* SpaceTools.spaceRuntimeLimit("c")).toBe("approval-required");
+    expect((yield* store.read).spaceLimits).toEqual([
+      { spaceId: "business", maxRuntimeMode: "auto-accept-edits" },
+      { spaceId: null, maxRuntimeMode: "approval-required" },
+    ]);
+    yield* store.mutate({
+      type: "set_space_limit",
+      projectId,
+      spaceId: null,
+      maxRuntimeMode: null,
+    });
+    yield* store.mutate({ type: "assign_space", projectId, spaceId: null });
+    yield* store.mutate({ type: "remove_space", projectId, id: "business" });
+    expect((yield* store.read).spaceLimits).toEqual([]);
+  }).pipe(Effect.provide(fixture)),
+);
+
 it.effect(
   "moves only ordinary conversations between projects, clears their channel and keeps memory as it was",
   () =>

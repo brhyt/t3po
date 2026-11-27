@@ -1466,10 +1466,25 @@ const layerDeferredListing = McpServer.visibility(
   { global: true },
 );
 
+/** Agents' lists leave out tools Settings → Tools or their space turned off, which would only refuse. */
+const layerSpaceListing = McpServer.visibility(
+  Effect.gen(function* () {
+    const spacePolicy = yield* Effect.serviceOption(SpacePolicy.SpacePolicy);
+    return Effect.fnUntraced(function* ({ method, target }: McpServer.MiddlewareOptions) {
+      if (method !== "tools/list" || Option.isNone(spacePolicy)) return true;
+      const scope = yield* Effect.serviceOption(McpInvocationContext.McpInvocationContext);
+      return Option.isNone(scope) || (yield* spacePolicy.value.listed(target, scope.value));
+    });
+  }),
+  { global: true },
+);
+
 /** Outside layerTools: the clients its budget measures never list `tool_search`. */
 export const layerToolSearch = Layer.mergeAll(
   toolkitRegistration(ToolSearchToolkit, ToolSearchHandlers.layer),
   layerDeferredListing,
 ).pipe(Layer.provide(layerToolExposure));
 
-export const layer = layerMcpTransport(Layer.mergeAll(layerTools, layerToolSearch));
+export const layer = layerMcpTransport(
+  Layer.mergeAll(layerTools, layerToolSearch, layerSpaceListing),
+);

@@ -455,10 +455,20 @@ export const layerWithOptions = (
           );
       const agentAccessSettings = Effect.fn("ProviderSessionManagerV2.agentAccessSettings")(
         function* (threadId: ThreadId) {
-          if (Option.isNone(serverSettings)) return { browser: true, device: false };
+          if (Option.isNone(serverSettings))
+            return { browser: true, device: false, pullRequests: true, issues: true };
           return yield* Effect.gen(function* () {
             const settings = yield* serverSettings.value.getSettings;
             const thread = yield* projectionStore.getThread(threadId);
+            // Pull request and issue tools have no project setting: the space's choice, else t3po's default.
+            const allowed = (tool: "pull-requests" | "issues") =>
+              Option.isNone(spaceSql)
+                ? Effect.succeed(true)
+                : SpaceTools.toolAllowed(thread.projectId, tool).pipe(
+                    Effect.provideService(SqlClient.SqlClient, spaceSql.value),
+                  );
+            const pullRequests = yield* allowed("pull-requests");
+            const issues = yield* allowed("issues");
             const entries = Object.values(settings.projectSettingsOverrides);
             const browserOverridden = entries.some(
               (entry) => entry.enableAgentBrowserAccess !== undefined,
@@ -477,6 +487,8 @@ export const layerWithOptions = (
                     settings.enableDeviceSupport &&
                     !deviceOverridden &&
                     settings.enableAgentDeviceAccess,
+                  pullRequests,
+                  issues,
                 };
             }
             const resolved = resolveProjectSettings(settings, thread.projectId);
@@ -497,13 +509,17 @@ export const layerWithOptions = (
               device:
                 settings.enableDeviceSupport &&
                 (yield* choose("device", "enableAgentDeviceAccess")),
+              pullRequests,
+              issues,
             };
           }).pipe(
             Effect.catch((cause) =>
               Effect.logWarning(
-                "Could not resolve agent access; withholding browser and device tools.",
+                "Could not resolve agent access; withholding browser, device, pull request and issue tools.",
                 { threadId, cause },
-              ).pipe(Effect.as({ browser: false, device: false })),
+              ).pipe(
+                Effect.as({ browser: false, device: false, pullRequests: false, issues: false }),
+              ),
             ),
           );
         },
@@ -581,11 +597,14 @@ export const layerWithOptions = (
               threadId,
               Effect.gen(function* () {
                 // Live providers build MCP clients once; reuse credentials across workspace handoffs.
-                const { browser: browserToolsAvailable, device: deviceToolsAvailable } =
-                  yield* agentAccessSettings(threadId);
+                const access = yield* agentAccessSettings(threadId);
+                const browserToolsAvailable = access.browser;
+                const deviceToolsAvailable = access.device;
                 const capabilities = new Set<
                   import("../mcp/McpInvocationContext.ts").McpCapability
-                >(["orchestration", "worktree", "pull-requests", "issues"]);
+                >(["orchestration", "worktree"]);
+                if (access.pullRequests) capabilities.add("pull-requests");
+                if (access.issues) capabilities.add("issues");
                 if (browserToolsAvailable) capabilities.add("preview");
                 if (deviceToolsAvailable) capabilities.add("device");
                 const subagent = yield* projectionStore.getThread(threadId).pipe(
@@ -613,6 +632,8 @@ export const layerWithOptions = (
                     resolved.thread.providerInstanceId === providerInstanceId &&
                     resolved.capabilities.has("preview") === browserToolsAvailable &&
                     resolved.capabilities.has("device") === deviceToolsAvailable &&
+                    resolved.capabilities.has("pull-requests") === access.pullRequests &&
+                    resolved.capabilities.has("issues") === access.issues &&
                     // A credential issued while the lineage read failed is replaced once it works.
                     (resolved.thread.subagent === true) === subagent
                   ) {

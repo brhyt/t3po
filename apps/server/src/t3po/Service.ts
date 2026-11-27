@@ -101,6 +101,8 @@ const make = Effect.gen(function* () {
         spaceConnections: records.spaceConnections,
         sharedResources: records.sharedResources,
         spaceTools: records.spaceTools,
+        toolDefaults: records.toolDefaults,
+        spaceLimits: records.spaceLimits,
         spaces: records.spaces,
         projectSpaces: records.projectSpaces,
         conversations: records.conversations.filter((record) =>
@@ -267,6 +269,8 @@ const make = Effect.gen(function* () {
           input.type === "save_space_rules" ||
           input.type === "delete_channel" ||
           input.type === "set_space_tool" ||
+          input.type === "set_tool_default" ||
+          input.type === "set_space_limit" ||
           input.type.endsWith("_resource") ||
           input.type.endsWith("_space") ||
           input.type === "move_conversation" ||

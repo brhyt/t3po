@@ -96,7 +96,7 @@ function T3ConnectSteps() {
       <SetupStep number={2}>
         <a
           className="underline underline-offset-2"
-          href="https://github.com/brhyt/t3po/blob/main/docs/operations/ro-connect-beta.md"
+          href="https://github.com/brhyt/t3ro/blob/main/docs/operations/ro-connect-beta.md"
           target="_blank"
           rel="noreferrer noopener"
         >

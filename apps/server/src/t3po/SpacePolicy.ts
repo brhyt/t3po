@@ -3,7 +3,12 @@ import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as SqlClient from "effect/sql/SqlClient";
-import type { McpInvocationScope } from "../mcp/McpInvocationContext.ts";
+import type { McpCapability, McpInvocationScope } from "../mcp/McpInvocationContext.ts";
+import { DeviceToolkit } from "../mcp/toolkits/device/tools.ts";
+import { ExternalActionsToolkit } from "../mcp/toolkits/externalActions/tools.ts";
+import { IssuesToolkit } from "../mcp/toolkits/issues/tools.ts";
+import { PreviewToolkit } from "../mcp/toolkits/preview/tools.ts";
+import { PullRequestsToolkit } from "../mcp/toolkits/pullRequests/tools.ts";
 
 // Unscoped search and remote routing need their own space-aware principals. Browser and device
 // tools are offered only when Settings → Tools and the space allow them, and the browser is the
@@ -55,6 +60,28 @@ const scopedTools = new Set([
   "t3_project_read",
 ]);
 
+/** Tools that work only with a capability; Settings → Tools and each space decide which a session gets. */
+const toolCapabilities = new Map<string, McpCapability>([
+  ...Object.keys(PreviewToolkit.tools).map((name) => [name, "preview"] as const),
+  ...Object.keys(DeviceToolkit.tools).map((name) => [name, "device"] as const),
+  ...Object.keys(PullRequestsToolkit.tools).map((name) => [name, "pull-requests"] as const),
+  ...Object.keys(ExternalActionsToolkit.tools).map((name) => [name, "pull-requests"] as const),
+  ...Object.keys(IssuesToolkit.tools).map((name) => [name, "issues"] as const),
+]);
+
+/**
+ * Inside spaces, pull request and issue tools act on the caller's own thread and project when the
+ * space has them on; ids naming another space's work are still refused below.
+ */
+const allowedInSpaces = (name: string, scope: McpInvocationScope) => {
+  if (scopedTools.has(name)) return true;
+  const capability = toolCapabilities.get(name);
+  return (
+    (capability === "pull-requests" || capability === "issues") &&
+    scope.capabilities.has(capability)
+  );
+};
+
 export class SpacePolicy extends Context.Service<
   SpacePolicy,
   {
@@ -63,6 +90,8 @@ export class SpacePolicy extends Context.Service<
       payload: unknown,
       scope: McpInvocationScope,
     ) => Effect.Effect<boolean>;
+    /** Whether an agent's tool list shows the tool: hidden when every call would be refused. */
+    readonly listed: (name: string, scope: McpInvocationScope) => Effect.Effect<boolean>;
   }
 >()("t3/t3po/SpacePolicy") {}
 
@@ -72,7 +101,7 @@ const make = Effect.gen(function* () {
     function* (name: string, payload: unknown, scope: McpInvocationScope) {
       const enabled = yield* sql`SELECT project_id FROM t3po_project_spaces LIMIT 1`;
       if (!enabled.length) return true;
-      if (!scope.thread || scope.client?.linked || !scopedTools.has(name)) return false;
+      if (!scope.thread || scope.client?.linked || !allowedInSpaces(name, scope)) return false;
       const caller = yield* sql<{
         projectId: string;
         spaceId: string | null;
@@ -131,6 +160,17 @@ const make = Effect.gen(function* () {
     },
     Effect.orElseSucceed(() => false),
   );
-  return SpacePolicy.of({ allows });
+  const listed = Effect.fn("SpacePolicy.listed")(
+    function* (name: string, scope: McpInvocationScope) {
+      // Only agents' lists are trimmed; people's own MCP clients keep theirs.
+      if (!scope.thread) return true;
+      const capability = toolCapabilities.get(name);
+      if (capability !== undefined && !scope.capabilities.has(capability)) return false;
+      const enabled = yield* sql`SELECT project_id FROM t3po_project_spaces LIMIT 1`;
+      return !enabled.length || allowedInSpaces(name, scope);
+    },
+    Effect.orElseSucceed(() => true),
+  );
+  return SpacePolicy.of({ allows, listed });
 });
 export const layer = Layer.effect(SpacePolicy, make);
